@@ -70,6 +70,13 @@ option("stacktrace")
     add_defines("HKU_ENABLE_STACK_TRACE")
 option_end()
 
+option("datetime")
+    set_default(true)
+    set_showmenu(true)
+    set_category("hikyuu")
+    set_description("Enable DateTime.")
+option_end()
+
 option("spend_time")
     set_default(true)
     set_showmenu(true)
