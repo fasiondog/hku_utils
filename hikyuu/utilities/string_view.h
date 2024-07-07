@@ -1,8 +1,8 @@
 /*
- *  Copyright (c) 2019~2021, Yihua, All rights reserved.
+ *  Copyright (c) 2019~2021, hikyuu
  *
  *  Created on: 2021/12/16
- *      Author: linjinhai
+ *      Author: fasiondog
  */
 
 #pragma once
