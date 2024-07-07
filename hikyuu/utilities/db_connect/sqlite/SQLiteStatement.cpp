@@ -12,7 +12,7 @@
 
 namespace hku {
 
-SQLiteStatement::SQLiteStatement(DBConnectBase *driver, const string &sql_statement)
+SQLiteStatement::SQLiteStatement(DBConnectBase *driver, const std::string &sql_statement)
 : SQLStatementBase(driver, sql_statement),
   m_needs_reset(false),
   m_step_status(SQLITE_DONE),
@@ -103,7 +103,7 @@ void SQLiteStatement::sub_bindDatetime(int idx, const Datetime &item) {
     }
 }
 
-void SQLiteStatement::sub_bindText(int idx, const string &item) {
+void SQLiteStatement::sub_bindText(int idx, const std::string &item) {
     _reset();
     int status =
       sqlite3_bind_text(m_stmt, idx + 1, item.c_str(), (int)item.size(), SQLITE_TRANSIENT);
@@ -122,7 +122,7 @@ void SQLiteStatement::sub_bindDouble(int idx, double item) {
     SQL_CHECK(status == SQLITE_OK, status, sqlite3_errmsg(m_db));
 }
 
-void SQLiteStatement::sub_bindBlob(int idx, const string &item) {
+void SQLiteStatement::sub_bindBlob(int idx, const std::string &item) {
     _reset();
     int status =
       sqlite3_bind_blob(m_stmt, idx + 1, item.data(), (int)item.size(), SQLITE_TRANSIENT);

@@ -13,7 +13,7 @@
 #include <vector>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
-#include "../../Log.h"
+#include "../Log.h"
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API

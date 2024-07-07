@@ -45,6 +45,22 @@ option("sqlite")
     set_description("Enable sqlite kdata engine.")
 option_end()
 
+option("sqlcipher")
+    set_default(false)
+    set_showmenu(true)
+    set_category("yihua")
+    set_description("Enalbe sqlchiper driver")
+    add_defines("HKU_ENABLE_SQLCIPHER")
+option_end()
+
+option("sql_trace")
+    set_default(false)
+    set_showmenu(true)
+    set_category("hikyuu")
+    set_description("打印执行的 SQL 语句")
+    add_defines("HKU_SQL_TRACE")
+option_end()
+
 -- 注意：stacktrace 在 windows 下会严重影响性能
 option("stacktrace")
     set_default(false)
@@ -156,18 +172,124 @@ add_requires("spdlog", {system = false, configs = {header_only = true, fmt_exter
 add_requires("boost", {system=false})
 add_requires("yas", {system=false})
 
+-- 使用 sqlcipher 时，忽略 sqlite3
+if get_config("sqlcipher") then
+    if is_plat("iphoneos") then
+        add_requires("sqlcipher", {system=false})
+    else 
+        add_requires("sqlcipher", {system = false, configs = {shared = true, tiny = true, SQLITE_THREADSAFE="2"}})
+    end
+elseif get_config("sqlite") then
+    if is_plat("windows", "android", "cross") then 
+        add_requires("sqlite3", {system = false, configs = {shared = true, tiny = true, SQLITE_THREADSAFE="2"}})
+    end
 
-target("yh_utils")
+    if is_plat("linux") and linuxos.name() == "ubuntu" then
+        add_requires("apt::libsqlite3-dev")
+        if get_config("mysql") then
+            add_requires("apt::libmysqlclient-dev")
+        end
+    end
+end
+
+if get_config("mysql") then 
+    if is_plat("windows") then 
+        add_requires("mysql-client")
+    elseif is_plat("macosx") then 
+        add_requires("brew::mysql-client")
+    elseif is_plat("linux") and linuxos.name() == "ubuntu" then
+        add_requires("apt::libmysqlclient-dev")
+    end
+end
+
+target("hku_utils")
     set_kind("$(kind)")
 
     set_configdir("$(projectdir)/hikyuu/utilities")
     add_configfiles("$(projectdir)/version.h.in", {prefix="HKU"})
 
-    add_options("log_level", "spend_time",  "sqlite", "mysql", "ini_parser", "datetime")
+    add_options("log_level", "spend_time", "sqlcipher", "sqlite", "mysql", "ini_parser", "datetime", "stacktrace",
+                "async_log", "leak_check")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 
+    add_includedirs(".")
+    add_includedirs("hikyuu/utilities")
+
+    if get_config("sqlcipher") then
+        add_packages("sqlcipher")
+    elseif get_config("sqlite") then
+        if is_plat("windows", "android", "cross") then
+            add_packages("sqlite3")
+        elseif is_plat("linux", "cross") then 
+            add_links("sqlite3")
+        elseif is_plat("macosx", "iphoneos") then 
+            add_links("sqlite3")
+        end    
+        if is_plat("cross") then
+            add_syslinks("dl")
+        end
+    end
+
+    if get_config("mysql") and is_plat("windows") then
+        add_packages("mysql-client")
+    end
+ 
+    if is_plat("linux", "cross") then 
+        add_rpathdirs("$ORIGIN")
+    end
+
+    if is_plat("macosx") then
+        add_includedirs("/usr/local/include")
+    end
+
+    if is_kind("shared") then 
+        if is_plat("windows") then
+            add_defines("HKU_UTILS_API=__declspec(dllexport)")
+        else
+            add_defines("HKU_UTILS_API=__attribute__((visibility(\"default\")))")
+            add_cxflags("-fPIC", {force=true})
+        end
+    elseif is_kind("static") and not is_plat("windows") then
+        add_cxflags("-fPIC", {force=true})
+    end
+
+    if is_plat("macosx", "iphoneos") then
+        add_links("iconv")
+    end
+
+    -- gcc 4.8.5 必须编译和链接同时加上 -pthread, 否则运行异常
+    if is_plat("macosx", "linux", "cross") then
+        add_cxflags("-pthread")
+        add_syslinks("pthread")
+    end
+
+    if is_plat("windows") then
+        add_cxflags("-wd4996", "-wd4251")
+    end
+
+    add_headerfiles("$(projectdir)/(hikyuu/**.h)", "$(projectdir)/(hikyuu/**.hpp)")
+
     add_files("hikyuu/utilities/*.cpp")
+    add_files("hikyuu/utilities/thread/*.cpp")
+    add_files("hikyuu/utilities/db_connect/*.cpp")
+    -- add_files("hikyuu/utilities/simd/*.cpp")
+
+    if get_config("sqlite") then
+        add_files("hikyuu/utilities/db_connect/sqlite/*.cpp")
+    end
+
+    if get_config("mysql") then
+        add_files("hikyuu/utilities/db_connect/mysql/*.cpp")
+    end
+
+    if get_config("ini_parser") then
+        add_files("hikyuu/utilities/ini_parser/*.cpp")
+    end
+
+    if get_config("datetime") then
+        add_files("hikyuu/utilities/datetime/*.cpp")
+    end
 target_end()
 
 -- local boost_version = "1.85.0"

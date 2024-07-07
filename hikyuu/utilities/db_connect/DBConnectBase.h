@@ -10,8 +10,8 @@
 #ifndef HIKYUU_DB_CONNECT_DBCONNECTBASE_H
 #define HIKYUU_DB_CONNECT_DBCONNECTBASE_H
 
-#include "../../DataType.h"
 #include "../../utilities/Parameter.h"
+#include "../Null.h"
 #include "DBCondition.h"
 #include "SQLStatementBase.h"
 #include "SQLException.h"
@@ -297,7 +297,7 @@ private:
 };
 
 /** @ingroup DBConnect */
-typedef shared_ptr<DBConnectBase> DBConnectPtr;
+typedef std::shared_ptr<DBConnectBase> DBConnectPtr;
 
 //-------------------------------------------------------------------------
 // inline方法实现
@@ -425,7 +425,7 @@ void DBConnectBase::batchSave(InputIterator first, InputIterator last, bool auto
 }
 
 template <typename T>
-void DBConnectBase::load(T &item, const string &where) {
+void DBConnectBase::load(T &item, const std::string &where) {
     std::ostringstream sql;
     if (where != "") {
         sql << T::getSelectSQL() << " where " << where << " limit 1";
@@ -445,7 +445,7 @@ void DBConnectBase::load(T &item, const DBCondition &cond) {
 }
 
 template <typename Container>
-void DBConnectBase::batchLoad(Container &container, const string &where) {
+void DBConnectBase::batchLoad(Container &container, const std::string &where) {
     std::ostringstream sql;
     if (where != "") {
         sql << Container::value_type::getSelectSQL() << " where " << where;
