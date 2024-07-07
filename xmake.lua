@@ -119,6 +119,13 @@ option("leak_check")
     set_description("Enable leak check for test")
 option_end()
 
+option("ini_parser")
+    set_default(true)
+    set_showmenu(true)
+    set_category("hikyuu")
+    set_description("Enable ini parser")
+option_end()
+
 if get_config("leak_check") then
     -- 需要 export LD_PRELOAD=libasan.so
     set_policy("build.sanitizer.address", true)
