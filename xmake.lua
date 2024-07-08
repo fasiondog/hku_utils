@@ -217,6 +217,9 @@ if get_config("mysql") then
     end
 end
 
+set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
+set_targetdir("$(buildir)/$(mode)/$(plat)/$(arch)/lib")
+
 target("hku_utils")
     set_kind("$(kind)")
 
@@ -305,4 +308,7 @@ target("hku_utils")
     if get_config("datetime") then
         add_files("hikyuu/utilities/datetime/*.cpp")
     end
+
 target_end()
+
+includes("./test")

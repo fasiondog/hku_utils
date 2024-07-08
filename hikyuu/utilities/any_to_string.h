@@ -18,7 +18,7 @@
 #endif
 
 #if defined(HKU_SUPPORT_DATETIME)
-#include "hikyuu/utils/datetime/Datetime.h"
+#include "hikyuu/utilities/datetime/Datetime.h"
 #endif
 
 namespace hku {
