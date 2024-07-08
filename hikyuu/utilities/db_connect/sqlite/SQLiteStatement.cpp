@@ -20,7 +20,7 @@ SQLiteStatement::SQLiteStatement(DBConnectBase *driver, const std::string &sql_s
   m_db((dynamic_cast<SQLiteConnect *>(driver))->m_db),
   m_stmt(NULL) {
     int status =
-      sqlite3_prepare_v2(m_db, m_sql_string.c_str(), m_sql_string.size() + 1, &m_stmt, NULL);
+      sqlite3_prepare_v2(m_db, m_sql_string.c_str(), int(m_sql_string.size() + 1), &m_stmt, NULL);
     if (status != SQLITE_OK) {
         sqlite3_finalize(m_stmt);
         SQL_THROW(status, "Failed prepare sql statement: {}! error msg: {}", m_sql_string,

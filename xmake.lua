@@ -181,8 +181,9 @@ end
 add_repositories("hikyuu-repo https://github.com/fasiondog/hikyuu_extern_libs.git")
 -- add_repositories("hikyuu-repo https://gitee.com/fasiondog/hikyuu_extern_libs.git
 
-add_requires("fmt", {system = false, configs = {header_only = true}})
+-- add_requires("fmt", {system = false, configs = {header_only = true}})
 add_requires("spdlog", {system = false, configs = {header_only = true, fmt_external = true}})
+add_requireconfs("spdlog.fmt", {override = true, configs = {header_only = true}})
 add_requires("boost", {system=false})
 add_requires("yas", {system=false})
 
@@ -208,7 +209,7 @@ end
 
 if get_config("mysql") then 
     if is_plat("windows") then 
-        add_requires("mysql-client")
+        add_requires("mysql")
     elseif is_plat("macosx") then 
         add_requires("brew::mysql-client")
     elseif is_plat("linux") and linuxos.name() == "ubuntu" then
@@ -246,7 +247,7 @@ target("hku_utils")
     end
 
     if get_config("mysql") and is_plat("windows") then
-        add_packages("mysql-client")
+        add_packages("mysql")
     end
  
     if is_plat("linux", "cross") then 
