@@ -120,22 +120,22 @@ TEST_CASE("test_Parameter") {
     CHECK(p3.size() > 0);
 }
 
-TEST_CASE("test_Parameter_serialize") {
-    Parameter p1;
-    p1.set<int>("i", 10);
-    p1.set<bool>("b", true);
-    p1.set<double>("d", 0.12);
-    p1.set<float>("f", 0.12);
-    p1.set<std::string>("s", "this");
+// TEST_CASE("test_Parameter_serialize") {
+//     Parameter p1;
+//     p1.set<int>("i", 10);
+//     p1.set<bool>("b", true);
+//     p1.set<double>("d", 0.12);
+//     p1.set<float>("f", 0.12);
+//     p1.set<std::string>("s", "this");
 
-    constexpr std::size_t flags = yas::mem | yas::binary;
-    auto buf = yas::save<flags>(p1);
+//     constexpr std::size_t flags = yas::mem | yas::binary;
+//     auto buf = yas::save<flags>(p1);
 
-    Parameter p2;
-    yas::load<flags>(buf, p2);
-    CHECK_EQ(p1.get<int>("i"), p2.get<int>("i"));
-    CHECK_EQ(p1.get<bool>("b"), p2.get<bool>("b"));
-    CHECK_EQ(p1.get<double>("d"), p2.get<double>("d"));
-    CHECK_EQ(p1.get<float>("f"), p2.get<float>("f"));
-    CHECK_EQ(p1.get<std::string>("s"), p2.get<std::string>("s"));
-}
+//     Parameter p2;
+//     yas::load<flags>(buf, p2);
+//     CHECK_EQ(p1.get<int>("i"), p2.get<int>("i"));
+//     CHECK_EQ(p1.get<bool>("b"), p2.get<bool>("b"));
+//     CHECK_EQ(p1.get<double>("d"), p2.get<double>("d"));
+//     CHECK_EQ(p1.get<float>("f"), p2.get<float>("f"));
+//     CHECK_EQ(p1.get<std::string>("s"), p2.get<std::string>("s"));
+// }

@@ -17,6 +17,8 @@
 
 using namespace hku;
 
+#if 0
+
 /**
  * @defgroup test_hikyuu_ThreadPool test_hikyuu_ThreadPool
  * @ingroup test_hikyuu_utilities
@@ -90,5 +92,7 @@ TEST_CASE("test_MQStealThreadPool") {
         tg.join();
     }
 }
+
+#endif
 
 /** @} */

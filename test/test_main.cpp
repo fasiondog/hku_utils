@@ -16,7 +16,6 @@
 #include <hikyuu/utilities/ResourcePool.h>
 #include <hikyuu/utilities/version.h>
 #include <hikyuu/utilities/os.h>
-#include "SonarReporter.h"
 
 int main(int argc, char** argv) {
 #if defined(_WIN32)
@@ -39,6 +38,8 @@ int main(int argc, char** argv) {
 
     // overrides
     context.setOption("no-breaks", true);  // don't break in the debugger when assertions fail
+
+    hku::initLogger();
 
     HKU_INFO("current utils version: {}", hku::utils::getVersion());
     HKU_INFO("current utils build version: {}", hku::utils::getVersionWithBuild());

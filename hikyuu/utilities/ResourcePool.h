@@ -130,10 +130,11 @@ public:
             try {
                 p = new ResourceType(m_param);
             } catch (const std::exception &e) {
-                HKU_THROW_AS(CreateResourceException, "Failed create a new Resource! {}", e.what());
+                HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
+                                    e.what());
             } catch (...) {
-                HKU_THROW_AS(CreateResourceException,
-                            "Failed create a new Resource! Unknown error!");
+                HKU_THROW_EXCEPTION(CreateResourceException,
+                                    "Failed create a new Resource! Unknown error!");
             }
             m_count++;
             result = ResourcePtr(p, ResourceCloser(this));
@@ -164,9 +165,9 @@ public:
                                         std::chrono::duration<uint64_t, std::milli>(ms_timeout),
                                         [&] { return !m_resourceList.empty(); })) {
                         HKU_CHECK_THROW(!m_resourceList.empty(), GetResourceTimeoutException,
-                                       "Failed get resource!");
+                                        "Failed get resource!");
                     } else {
-                        HKU_THROW_AS(GetResourceTimeoutException, "Failed get resource!");
+                        HKU_THROW_EXCEPTION(GetResourceTimeoutException, "Failed get resource!");
                     }
                 } else {
                     m_cond.wait(lock, [this] { return !m_resourceList.empty(); });
@@ -175,11 +176,11 @@ public:
                 try {
                     p = new ResourceType(m_param);
                 } catch (const std::exception &e) {
-                    HKU_THROW_AS(CreateResourceException, "Failed create a new Resource! {}",
-                                e.what());
+                    HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
+                                        e.what());
                 } catch (...) {
-                    HKU_THROW_AS(CreateResourceException,
-                                "Failed create a new Resource! Unknown error!");
+                    HKU_THROW_EXCEPTION(CreateResourceException,
+                                        "Failed create a new Resource! Unknown error!");
                 }
                 m_count++;
                 result = ResourcePtr(p, ResourceCloser(this));
@@ -231,9 +232,9 @@ private:
     }
 
 private:
-    size_t m_maxPoolSize;  //允许的最大共享资源数
-    size_t m_maxIdelSize;  //允许的最大空闲资源数
-    size_t m_count;        //当前活动的资源数
+    size_t m_maxPoolSize;  // 允许的最大共享资源数
+    size_t m_maxIdelSize;  // 允许的最大空闲资源数
+    size_t m_count;        // 当前活动的资源数
     Parameter m_param;
     std::mutex m_mutex;
     std::condition_variable m_cond;
@@ -467,10 +468,11 @@ public:
                 p = new ResourceType(m_param);
                 p->setVersion(m_version);
             } catch (const std::exception &e) {
-                HKU_THROW_AS(CreateResourceException, "Failed create a new Resource! {}", e.what());
+                HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
+                                    e.what());
             } catch (...) {
-                HKU_THROW_AS(CreateResourceException,
-                            "Failed create a new Resource! Unknown error!");
+                HKU_THROW_EXCEPTION(CreateResourceException,
+                                    "Failed create a new Resource! Unknown error!");
             }
             m_count++;
             result = ResourcePtr(p, ResourceCloser(this));
@@ -501,9 +503,9 @@ public:
                                         std::chrono::duration<uint64_t, std::milli>(ms_timeout),
                                         [&] { return !m_resourceList.empty(); })) {
                         HKU_CHECK_THROW(!m_resourceList.empty(), GetResourceTimeoutException,
-                                       "Failed get resource!");
+                                        "Failed get resource!");
                     } else {
-                        HKU_THROW_AS(GetResourceTimeoutException, "Failed get resource!");
+                        HKU_THROW_EXCEPTION(GetResourceTimeoutException, "Failed get resource!");
                     }
                 } else {
                     m_cond.wait(lock, [this] { return !m_resourceList.empty(); });
@@ -513,11 +515,11 @@ public:
                     p = new ResourceType(m_param);
                     p->setVersion(m_version);
                 } catch (const std::exception &e) {
-                    HKU_THROW_AS(CreateResourceException, "Failed create a new Resource! {}",
-                                e.what());
+                    HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
+                                        e.what());
                 } catch (...) {
-                    HKU_THROW_AS(CreateResourceException,
-                                "Failed create a new Resource! Unknown error!");
+                    HKU_THROW_EXCEPTION(CreateResourceException,
+                                        "Failed create a new Resource! Unknown error!");
                 }
                 m_count++;
                 result = ResourcePtr(p, ResourceCloser(this));
@@ -569,9 +571,9 @@ private:
     }
 
 private:
-    size_t m_maxPoolSize;  //允许的最大共享资源数
-    size_t m_maxIdelSize;  //允许的最大空闲资源数
-    size_t m_count;        //当前活动的资源数
+    size_t m_maxPoolSize;  // 允许的最大共享资源数
+    size_t m_maxIdelSize;  // 允许的最大空闲资源数
+    size_t m_count;        // 当前活动的资源数
     Parameter m_param;
     std::mutex m_mutex;
     std::condition_variable m_cond;

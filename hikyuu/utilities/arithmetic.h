@@ -210,72 +210,49 @@ inline void trim(std::string &s) {
     s.erase(s.find_last_not_of("\n") + 1);
 }
 
-// /**
-//  * 分割字符串
-//  * @param str 待封的字符串
-//  * @param c 分割符
-//  */
-// inline std::vector<string_view> split(const std::string &str, char c) {
-//     std::vector<string_view> result;
-//     string_view view(str);
-//     size_t prepos = 0;
-//     size_t pos = view.find_first_of(c);
-//     while (pos != std::string::npos) {
-//         result.emplace_back(view.substr(prepos, pos - prepos));
-//         prepos = pos + 1;
-//         pos = view.find_first_of(c, prepos);
-//     }
+/**
+ * 分割字符串
+ * @param str 待封的字符串
+ * @param c 分割符
+ */
+inline std::vector<std::string> split(const std::string &str, char c) {
+    std::vector<std::string> result;
+    std::string view(str);
+    size_t prepos = 0;
+    size_t pos = view.find_first_of(c);
+    while (pos != std::string::npos) {
+        result.emplace_back(view.substr(prepos, pos - prepos));
+        prepos = pos + 1;
+        pos = view.find_first_of(c, prepos);
+    }
 
-//     if (prepos < str.size() - 1) {
-//         result.emplace_back(str.substr(prepos));
-//     }
-//     return result;
-// }
+    if (prepos < str.size() - 1) {
+        result.emplace_back(str.substr(prepos));
+    }
+    return result;
+}
 
-// /**
-//  * 分割字符串
-//  * @param str 待分割的string_view
-//  * @param c 分割字符
-//  * @return string_view 组成的 vector
-//  * @note 注意返回结果的生命周期应小于输入的字符串相同！
-//  */
-// inline std::vector<string_view> split(const string_view &view, char c) {
-//     std::vector<string_view> result;
-//     size_t prepos = 0;
-//     size_t pos = view.find_first_of(c);
-//     while (pos != std::string::npos) {
-//         result.emplace_back(view.substr(prepos, pos - prepos));
-//         prepos = pos + 1;
-//         pos = view.find_first_of(c, prepos);
-//     }
+inline std::vector<std::string> split(const std::string &str, const std::string &split_str) {
+    std::vector<std::string> result;
+    size_t split_str_len = split_str.size();
+    if (split_str_len == 0) {
+        result.emplace_back(str);
+        return result;
+    }
 
-//     if (prepos < view.size() - 1) {
-//         result.emplace_back(view.substr(prepos));
-//     }
-//     return result;
-// }
+    size_t prepos = 0;
+    size_t pos = str.find(split_str);
+    while (pos != std::string::npos) {
+        result.emplace_back(str.substr(prepos, pos - prepos));
+        prepos = pos + split_str_len;
+        pos = str.find(split_str, prepos);
+    }
 
-// inline std::vector<string_view> split(const string_view &str, const std::string &split_str) {
-//     std::vector<string_view> result;
-//     size_t split_str_len = split_str.size();
-//     if (split_str_len == 0) {
-//         result.emplace_back(str);
-//         return result;
-//     }
-
-//     size_t prepos = 0;
-//     size_t pos = str.find(split_str);
-//     while (pos != std::string::npos) {
-//         result.emplace_back(str.substr(prepos, pos - prepos));
-//         prepos = pos + split_str_len;
-//         pos = str.find(split_str, prepos);
-//     }
-
-//     if (prepos < str.size() - 1) {
-//         result.emplace_back(str.substr(prepos));
-//     }
-//     return result;
-// }
+    if (prepos < str.size() - 1) {
+        result.emplace_back(str.substr(prepos));
+    }
+    return result;
+}
 
 /**
  * byte 转 16 进制字符串, 如 "abcd" 转换为 "61626364"

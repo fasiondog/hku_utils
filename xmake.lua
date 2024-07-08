@@ -5,7 +5,7 @@ set_version("1.0.0", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每�
 set_warnings("all", "error")
 
 -- set language: C99, c++ standard
-set_languages("cxx17", "c99")
+-- set_languages("cxx17", "c99")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 
@@ -249,7 +249,7 @@ target("hku_utils")
         end
     end
 
-    if get_config("mysql") and is_plat("windows") then
+    if get_config("mysql") then
         add_packages("mysql")
     end
  
@@ -291,7 +291,6 @@ target("hku_utils")
     add_files("hikyuu/utilities/*.cpp")
     add_files("hikyuu/utilities/thread/*.cpp")
     add_files("hikyuu/utilities/db_connect/*.cpp")
-    -- add_files("hikyuu/utilities/simd/*.cpp")
 
     if get_config("sqlite") then
         add_files("hikyuu/utilities/db_connect/sqlite/*.cpp")
@@ -309,6 +308,58 @@ target("hku_utils")
         add_files("hikyuu/utilities/datetime/*.cpp")
     end
 
+    before_build(function(target)
+        local function has_flag(flag)
+            for _, name in ipairs(target:get("cxflags")) do
+                if name == flag then
+                    return true
+                end
+            end
+            return false
+        end
+
+        -- 如果没有指定c++标准，设为最低要求 c++11
+        if not has_flag("-std") then 
+            if is_plat("windows") then
+                target:set("languages", "cxx17")
+            else
+                target:set("languages", "cxx11")
+            end
+        end
+
+        if is_plat("macosx") then
+            if not os.exists("/usr/local/include/mysql") then
+                if os.exists("/usr/local/mysql/include") then
+                    os.run("ln -s /usr/local/mysql/include /usr/local/include/mysql")
+                else
+                    print("Not Found MySQL include dir!")
+                end
+            end
+        end
+    end)
+
+    after_build(function(target)
+        -- 不同平台的库后缀名
+        local lib_suffix = ".so"
+        if is_plat("windows") then
+            lib_suffix = ".dll"
+        elseif is_plat("macosx") then
+            lib_suffix = ".dylib"
+        end
+
+        local libdir = get_config("buildir") .. "/" .. get_config("mode") .. "/" .. get_config("plat") .. "/" ..
+                        get_config("arch") .. "/lib"
+        -- 将依赖的库拷贝至build的输出目录
+        for libname, pkg in pairs(target:pkgs()) do
+            local pkg_path = pkg:installdir()
+            if pkg_path ~= nil then
+                print("copy dependents: " .. pkg_path)
+                os.trycp(pkg_path .. "/bin/*" .. lib_suffix, libdir)
+                os.trycp(pkg_path .. "/lib/*" .. lib_suffix, libdir)
+                os.trycp(pkg_path .. "/lib/*.so.*", libdir)
+            end
+        end
+    end)
 target_end()
 
 includes("./test")
