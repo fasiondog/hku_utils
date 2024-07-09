@@ -35,3 +35,7 @@ hikyuu/utilities/version.h
 build
 .xmake
 .vscode
+cover-*
+cover.info
+coverage.xml
+cover_report
