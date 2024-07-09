@@ -86,6 +86,17 @@ option("spend_time")
     add_defines("HKU_CLOSE_SPEND_TIME=0")
 option_end()
 
+option("log_name")
+    set_default("hikyuu")
+    set_showmenu(true)
+    set_category("hikyuu")
+    set_description("set default log name")
+    after_check(function (option)
+        local name = get_config("log_name")
+        option:add("defines", 'HKU_DEFAULT_LOG_NAME="' .. name .. '"')
+    end)
+option_end()
+
 option("log_level")
     set_default("trace")
     set_values("trace", "debug", "info", "warn", "error", "fatal", "off")
@@ -227,8 +238,8 @@ target("hku_utils")
     set_configdir("$(projectdir)/hikyuu/utilities")
     add_configfiles("$(projectdir)/version.h.in", {prefix="HKU"})
 
-    add_options("log_level", "spend_time", "sqlcipher", "sqlite", "mysql", "ini_parser", "datetime", "stacktrace",
-                "async_log", "leak_check")
+    add_options("log_name", "log_level", "spend_time", "sqlcipher", "sqlite", "mysql", "ini_parser", 
+                "datetime", "stacktrace", "async_log", "leak_check")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 

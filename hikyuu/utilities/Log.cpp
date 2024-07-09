@@ -21,9 +21,11 @@
 #endif /* HKU_USE_SPDLOG_ASYNC_LOGGER */
 #endif /* #if USE_SPDLOG_LOGGER */
 
-namespace hku {
+#ifndef HKU_DEFAULT_LOG_NAME
+#define HKU_DEFAULT_LOG_NAME "hikyuu"
+#endif
 
-static std::thread::id g_main_thread_id = std::this_thread::get_id();
+namespace hku {
 
 static LOG_LEVEL g_log_level = LOG_LEVEL::LOG_TRACE;
 
@@ -38,12 +40,12 @@ LOG_LEVEL get_log_level() {
  *********************************************/
 #if USE_SPDLOG_LOGGER
 std::shared_ptr<spdlog::logger> getHikyuuLogger() {
-    return spdlog::get("hikyuu");
+    return spdlog::get(HKU_DEFAULT_LOG_NAME);
 }
 
 #if HKU_USE_SPDLOG_ASYNC_LOGGER
 void HKU_UTILS_API initLogger(bool inJupyter) {
-    std::string logname = "hikyuu";
+    std::string logname(HKU_DEFAULT_LOG_NAME);
     spdlog::drop(logname);
     std::shared_ptr<spdlog::logger> logger = spdlog::get(logname);
     if (logger) {
@@ -72,7 +74,7 @@ void HKU_UTILS_API initLogger(bool inJupyter) {
 #else /* #if HKU_USE_SPDLOG_ASYNC_LOGGER */
 
 void HKU_UTILS_API initLogger(bool inJupyter) {
-    std::string logname = "hikyuu";
+    std::string logname(HKU_DEFAULT_LOG_NAME);
     spdlog::drop(logname);
     std::shared_ptr<spdlog::logger> logger = spdlog::get(logname);
     if (logger) {
@@ -85,7 +87,7 @@ void HKU_UTILS_API initLogger(bool inJupyter) {
         stdout_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     }
     stdout_sink->set_level(spdlog::level::trace);
-    std::string log_filename = fmt::format("{}/.hikyuu/hikyuu.log", getUserDir());
+    std::string log_filename = fmt::format("{}/.hikyuu/{}.log", getUserDir(), HKU_DEFAULT_LOG_NAME);
     auto rotating_sink =
       std::make_shared<spdlog::sinks::rotating_file_sink_mt>(log_filename, 1024 * 1024 * 10, 3);
     rotating_sink->set_level(spdlog::level::warn);
