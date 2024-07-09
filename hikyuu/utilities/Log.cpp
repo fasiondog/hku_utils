@@ -42,7 +42,7 @@ std::shared_ptr<spdlog::logger> getHikyuuLogger() {
 }
 
 #if HKU_USE_SPDLOG_ASYNC_LOGGER
-void initLogger(bool inJupyter) {
+void HKU_UTILS_API initLogger(bool inJupyter) {
     std::string logname = "hikyuu";
     spdlog::drop(logname);
     std::shared_ptr<spdlog::logger> logger = spdlog::get(logname);
@@ -71,7 +71,7 @@ void initLogger(bool inJupyter) {
 
 #else /* #if HKU_USE_SPDLOG_ASYNC_LOGGER */
 
-void initLogger(bool inJupyter) {
+void HKU_UTILS_API initLogger(bool inJupyter) {
     std::string logname = "hikyuu";
     spdlog::drop(logname);
     std::shared_ptr<spdlog::logger> logger = spdlog::get(logname);
@@ -110,7 +110,7 @@ void set_log_level(LOG_LEVEL level) {
 /**********************************************
  * Use SPDLOG for logging
  *********************************************/
-void initLogger(bool inJupyter) {}
+void HKU_UTILS_API initLogger(bool inJupyter) {}
 
 void set_log_level(LOG_LEVEL level) {
     g_log_level = level;

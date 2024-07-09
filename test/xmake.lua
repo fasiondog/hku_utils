@@ -47,6 +47,26 @@ target("unit-test")
         end
     end
 
+    before_build(function(target)
+        local function has_flag(flag)
+            for _, name in ipairs(target:get("cxflags")) do
+                if name == flag then
+                    return true
+                end
+            end
+            return false
+        end
+
+        -- 如果没有指定c++标准，设为最低要求 c++11
+        if not has_flag("-std") then 
+            if is_plat("windows") then
+                target:set("languages", "cxx17")
+            else
+                target:set("languages", "cxx11")
+            end
+        end
+    end)    
+
     before_run(function (target)
         -- 拷贝测试文件
         print("copying test_data ...")

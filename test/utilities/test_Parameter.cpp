@@ -36,7 +36,7 @@ TEST_CASE("test_Parameter") {
     param.set<int64_t>("n64", std::numeric_limits<int64_t>::max());
     param.set<bool>("bool", false);
     param.set<double>("double", 10.01);
-    param.set<float>("float", 10.01);
+    param.set<float>("float", 10.01f);
     param.set<std::string>("string", "test2");
     CHECK(param.get<int>("n") == 10);
     CHECK(param.get<int64_t>("n64") == std::numeric_limits<int64_t>::max());

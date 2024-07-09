@@ -79,7 +79,7 @@ std::shared_ptr<spdlog::logger> HKU_UTILS_API getHikyuuLogger();
 #define HKU_ERROR(...) SPDLOG_LOGGER_ERROR(hku::getHikyuuLogger(), __VA_ARGS__)
 #define HKU_FATAL(...) SPDLOG_LOGGER_CRITICAL(hku::getHikyuuLogger(), __VA_ARGS__)
 
-void initLogger(bool inJupyter = false);
+void HKU_UTILS_API initLogger(bool inJupyter = false);
 
 #else
 enum LOG_LEVEL {
@@ -94,7 +94,7 @@ enum LOG_LEVEL {
 
 LOG_LEVEL HKU_UTILS_API get_log_level();
 void HKU_UTILS_API set_log_level(LOG_LEVEL level);
-void initLogger(bool inJupyter = false);
+void HKU_UTILS_API initLogger(bool inJupyter = false);
 
 /** 获取系统当前时间，精确到毫秒，如：2001-01-02 13:01:02.001 */
 std::string HKU_UTILS_API getLocalTime();

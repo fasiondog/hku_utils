@@ -75,6 +75,7 @@ option("datetime")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("Enable DateTime.")
+    add_defines("HKU_SUPPORT_DATETIME")
 option_end()
 
 option("spend_time")
