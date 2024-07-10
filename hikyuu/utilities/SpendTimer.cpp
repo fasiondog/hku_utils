@@ -75,7 +75,7 @@ SpendTimer::~SpendTimer() {
     }
 }
 
-void SpendTimer::keep(const std::string &description) {
+void SpendTimer::keep(const std::string& description) {
     auto now = std::chrono::steady_clock::now();
     m_keep_seconds.push_back(now - m_pre_keep_time);
     m_keep_desc.push_back(description);

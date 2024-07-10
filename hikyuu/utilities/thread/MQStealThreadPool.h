@@ -239,17 +239,17 @@ private:
     bool m_runnging_util_empty;  // 运行直到队列空时停止
 
     std::vector<std::unique_ptr<MQStealQueue<task_type>>> m_queues;  // 线程任务队列
-    std::vector<InterruptFlag *> m_interrupt_flags;                  // 线程终止标志
+    std::vector<InterruptFlag*> m_interrupt_flags;                   // 线程终止标志
     std::vector<std::thread> m_threads;                              // 工作线程
 
     // 线程本地变量
 #if CPP_STANDARD >= CPP_STANDARD_17
-    inline static thread_local MQStealQueue<task_type> *m_local_work_queue =
+    inline static thread_local MQStealQueue<task_type>* m_local_work_queue =
       nullptr;                                                    // 本地任务队列
     inline static thread_local int m_index = -1;                  // 在线程池中的序号
     inline static thread_local InterruptFlag m_thread_need_stop;  // 线程停止运行指示
 #else
-    static thread_local MQStealQueue<task_type> *m_local_work_queue;  // 本地任务队列
+    static thread_local MQStealQueue<task_type>* m_local_work_queue;  // 本地任务队列
     static thread_local int m_index;                                  // 在线程池中的序号
     static thread_local InterruptFlag m_thread_need_stop;             // 线程停止运行指示
 #endif
@@ -298,7 +298,7 @@ private:
         }
     }
 
-    bool pop_task_from_other_thread_queue(task_type &task) {
+    bool pop_task_from_other_thread_queue(task_type& task) {
         for (size_t i = 0; i < m_worker_num; ++i) {
             size_t index = (m_index + i + 1) % m_worker_num;
             if (index != m_index && m_queues[index]->try_steal(task)) {

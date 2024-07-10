@@ -1,4 +1,4 @@
-﻿/*
+/*
  * IniFile.h
  *
  *  Created on: 2010-5-19
@@ -55,38 +55,38 @@ namespace hku {
 class HKU_UTILS_API IniParser {
 public:
     typedef std::list<std::string> StringList;
-    typedef std::shared_ptr<std::list<std::string>> StringListPtr;
+    typedef std::shared_ptr<std::list<std::string> > StringListPtr;
 
-    IniParser(const IniParser &) = delete;
-    IniParser &operator=(const IniParser &) = delete;
+    IniParser(const IniParser&) = delete;
+    IniParser& operator=(const IniParser&) = delete;
 
     IniParser();
     virtual ~IniParser();
 
-    void read(const std::string &filename);
+    void read(const std::string& filename);
     void clear();
 
-    bool hasSection(const std::string &section) const;
-    bool hasOption(const std::string &section, const std::string &option) const;
+    bool hasSection(const std::string& section) const;
+    bool hasOption(const std::string& section, const std::string& option) const;
 
     StringListPtr getSectionList() const;
-    StringListPtr getOptionList(const std::string &section) const;
+    StringListPtr getOptionList(const std::string& section) const;
 
-    std::string get(const std::string &section, const std::string &option,
-                    const std::string &default_str = std::string()) const;
+    std::string get(const std::string& section, const std::string& option,
+                    const std::string& default_str = std::string()) const;
 
     // 以下默认值类型使用string的原因是因为int/float/double/bool类型没有空对象
-    int getInt(const std::string &section, const std::string &option,
-               const std::string &default_str = std::string()) const;
+    int getInt(const std::string& section, const std::string& option,
+               const std::string& default_str = std::string()) const;
 
-    float getFloat(const std::string &section, const std::string &option,
-                   const std::string &default_str = std::string()) const;
+    float getFloat(const std::string& section, const std::string& option,
+                   const std::string& default_str = std::string()) const;
 
-    double getDouble(const std::string &section, const std::string &option,
-                     const std::string &default_str = std::string()) const;
+    double getDouble(const std::string& section, const std::string& option,
+                     const std::string& default_str = std::string()) const;
 
-    bool getBool(const std::string &section, const std::string &option,
-                 const std::string &default_str = std::string()) const;
+    bool getBool(const std::string& section, const std::string& option,
+                 const std::string& default_str = std::string()) const;
 
 private:
     typedef std::map<std::string, std::string> item_map_type;

@@ -44,8 +44,7 @@ TEST_CASE("test_byteToHexStrForPrint") {
     CHECK_EQ("", byteToHexStrForPrint(""));
 }
 
-TEST_CASE("test_split") {
-#if !HKU_OS_IOS && CPP_STANDARD >= CPP_STANDARD_17
+TEST_CASE("test_split_by_char") {
     std::string x("");
     auto splits = split(x, '.');
     CHECK_EQ(splits.size(), 1);
@@ -56,13 +55,48 @@ TEST_CASE("test_split") {
     CHECK_EQ(splits.size(), 3);
     CHECK_EQ(splits[0], "100");
     CHECK_EQ(splits[1], "1");
+
+    x = "..";
+    splits = split(x, '.');
+    CHECK_EQ(splits.size(), 3);
+    CHECK_EQ(splits[0], "");
+    CHECK_EQ(splits[1], "");
+    CHECK_EQ(splits[2], "");
+}
+
+TEST_CASE("test_split_by_string") {
+    std::string x("");
+
+    // 分割字符串为空
+    auto splits = split(x, "");
+    CHECK_EQ(splits.size(), 1);
+    CHECK_EQ(splits[0], x);
+
+    x = "123";
+    splits = split(x, "");
+    CHECK_EQ(splits.size(), 1);
+    CHECK_EQ(splits[0], x);
+
+    // 分割字符串长度为1
+    x = "100.1.";
+    splits = split(x, ".");
+    CHECK_EQ(splits.size(), 3);
+    CHECK_EQ(splits[0], "100");
+    CHECK_EQ(splits[1], "1");
     CHECK_EQ(splits[2], "");
 
-    std::string_view y(x);
-    auto splits_y = split(y, '.');
-    CHECK_EQ(splits_y.size(), 3);
-    CHECK_EQ(splits_y[0], "100");
-    CHECK_EQ(splits_y[1], "1");
-    CHECK_EQ(splits_y[2], "");
-#endif
+    // 分割字符串长度为2
+    x = "100.1.234.1.56";
+    splits = split(x, ".1");
+    CHECK_EQ(splits.size(), 3);
+    CHECK_EQ(splits[0], "100");
+    CHECK_EQ(splits[1], ".234");
+    CHECK_EQ(splits[2], ".56");
+
+    x = "..";
+    splits = split(x, ".");
+    CHECK_EQ(splits.size(), 3);
+    CHECK_EQ(splits[0], "");
+    CHECK_EQ(splits[1], "");
+    CHECK_EQ(splits[2], "");
 }

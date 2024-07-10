@@ -244,7 +244,6 @@ target("hku_utils")
     add_packages("fmt", "spdlog", "boost", "yas")
 
     add_includedirs(".")
-    add_includedirs("hikyuu/utilities")
 
     if get_config("sqlcipher") then
         add_packages("sqlcipher")

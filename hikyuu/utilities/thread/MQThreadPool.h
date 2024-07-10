@@ -231,17 +231,17 @@ private:
     bool m_runnging_until_empty;  // 运行直到队列空时停止
 
     std::vector<std::unique_ptr<ThreadSafeQueue<task_type>>> m_queues;  // 线程任务队列
-    std::vector<InterruptFlag *> m_interrupt_flags;                     // 线程终止标志
+    std::vector<InterruptFlag*> m_interrupt_flags;                      // 线程终止标志
     std::vector<std::thread> m_threads;                                 // 工作线程
 
     // 线程本地变量
 #if CPP_STANDARD >= CPP_STANDARD_17
-    inline static thread_local ThreadSafeQueue<task_type> *m_local_work_queue =
+    inline static thread_local ThreadSafeQueue<task_type>* m_local_work_queue =
       nullptr;                                                    // 本地任务队列
     inline static thread_local int m_index = -1;                  // 在线程池中的序号
     inline static thread_local InterruptFlag m_thread_need_stop;  // 线程停止运行指示
 #else
-    static thread_local ThreadSafeQueue<task_type> *m_local_work_queue;  // 本地任务队列
+    static thread_local ThreadSafeQueue<task_type>* m_local_work_queue;  // 本地任务队列
     static thread_local int m_index;                                     // 在线程池中的序号
     static thread_local InterruptFlag m_thread_need_stop;                // 线程停止运行指示
 #endif

@@ -190,7 +190,7 @@ private:
 
     ThreadSafeQueue<task_type> m_master_work_queue;  // 主线程任务队列
     std::vector<std::thread> m_threads;              // 工作线程
-    std::vector<InterruptFlag *> m_interrupt_flags;  // 线程中断标志
+    std::vector<InterruptFlag*> m_interrupt_flags;   // 线程中断标志
 
     // 线程本地变量
 #if CPP_STANDARD >= CPP_STANDARD_17

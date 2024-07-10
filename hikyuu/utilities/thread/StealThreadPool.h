@@ -233,18 +233,18 @@ private:
     std::condition_variable m_cv;  // 信号量，无任务时阻塞线程并等待
     std::mutex m_cv_mutex;         // 配合信号量的互斥量
 
-    std::vector<InterruptFlag *> m_interrupt_flags;         // 工作线程状态
-    ThreadSafeQueue<task_type> m_master_work_queue;         // 主线程任务队列
-    std::vector<std::unique_ptr<WorkStealQueue>> m_queues;  // 任务队列（每个工作线程一个）
-    std::vector<std::thread> m_threads;                     // 工作线程
+    std::vector<InterruptFlag*> m_interrupt_flags;           // 工作线程状态
+    ThreadSafeQueue<task_type> m_master_work_queue;          // 主线程任务队列
+    std::vector<std::unique_ptr<WorkStealQueue> > m_queues;  // 任务队列（每个工作线程一个）
+    std::vector<std::thread> m_threads;                      // 工作线程
 
     // 线程本地变量
 #if CPP_STANDARD >= CPP_STANDARD_17
-    inline static thread_local WorkStealQueue *m_local_work_queue = nullptr;  // 本地任务队列
+    inline static thread_local WorkStealQueue* m_local_work_queue = nullptr;  // 本地任务队列
     inline static thread_local int m_index = -1;                  // 在线程池中的序号
     inline static thread_local InterruptFlag m_thread_need_stop;  // 线程停止运行指示
 #else
-    static thread_local WorkStealQueue *m_local_work_queue;  // 本地任务队列
+    static thread_local WorkStealQueue* m_local_work_queue;  // 本地任务队列
     static thread_local int m_index;                         // 在线程池中的序号
     static thread_local InterruptFlag m_thread_need_stop;    // 线程停止运行指示
 #endif
@@ -284,16 +284,16 @@ private:
         }
     }
 
-    bool pop_task_from_master_queue(task_type &task) {
+    bool pop_task_from_master_queue(task_type& task) {
         return m_master_work_queue.try_pop(task);
     }
 
     // cppcheck-suppress functionStatic // 屏蔽cppcheck转静态函数建议
-    bool pop_task_from_local_queue(task_type &task) {
+    bool pop_task_from_local_queue(task_type& task) {
         return m_local_work_queue && m_local_work_queue->try_pop(task);
     }
 
-    bool pop_task_from_other_thread_queue(task_type &task) {
+    bool pop_task_from_other_thread_queue(task_type& task) {
         for (int i = 0; i < m_worker_num; ++i) {
             int index = (m_index + i + 1) % m_worker_num;
             if (index != m_index && m_queues[index]->try_steal(task)) {

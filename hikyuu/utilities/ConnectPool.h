@@ -135,9 +135,9 @@ private:
     }
 
 private:
-    size_t m_maxConnectSize;  // 允许的最大连接数
-    size_t m_maxIdelSize;     // 允许的最大空闲连接数
-    size_t m_count;           // 当前活动的连接数
+    size_t m_maxConnectSize;  //允许的最大连接数
+    size_t m_maxIdelSize;     //允许的最大空闲连接数
+    size_t m_count;           //当前活动的连接数
     Parameter m_param;
     std::mutex m_mutex;
     std::queue<ConnectType *> m_connectList;
