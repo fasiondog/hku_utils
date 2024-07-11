@@ -33,6 +33,7 @@
 
 hikyuu/utilities/version.h
 build
+tmp
 .xmake
 .vscode
 cover-*

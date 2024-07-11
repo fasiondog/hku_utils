@@ -350,27 +350,18 @@ target("hku_utils")
     end)
 
     after_build(function(target)
-        -- 不同平台的库后缀名
-        local lib_suffix = ".so"
-        if is_plat("windows") then
-            lib_suffix = ".dll"
-        elseif is_plat("macosx") then
-            lib_suffix = ".dylib"
-        end
+        local destpath = get_config("buildir") .. "/" .. get_config("mode") .. "/" .. get_config("plat") .. "/" .. get_config("arch")
+        print(destpath)
+        import("core.project.task")
+        task.run("copy_dependents", {}, target, destpath, true)
+    end)
 
-        local libdir = get_config("buildir") .. "/" .. get_config("mode") .. "/" .. get_config("plat") .. "/" ..
-                        get_config("arch") .. "/lib"
-        -- 将依赖的库拷贝至build的输出目录
-        for libname, pkg in pairs(target:pkgs()) do
-            local pkg_path = pkg:installdir()
-            if pkg_path ~= nil then
-                print("copy dependents: " .. pkg_path)
-                os.trycp(pkg_path .. "/bin/*" .. lib_suffix, libdir)
-                os.trycp(pkg_path .. "/lib/*" .. lib_suffix, libdir)
-                os.trycp(pkg_path .. "/lib/*.so.*", libdir)
-            end
-        end
+    after_install(function(target)
+        local destpath = target:installdir()
+        import("core.project.task")
+        task.run("copy_dependents", {}, target, destpath, true)
     end)
 target_end()
 
+includes("copy_dependents.lua")
 includes("./test")
