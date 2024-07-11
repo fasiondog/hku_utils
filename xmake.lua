@@ -153,14 +153,6 @@ if get_config("leak_check") then
     -- set_policy("build.sanitizer.thread", true)
 end
 
-if is_plat("windows") then
-    if is_mode("release") then
-        set_runtimes("MD")
-    else
-        set_runtimes("MDd")
-    end
-end
-
 -- is release now
 if is_mode("release") then
     if is_plat("windows") then
@@ -193,11 +185,23 @@ end
 add_repositories("hikyuu-repo https://github.com/fasiondog/hikyuu_extern_libs.git")
 -- add_repositories("hikyuu-repo https://gitee.com/fasiondog/hikyuu_extern_libs.git
 
-add_requires("fmt", {system = false, configs = {header_only = true,  runtimes=get_config("runtimes")}})
+add_requires("fmt", {system=false})
 add_requires("spdlog", {system = false, configs = {header_only = true, fmt_external = true}})
-add_requireconfs("spdlog.fmt", {override = true, configs = {header_only = true, runtimes=get_config("runtimes")}})
-add_requires("boost", {system=false})
 add_requires("yas", {system=false})
+add_requires("boost", {
+    system = false,
+    debug = is_mode("debug"),
+    configs = {
+      shared = is_plat("windows"),
+      runtimes = get_config("runtime"),
+      multi = true,
+      date_time = true,
+      filesystem = false,
+      serialization = false,
+      system = false,
+      python = false,
+    },
+  })
 
 -- 使用 sqlcipher 时，忽略 sqlite3
 if get_config("sqlcipher") then
