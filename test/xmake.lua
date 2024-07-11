@@ -1,5 +1,4 @@
 add_requires("doctest")
-add_requires("fmt", {system = false, configs = {head_only=false, pic=true}})
 add_requires("yas", {system = false})
 
 target("unit-test")
