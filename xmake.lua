@@ -195,7 +195,7 @@ add_repositories("hikyuu-repo https://github.com/fasiondog/hikyuu_extern_libs.gi
 
 -- add_requires("fmt", {system = false, configs = {header_only = true}})
 add_requires("spdlog", {system = false, configs = {header_only = true, fmt_external = true}})
-add_requireconfs("spdlog.fmt", {override = true, configs = {header_only = true}})
+add_requireconfs("spdlog.fmt", {override = true, configs = {header_only = true, runtimes=get_config("runtimes")}})
 add_requires("boost", {system=false})
 add_requires("yas", {system=false})
 
