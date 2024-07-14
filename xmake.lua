@@ -240,7 +240,11 @@ target("hku_utils")
     set_kind("$(kind)")
 
     set_configdir("$(projectdir)/hikyuu/utilities")
-    add_configfiles("$(projectdir)/version.h.in", {prefix="HKU"})
+    add_configfiles("$(projectdir)/version.h.in")
+    add_configfiles("$(projectdir)/config.h.in")
+
+    set_configvar("HKU_UTILS_ENABLE_MYSQL", get_config("mysql") and 1 or 0)
+
 
     add_options("log_name", "log_level", "spend_time", "sqlcipher", "sqlite", "mysql", "ini_parser", 
                 "datetime", "stacktrace", "async_log", "leak_check")
