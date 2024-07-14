@@ -15,12 +15,17 @@
 
 #include "exception.h"
 
+#ifndef HKU_LOG_ACTIVE_LEVEL
+#define HKU_LOG_ACTIVE_LEVEL 0
+#endif
+
 #if !defined(USE_SPDLOG_LOGGER)
 #define USE_SPDLOG_LOGGER 1
 #endif
 
 // clang-format off
 #if USE_SPDLOG_LOGGER
+    #define SPDLOG_ACTIVE_LEVEL HKU_LOG_ACTIVE_LEVEL
     #include <spdlog/spdlog.h>
     #include <spdlog/fmt/ostr.h>
     #if HKU_USE_SPDLOG_ASYNC_LOGGER
@@ -404,6 +409,44 @@ extern std::string g_unknown_error_msg;
 #define HKU_INFO_UNKNOWN HKU_INFO(g_unknown_error_msg)
 #define HKU_ERROR_UNKNOWN HKU_ERROR(g_unknown_error_msg)
 #define HKU_FATAL_UNKNOWN HKU_FATAL(g_unknown_error_msg)
+
+#define CLASS_LOGGER_IMP(cls) \
+public:                       \
+    inline static const char *ms_logger = #cls;
+
+#define CLS_TRACE(...) HKU_TRACE(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_DEBUG(...) HKU_DEBUG(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_INFO(...) HKU_INFO(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_WARN(...) HKU_WARN(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_ERROR(...) HKU_ERROR(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_FATAL(...) HKU_FATAL(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+
+#define CLS_TRACE_IF(expr, ...) \
+    HKU_TRACE_IF(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_DEBUG_IF(expr, ...) \
+    HKU_DEBUG_IF(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_INFO_IF(expr, ...) \
+    HKU_INFO_IF(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_WARN_IF(expr, ...) \
+    HKU_WARN_IF(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_ERROR_IF(expr, ...) \
+    HKU_ERROR_IF(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_FATAL_IF(expr, ...) \
+    HKU_FATAL_IF(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+
+#define CLS_IF_RETURN(expr, ret) HKU_IF_RETURN(expr, ret)
+#define CLS_TRACE_IF_RETURN(expr, ret, ...) \
+    HKU_TRACE_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_DEBUG_IF_RETURN(expr, ret, ...) \
+    HKU_DEBUG_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_INFO_IF_RETURN(expr, ret, ...) \
+    HKU_INFO_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_WARN_IF_RETURN(expr, ret, ...) \
+    HKU_WARN_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_ERROR_IF_RETURN(expr, ret, ...) \
+    HKU_ERROR_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_FATAL_IF_RETURN(expr, ret, ...) \
+    HKU_FATAL_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
 
 /** @} */
 

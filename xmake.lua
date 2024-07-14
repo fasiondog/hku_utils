@@ -98,7 +98,7 @@ option("log_name")
 option_end()
 
 option("log_level")
-    set_default("trace")
+    set_default("info")
     set_values("trace", "debug", "info", "warn", "error", "fatal", "off")
     set_showmenu(true)
     set_category("hikyuu")
@@ -106,19 +106,19 @@ option("log_level")
     after_check(function (option)
         local level = get_config("log_level")
         if level == "trace" then
-            option:add("defines", "HKU_LOGGER_ACTIVE_LEVEL=0")
+            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=0")
         elseif level == "debug" then
-            option:add("defines", "HKU_LOGGER_ACTIVE_LEVEL=1")
+            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=1")
         elseif level == "info" then
-            option:add("defines", "HKU_LOGGER_ACTIVE_LEVEL=2")
+            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=2")
         elseif level == "warn" then
-            option:add("defines", "HKU_LOGGER_ACTIVE_LEVEL=3")
+            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=3")
         elseif level == "error" then
-            option:add("defines", "HKU_LOGGER_ACTIVE_LEVEL=4")
+            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=4")
         elseif level == "fatal" then
-            option:add("defines", "HKU_LOGGER_ACTIVE_LEVEL=5")
+            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=5")
         else
-            option:add("defines", "HKU_LOGGER_ACTIVE_LEVEL=6")
+            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=6")
         end
     end)
 option_end()

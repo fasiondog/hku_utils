@@ -67,8 +67,10 @@ void HKU_UTILS_API initLogger(bool inJupyter) {
 
     logger->set_level(spdlog::level::trace);
     logger->flush_on(spdlog::level::trace);
-    logger->set_pattern("%Y-%m-%d %H:%M:%S.%e [%^HKU-%L%$] - %v [%!]");
-    spdlog::register_logger(logger);
+    // logger->set_pattern("%Y-%m-%d %H:%M:%S.%e [%^HKU-%L%$] - %v [%!]");
+    logger->set_pattern("%^%Y-%m-%d %H:%M:%S.%e [HKU-%L] - %v (%s:%#)%$");
+    // spdlog::register_logger(logger);
+    spdlog::set_default_logger(logger);
 }
 
 #else /* #if HKU_USE_SPDLOG_ASYNC_LOGGER */
@@ -95,10 +97,10 @@ void HKU_UTILS_API initLogger(bool inJupyter) {
     logger = std::make_shared<spdlog::logger>(logname, sinks.begin(), sinks.end());
     logger->set_level(spdlog::level::trace);
     logger->flush_on(spdlog::level::trace);
-    // logger->set_pattern("%Y-%m-%d %H:%M:%S.%e [%^HKU-%L%$] - %v [%!] (%@)");
-    // logger->set_pattern("%Y-%m-%d %H:%M:%S.%e [%^HKU-%L%$] - %v (%@)");
-    logger->set_pattern("%Y-%m-%d %H:%M:%S.%e [%^HKU-%L%$] - %v (%s:%#)");
-    spdlog::register_logger(logger);
+    // logger->set_pattern("%Y-%m-%d %H:%M:%S.%e [%^HKU-%L%$] - %v (%s:%#)");
+    logger->set_pattern("%^%Y-%m-%d %H:%M:%S.%e [HKU-%L] - %v (%s:%#)%$");
+    // spdlog::register_logger(logger);
+    spdlog::set_default_logger(logger);
 }
 
 #endif /* #if HKU_USE_SPDLOG_ASYNC_LOGGER */
