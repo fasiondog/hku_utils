@@ -417,7 +417,7 @@ extern std::string g_unknown_error_msg;
 
 #define CLASS_LOGGER_IMP(cls) \
 public:                       \
-    inline static const char *ms_logger = #cls;
+    inline static const char* ms_logger = #cls;
 
 #define CLS_TRACE(...) HKU_TRACE(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
 #define CLS_DEBUG(...) HKU_DEBUG(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))

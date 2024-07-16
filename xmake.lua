@@ -94,24 +94,6 @@ option("log_level")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("set log level")
-    after_check(function (option)
-        local level = get_config("log_level")
-        if level == "trace" then
-            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=0")
-        elseif level == "debug" then
-            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=1")
-        elseif level == "info" then
-            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=2")
-        elseif level == "warn" then
-            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=3")
-        elseif level == "error" then
-            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=4")
-        elseif level == "fatal" then
-            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=5")
-        else
-            option:add("defines", "HKU_LOG_ACTIVE_LEVEL=6")
-        end
-    end)
 option_end()
 
 option("async_log")
@@ -119,7 +101,6 @@ option("async_log")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("Use async log.")
-    add_defines("HKU_USE_SPDLOG_ASYNC_LOGGER=1")
 option_end()
 
 option("leak_check")
@@ -243,9 +224,23 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_STACK_TRACE", get_config("stacktrace") and 1 or 0)
     set_configvar("HKU_CLOSE_SPEND_TIME", get_config("spend_time") and 0 or 1)
     set_configvar("HKU_DEFAULT_LOG_NAME", get_config("log_name"))
-
-    add_options("log_level",
-                 "async_log", "leak_check")
+    set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", get_config("async_log") and 1 or 0)
+    local level = get_config("log_level")
+    if level == "trace" then
+        set_configvar("HKU_LOG_ACTIVE_LEVEL", 0)
+    elseif level == "debug" then
+        set_configvar("HKU_LOG_ACTIVE_LEVEL", 1)
+    elseif level == "info" then
+        set_configvar("HKU_LOG_ACTIVE_LEVEL", 2)
+    elseif level == "warn" then
+        set_configvar("HKU_LOG_ACTIVE_LEVEL", 3)
+    elseif level == "error" then
+        set_configvar("HKU_LOG_ACTIVE_LEVEL", 4)
+    elseif level == "fatal" then
+        set_configvar("HKU_LOG_ACTIVE_LEVEL", 5)
+    else
+        set_configvar("HKU_LOG_ACTIVE_LEVEL", 6)
+    end
 
     add_packages("fmt", "spdlog", "boost", "yas")
 

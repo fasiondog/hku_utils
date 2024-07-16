@@ -59,8 +59,21 @@ void HKU_UTILS_API initLogger(bool inJupyter) {
     }
     stdout_sink->set_level(spdlog::level::trace);
 
-    spdlog::init_thread_pool(8192, 1);
+    std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> rotating_sink;
+    if (createDir(fmt::format("{}/.hikyuu", getUserDir()))) {
+        std::string log_filename =
+          fmt::format("{}/.hikyuu/{}.log", getUserDir(), HKU_DEFAULT_LOG_NAME);
+        rotating_sink =
+          std::make_shared<spdlog::sinks::rotating_file_sink_mt>(log_filename, 1024 * 1024 * 10, 3);
+        rotating_sink->set_level(spdlog::level::warn);
+    }
+
     std::vector<spdlog::sink_ptr> sinks{stdout_sink};
+    if (rotating_sink) {
+        sinks.emplace_back(rotating_sink);
+    }
+
+    spdlog::init_thread_pool(8192, 1);
     logger = std::make_shared<spdlog::async_logger>(logname, sinks.begin(), sinks.end(),
                                                     spdlog::thread_pool(),
                                                     spdlog::async_overflow_policy::block);
@@ -89,11 +102,20 @@ void HKU_UTILS_API initLogger(bool inJupyter) {
         stdout_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     }
     stdout_sink->set_level(spdlog::level::trace);
-    std::string log_filename = fmt::format("{}/.hikyuu/{}.log", getUserDir(), HKU_DEFAULT_LOG_NAME);
-    auto rotating_sink =
-      std::make_shared<spdlog::sinks::rotating_file_sink_mt>(log_filename, 1024 * 1024 * 10, 3);
-    rotating_sink->set_level(spdlog::level::warn);
-    std::vector<spdlog::sink_ptr> sinks{stdout_sink, rotating_sink};
+
+    std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> rotating_sink;
+    if (createDir(fmt::format("{}/.hikyuu", getUserDir()))) {
+        std::string log_filename =
+          fmt::format("{}/.hikyuu/{}.log", getUserDir(), HKU_DEFAULT_LOG_NAME);
+        rotating_sink =
+          std::make_shared<spdlog::sinks::rotating_file_sink_mt>(log_filename, 1024 * 1024 * 10, 3);
+        rotating_sink->set_level(spdlog::level::warn);
+    }
+
+    std::vector<spdlog::sink_ptr> sinks{stdout_sink};
+    if (rotating_sink) {
+        sinks.emplace_back(rotating_sink);
+    }
     logger = std::make_shared<spdlog::logger>(logname, sinks.begin(), sinks.end());
     logger->set_level(spdlog::level::trace);
     logger->flush_on(spdlog::level::trace);

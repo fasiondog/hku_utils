@@ -26,7 +26,8 @@
 #define HKU_CLOSE_SPEND_TIME 0
 
 #define HKU_DEFAULT_LOG_NAME "hikyuu"
-// /* #undef HKU_LOG_ACTIVE_LEVEL */
+#define HKU_USE_SPDLOG_ASYNC_LOGGER 0
+#define HKU_LOG_ACTIVE_LEVEL 0
 
 // clang-format on
 

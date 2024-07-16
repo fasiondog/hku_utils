@@ -12,8 +12,6 @@ target("unit-test")
         add_packages("mysql")
     end
 
-    add_options("log_level")
-
     add_deps("hku_utils")
     add_packages("fmt", "yas", "boost")
     if get_config("sqlite") then 
