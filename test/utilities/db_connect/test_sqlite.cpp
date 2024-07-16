@@ -12,7 +12,6 @@
 #include <hikyuu/utilities/Null.h>
 #include <hikyuu/utilities/os.h>
 #include <hikyuu/utilities/db_connect/DBConnect.h>
-#include <hikyuu/utilities/db_connect/sqlite/SQLiteConnect.h>
 
 using namespace hku;
 

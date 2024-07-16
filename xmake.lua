@@ -10,7 +10,7 @@ set_warnings("all", "error")
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 
 option("mysql")
-    set_default(true)
+    set_default(false)
     set_showmenu(true)
     set_category("hikyuu")
     set_description("Enable mysql kdata engine.")
@@ -50,7 +50,6 @@ option("sqlcipher")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("Enalbe sqlchiper driver")
-    add_defines("HKU_ENABLE_SQLCIPHER")
 option_end()
 
 option("sql_trace")
@@ -58,7 +57,6 @@ option("sql_trace")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("打印执行的 SQL 语句")
-    add_defines("HKU_SQL_TRACE")
 option_end()
 
 -- 注意：stacktrace 在 windows 下会严重影响性能
@@ -75,7 +73,6 @@ option("datetime")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("Enable DateTime.")
-    add_defines("HKU_SUPPORT_DATETIME")
 option_end()
 
 option("spend_time")
@@ -195,7 +192,7 @@ add_requires("boost", {
       shared = is_plat("windows"),
       runtimes = get_config("runtime"),
       multi = true,
-      date_time = true,
+      date_time = get_config("datetime"),
       filesystem = false,
       serialization = false,
       system = false,
@@ -208,11 +205,11 @@ if get_config("sqlcipher") then
     if is_plat("iphoneos") then
         add_requires("sqlcipher", {system=false})
     else 
-        add_requires("sqlcipher", {system = false, configs = {shared = true, tiny = true, SQLITE_THREADSAFE="2"}})
+        add_requires("sqlcipher", {system = false, configs = {shared = true, SQLITE_THREADSAFE="2"}})
     end
 elseif get_config("sqlite") then
     if is_plat("windows", "android", "cross") then 
-        add_requires("sqlite3", {system = false, configs = {shared = true, tiny = true, SQLITE_THREADSAFE="2"}})
+        add_requires("sqlite3", {system = false, configs = {shared = true, SQLITE_THREADSAFE="2"}})
     end
 
     if is_plat("linux") and linuxos.name() == "ubuntu" then
@@ -243,11 +240,14 @@ target("hku_utils")
     add_configfiles("$(projectdir)/version.h.in")
     add_configfiles("$(projectdir)/config.h.in")
 
-    set_configvar("HKU_UTILS_ENABLE_MYSQL", get_config("mysql") and 1 or 0)
+    set_configvar("HKU_ENABLE_MYSQL", get_config("mysql") and 1 or 0)
+    set_configvar("HKU_ENABLE_SQLITE", (get_config("sqlite") or get_config("sqlcipher")) and 1 or 0)
+    set_configvar("HKU_ENABLE_SQLCIPHER", get_config("sqlcipher") and 1 or 0)
+    set_configvar("HKU_SQL_TRACE", get_config("sql_trace") and 1 or 0)
+    set_configvar("HKU_SUPPORT_DATETIME", get_config("datetime") and 1 or 0)
 
-
-    add_options("log_name", "log_level", "spend_time", "sqlcipher", "sqlite", "mysql", "ini_parser", 
-                "datetime", "stacktrace", "async_log", "leak_check")
+    add_options("log_name", "log_level", "spend_time", "ini_parser", 
+                "stacktrace", "async_log", "leak_check")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 

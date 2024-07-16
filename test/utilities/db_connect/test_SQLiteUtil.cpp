@@ -8,7 +8,7 @@
 #include "doctest/doctest.h"
 #include "hikyuu/utilities/os.h"
 #include "hikyuu/utilities/arithmetic.h"
-#include "hikyuu/utilities/db_connect/sqlite/SQLiteUtil.h"
+#include "hikyuu/utilities/db_connect/DBConnect.h"
 
 using namespace hku;
 

@@ -20,6 +20,7 @@
 #include "yas/serialize.hpp"
 #include "yas/std_types.hpp"
 
+#include "hikyuu/utilities/config.h"
 #if defined(HKU_SUPPORT_DATETIME)
 #include "datetime/Datetime.h"
 #endif

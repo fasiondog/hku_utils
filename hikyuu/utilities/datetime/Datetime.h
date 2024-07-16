@@ -17,6 +17,11 @@
 #include <string>
 #include <vector>
 #include <fmt/ostream.h>
+
+#include "hikyuu/utilities/config.h"
+#if !HKU_SUPPORT_DATETIME
+#error "Don't support datetime, you can config with --datetime=y"
+#endif
 #include "TimeDelta.h"
 
 #if defined(_MSC_VER)

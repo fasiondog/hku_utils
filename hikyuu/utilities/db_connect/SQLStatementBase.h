@@ -13,8 +13,7 @@
 #include <type_traits>
 #include <sstream>
 #include <yas/serialize.hpp>
-// #include <boost/archive/binary_iarchive.hpp>
-// #include <boost/archive/binary_oarchive.hpp>
+#include "hikyuu/utilities/config.h"
 #include "hikyuu/utilities/datetime/Datetime.h"
 #include "hikyuu/utilities/exception.h"
 #include "hikyuu/utilities/Log.h"
@@ -186,7 +185,7 @@ inline void SQLStatementBase::bind(int idx, float item) {
 }
 
 inline void SQLStatementBase::exec() {
-#ifdef HKU_SQL_TRACE
+#if HKU_SQL_TRACE
     HKU_DEBUG(m_sql_string);
 #endif
     sub_exec();

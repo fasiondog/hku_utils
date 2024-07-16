@@ -2,9 +2,22 @@
 #ifndef HKU_UTILS_CONFIG_H_
 #define HKU_UTILS_CONFIG_H_
 
+#include "osdef.h"
+
 // clang-format off
 
-#define HKU_UTILS_ENABLE_MYSQL ${HKU_UTILS_ENABLE_MYSQL}
+${define HKU_ENABLE_MYSQL}
+#if HKU_ENABLE_MYSQL && HKU_OS_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
+${define HKU_ENABLE_SQLITE}
+${define HKU_ENABLE_SQLCIPHER}
+${define HKU_SQL_TRACE}
+
+${define HKU_SUPPORT_DATETIME}
 
 // clang-format on
 
