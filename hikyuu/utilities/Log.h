@@ -13,6 +13,7 @@
 #define NOMINMAX
 #endif
 
+#include "config.h"
 #include "exception.h"
 
 #ifndef HKU_LOG_ACTIVE_LEVEL
@@ -38,7 +39,11 @@
 #include <fmt/format.h>
 #include <fmt/chrono.h>
 
-#ifdef HKU_ENABLE_STACK_TRACE
+#ifndef HKU_ENABLE_STACK_TRACE
+#define HKU_ENABLE_STACK_TRACE 0
+#endif
+
+#if HKU_ENABLE_STACK_TRACE
 #include <boost/stacktrace.hpp>
 #endif
 
@@ -164,7 +169,7 @@ std::string HKU_UTILS_API getLocalTime();
 #define HKU_FUNCTION __FUNCTION__
 #endif
 
-#ifndef HKU_ENABLE_STACK_TRACE
+#if !HKU_ENABLE_STACK_TRACE
 /**
  * 若表达式为 false，将抛出 hku::exception 异常, 并附带传入信息
  * @note 用于外部入参及结果检查
@@ -210,9 +215,9 @@ std::string HKU_UTILS_API getLocalTime();
                                      __FILE__, __LINE__));                                         \
         }                                                                                          \
     } while (0)
-#endif  // #ifndef HKU_ENABLE_STACK_TRACE
+#endif  // #if !HKU_ENABLE_STACK_TRACE
 
-#ifdef HKU_ENABLE_STACK_TRACE
+#if HKU_ENABLE_STACK_TRACE
 /**
  * 若表达式为 false，将抛出 hku::exception 异常
  * @note 仅用于内部入参检查，编译时可通过 HKU_DISABLE_ASSERT 宏关闭
@@ -237,9 +242,9 @@ std::string HKU_UTILS_API getLocalTime();
         }                                                                                 \
     } while (0)
 
-#endif  // #ifndef HKU_ENABLE_STACK_TRACE
+#endif  // #if HKU_ENABLE_STACK_TRACE
 
-#ifndef HKU_ENABLE_STACK_TRACE
+#if !HKU_ENABLE_STACK_TRACE
 /** 抛出 hku::exception 及传入信息 */
 #define HKU_THROW(...)                                                                           \
     do {                                                                                         \
@@ -270,7 +275,7 @@ std::string HKU_UTILS_API getLocalTime();
         throw except(                                                                           \
           fmt::format("EXCEPTION: {} [{}] ({}:{})", errmsg, HKU_FUNCTION, __FILE__, __LINE__)); \
     } while (0)
-#endif  // #ifndef HKU_ENABLE_STACK_TRACE
+#endif  // #if !HKU_ENABLE_STACK_TRACE
 
 /**
  * 满足指定条件时，打印 TRACE 信息

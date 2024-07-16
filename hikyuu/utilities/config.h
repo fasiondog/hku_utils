@@ -19,6 +19,10 @@
 
 #define HKU_SUPPORT_DATETIME 1
 
+#define HKU_ENABLE_STACK_TRACE 0
+
+#define HKU_CLOSE_SPEND_TIME 1
+
 // clang-format on
 
 #endif /* HKU_UTILS_CONFIG_H_*/

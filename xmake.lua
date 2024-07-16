@@ -65,7 +65,6 @@ option("stacktrace")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("Enable check/assert with stack trace info.")
-    add_defines("HKU_ENABLE_STACK_TRACE")
 option_end()
 
 option("datetime")
@@ -80,7 +79,6 @@ option("spend_time")
     set_showmenu(true)
     set_category("hikyuu")
     set_description("Enable spend time.")
-    add_defines("HKU_CLOSE_SPEND_TIME=0")
 option_end()
 
 option("log_name")
@@ -245,9 +243,11 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_SQLCIPHER", get_config("sqlcipher") and 1 or 0)
     set_configvar("HKU_SQL_TRACE", get_config("sql_trace") and 1 or 0)
     set_configvar("HKU_SUPPORT_DATETIME", get_config("datetime") and 1 or 0)
+    set_configvar("HKU_ENABLE_STACK_TRACE", get_config("stacktrace") and 1 or 0)
+    set_configvar("HKU_CLOSE_SPEND_TIME", get_config("spend_time") and 0 or 1)
 
-    add_options("log_name", "log_level", "spend_time", "ini_parser", 
-                "stacktrace", "async_log", "leak_check")
+    add_options("log_name", "log_level", "ini_parser", 
+                 "async_log", "leak_check")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 

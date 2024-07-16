@@ -21,6 +21,7 @@
 #include <chrono>
 #include <vector>
 #include <fmt/format.h>
+#include "./config.h"
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API
