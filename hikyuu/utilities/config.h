@@ -19,9 +19,14 @@
 
 #define HKU_SUPPORT_DATETIME 1
 
+#define HKU_ENABLE_INI_PARSER 1
+
 #define HKU_ENABLE_STACK_TRACE 0
 
-#define HKU_CLOSE_SPEND_TIME 1
+#define HKU_CLOSE_SPEND_TIME 0
+
+#define HKU_DEFAULT_LOG_NAME "hikyuu"
+// /* #undef HKU_LOG_ACTIVE_LEVEL */
 
 // clang-format on
 

@@ -9,6 +9,11 @@
 #ifndef INIPARSER_H_
 #define INIPARSER_H_
 
+#include "hikyuu/utilities/config.h"
+#if !HKU_ENABLE_INI_PARSER
+#error "Don't enable ini_parser, please config with --ini_parser=y"
+#endif
+
 #include <stdexcept>
 #include <string>
 #include <list>

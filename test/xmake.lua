@@ -12,7 +12,7 @@ target("unit-test")
         add_packages("mysql")
     end
 
-    add_options("log_level", "log_name")
+    add_options("log_level")
 
     add_deps("hku_utils")
     add_packages("fmt", "yas", "boost")
@@ -39,7 +39,6 @@ target("unit-test")
     end
 
     if get_config("datetime") then
-        add_defines("HKU_SUPPORT_DATETIME")
         add_files("utilities/datetime/*.cpp")
     end
 

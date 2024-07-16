@@ -19,9 +19,14 @@ ${define HKU_SQL_TRACE}
 
 ${define HKU_SUPPORT_DATETIME}
 
+${define HKU_ENABLE_INI_PARSER}
+
 ${define HKU_ENABLE_STACK_TRACE}
 
 ${define HKU_CLOSE_SPEND_TIME}
+
+${define HKU_DEFAULT_LOG_NAME}
+// ${define HKU_LOG_ACTIVE_LEVEL}
 
 // clang-format on
 
