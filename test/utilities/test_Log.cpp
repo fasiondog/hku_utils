@@ -13,8 +13,8 @@ using namespace hku;
 class TestClass {
     CLASS_LOGGER_IMP(TestClass)
 
-    // public:
-    //     TestClass() = default;
+public:
+    TestClass() = default;
 
     void operator()() {
         HKU_TRACE("trace");

@@ -2,6 +2,7 @@
 #ifndef HKU_UTILS_CONFIG_H_
 #define HKU_UTILS_CONFIG_H_
 
+#include "cppdef.h"
 #include "osdef.h"
 
 // clang-format off
