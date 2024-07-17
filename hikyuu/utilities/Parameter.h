@@ -5,10 +5,10 @@
  *      Author: fasiondog
  */
 
+#pragma once
 #ifndef UTILS_PARAMETER_H_
 #define UTILS_PARAMETER_H_
 
-#pragma once
 
 #include <boost/any.hpp>
 #include <unordered_map>
