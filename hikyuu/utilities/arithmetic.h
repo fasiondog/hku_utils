@@ -82,7 +82,6 @@ std::string HKU_UTILS_API gb_to_utf8(const std::string &szinput);
  * @param ndigits 保留小数位数
  * @return 处理过的数据
  */
-// double HKU_UTILS_API roundEx(double number, int ndigits = 0);
 template <typename ValueT>
 ValueT roundEx(ValueT number, int ndigits = 0) {
     // 切换至：ROUND_HALF_EVEN 银行家舍入法

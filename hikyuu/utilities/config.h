@@ -27,7 +27,7 @@
 
 #define HKU_DEFAULT_LOG_NAME "hikyuu"
 #define HKU_USE_SPDLOG_ASYNC_LOGGER 0
-#define HKU_LOG_ACTIVE_LEVEL 0
+#define HKU_LOG_ACTIVE_LEVEL 2
 
 // clang-format on
 

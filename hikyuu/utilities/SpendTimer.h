@@ -21,7 +21,7 @@
 #include <chrono>
 #include <vector>
 #include <fmt/format.h>
-#include "./config.h"
+#include "hikyuu/utilities/config.h"
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API
