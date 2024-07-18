@@ -321,10 +321,11 @@ target("hku_utils")
     end
 
     before_build(function(target)
+        -- 注：windows 使用 dll 需要 c++17, linux 使用静态库最低需要 C++ 17
         -- 未指定 C++标准时，设置最低要求 c++11
         local x = target:get("languages")
         if x == nil then
-            target:set("languages", "cxx11")
+            target:set("languages", "cxx17")
         end
 
         if is_plat("macosx") then

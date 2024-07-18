@@ -50,7 +50,7 @@ target("unit-test")
         -- 未指定 C++标准时，设置最低要求 c++11
         local x = target:get("languages")
         if x == nil then
-            target:set("languages", "cxx11")
+            target:set("languages", "cxx17")
         end
     end)    
 
