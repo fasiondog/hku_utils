@@ -415,7 +415,7 @@ extern std::string g_unknown_error_msg;
 #define HKU_ERROR_UNKNOWN HKU_ERROR(g_unknown_error_msg)
 #define HKU_FATAL_UNKNOWN HKU_FATAL(g_unknown_error_msg)
 
-#if CPP_STANDARD > CPP_STANDARD_11
+#if CPP_STANDARD >= CPP_STANDARD_17
 #define CLASS_LOGGER_IMP(cls) \
 protected:                    \
     inline static const char* ms_logger = #cls;
