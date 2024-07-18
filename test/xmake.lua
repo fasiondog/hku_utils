@@ -5,7 +5,6 @@ target("unit-test")
     set_kind("binary")
     set_default(false)
 
-    set_languages("cxx11")
     add_packages("doctest", "spdlog")
 
     if get_config("mysql") then
@@ -48,22 +47,10 @@ target("unit-test")
     end
 
     before_build(function(target)
-        local function has_flag(flag)
-            for _, name in ipairs(target:get("cxflags")) do
-                if name == flag then
-                    return true
-                end
-            end
-            return false
-        end
-
-        -- 如果没有指定c++标准，设为最低要求 c++11
-        if not has_flag("-std") then 
-            if is_plat("windows") then
-                target:set("languages", "cxx17")
-            else
-                target:set("languages", "cxx11")
-            end
+        -- 未指定 C++标准时，设置最低要求 c++11
+        local x = target:get("languages")
+        if x == nil then
+            target:set("languages", "cxx11")
         end
     end)    
 
