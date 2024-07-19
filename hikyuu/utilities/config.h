@@ -30,6 +30,8 @@
 #define HKU_USE_SPDLOG_ASYNC_LOGGER 0
 #define HKU_LOG_ACTIVE_LEVEL 2
 
+#define HKU_ENABLE_MO 1
+
 // clang-format on
 
 #endif /* HKU_UTILS_CONFIG_H_*/

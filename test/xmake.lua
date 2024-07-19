@@ -17,7 +17,7 @@ target("unit-test")
         add_packages("sqlite3")
     end
 
-    add_includedirs("..")
+    add_includedirs("..", ".")
 
     if is_plat("macosx", "linux", "cross") then
         add_cxflags("-fPIC")
@@ -44,6 +44,10 @@ target("unit-test")
         if is_plat("cross") then
             add_links("sqlite3")
         end
+    end
+
+    if get_config("mo") then
+        add_files("utilities/mo/**.cpp")
     end
 
     before_build(function(target)

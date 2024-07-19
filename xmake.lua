@@ -117,6 +117,14 @@ option("ini_parser")
     set_description("Enable ini parser")
 option_end()
 
+option("mo")
+    set_default(false)
+    set_showmenu(true)
+    set_category("hikyuu")
+    set_description("国际化支持")
+option_end()
+
+
 if get_config("leak_check") then
     -- 需要 export LD_PRELOAD=libasan.so
     set_policy("build.sanitizer.address", true)
@@ -223,6 +231,7 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_INI_PARSER", get_config("ini_parser") and 1 or 0)
     set_configvar("HKU_ENABLE_STACK_TRACE", get_config("stacktrace") and 1 or 0)
     set_configvar("HKU_CLOSE_SPEND_TIME", get_config("spend_time") and 0 or 1)
+    set_configvar("HKU_ENABLE_MO", get_config("mo") and 1 or 0)
     set_configvar("HKU_DEFAULT_LOG_NAME", get_config("log_name"))
     set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", get_config("async_log") and 1 or 0)
     local level = get_config("log_level")
@@ -318,6 +327,10 @@ target("hku_utils")
 
     if get_config("datetime") then
         add_files("hikyuu/utilities/datetime/*.cpp")
+    end
+
+    if get_config("mo") then
+        add_files("hikyuu/utilities/mo/*.cpp")
     end
 
     before_build(function(target)
