@@ -25,7 +25,7 @@ target("unit-test")
     end
 
     if is_plat("windows") then
-        add_cxflags("-wd4996")
+        add_cxflags("-wd4996", "-wd4251")
     end
 
     add_files("*.cpp")
@@ -56,6 +56,13 @@ target("unit-test")
         if x == nil then
             target:set("languages", "cxx17")
         end
+
+        if is_plat("windows") then
+            local pkg = target:dep("hku_utils")
+            if pkg:kind() == "shared" then
+                target:add("defines", "HKU_UTILS_API=__declspec(dllimport)")
+            end
+        end        
     end)    
 
     before_run(function (target)
