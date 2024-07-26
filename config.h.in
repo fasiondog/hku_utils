@@ -5,6 +5,10 @@
 #include "cppdef.h"
 #include "osdef.h"
 
+#ifndef HKU_UTILS_API
+#define HKU_UTILS_API
+#endif
+
 // clang-format off
 
 ${define HKU_ENABLE_MYSQL}
@@ -31,6 +35,8 @@ ${define HKU_USE_SPDLOG_ASYNC_LOGGER}
 ${define HKU_LOG_ACTIVE_LEVEL}
 
 ${define HKU_ENABLE_MO}
+
+${define HKU_ENABLE_HTTP_CLIENT}
 
 // clang-format on
 

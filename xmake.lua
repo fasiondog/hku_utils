@@ -12,7 +12,6 @@ add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 option("mysql")
     set_default(false)
     set_showmenu(true)
-    set_category("hikyuu")
     set_description("Enable mysql kdata engine.")
     if is_plat("macosx") then
         if os.exists("/usr/local/opt/mysql-client/lib") then
@@ -38,94 +37,26 @@ option("mysql")
     end        
 option_end()
 
-option("sqlite")
-    set_default(true)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Enable sqlite kdata engine.")
-option_end()
-
-option("sqlcipher")
-    set_default(false)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Enalbe sqlchiper driver")
-option_end()
-
-option("sql_trace")
-    set_default(false)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("打印执行的 SQL 语句")
-option_end()
+option("sqlite", {description = "Enable sqlite driver.", default = true})
+option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
+option("sql_trace", {description = "Print the executed SQL statement", default = false})
 
 -- 注意：stacktrace 在 windows 下会严重影响性能
-option("stacktrace")
-    set_default(false)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Enable check/assert with stack trace info.")
-option_end()
+option("stacktrace", {description = "Enable check/assert with stack trace info.", default = false})
 
-option("datetime")
-    set_default(true)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Enable DateTime.")
-option_end()
+option("datetime", {description = "Enable DateTime.", default = true})
+option("spend_time", {description = "Enable spent time.", default = true})
 
-option("spend_time")
-    set_default(true)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Enable spend time.")
-option_end()
+option("log_name", {description = "set default log name.", default = "hikyuu"})
+option("log_level", {description = "set log level.", default = "info", values = {"trace", "debug", "info", "warn", "error", "fatal", "off"}})
+option("async_log", {description = "Use async log.", default = false})
 
-option("log_name")
-    set_default("hikyuu")
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("set default log name")
-option_end()
+option("leak_check", {description = "Enable leak check for test", default = false})
+option("ini_parser", {description = "Enable ini parser.", default = true})
+option("mo", {description = "International language support", default = false})
+option("http_client", {description = "use http client", default = true})
 
-option("log_level")
-    set_default("info")
-    set_values("trace", "debug", "info", "warn", "error", "fatal", "off")
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("set log level")
-option_end()
-
-option("async_log")
-    set_default(false)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Use async log.")
-option_end()
-
-option("leak_check")
-    set_default(false)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Enable leak check for test")
-option_end()
-
-option("ini_parser")
-    set_default(true)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("Enable ini parser")
-option_end()
-
-option("mo")
-    set_default(false)
-    set_showmenu(true)
-    set_category("hikyuu")
-    set_description("国际化支持")
-option_end()
-
-
-if get_config("leak_check") then
+if has_config("leak_check") then
     -- 需要 export LD_PRELOAD=libasan.so
     set_policy("build.sanitizer.address", true)
     set_policy("build.sanitizer.leak", true)
@@ -175,7 +106,7 @@ add_requires("boost", {
       shared = is_plat("windows"),
       runtimes = get_config("runtime"),
       multi = true,
-      date_time = get_config("datetime"),
+      date_time = has_config("datetime"),
       filesystem = false,
       serialization = false,
       system = false,
@@ -184,26 +115,26 @@ add_requires("boost", {
   })
 
 -- 使用 sqlcipher 时，忽略 sqlite3
-if get_config("sqlcipher") then
+if has_config("sqlcipher") then
     if is_plat("iphoneos") then
         add_requires("sqlcipher", {system=false})
     else 
         add_requires("sqlcipher", {system = false, configs = {shared = true, SQLITE_THREADSAFE="2"}})
     end
-elseif get_config("sqlite") then
+elseif has_config("sqlite") then
     if is_plat("windows", "android", "cross") then 
         add_requires("sqlite3", {system = false, configs = {shared = true, SQLITE_THREADSAFE="2"}})
     end
 
     if is_plat("linux") and linuxos.name() == "ubuntu" then
         add_requires("apt::libsqlite3-dev")
-        if get_config("mysql") then
+        if has_config("mysql") then
             add_requires("apt::libmysqlclient-dev")
         end
     end
 end
 
-if get_config("mysql") then 
+if has_config("mysql") then 
     if is_plat("windows") then 
         add_requires("mysql")
     elseif is_plat("macosx") then 
@@ -211,6 +142,10 @@ if get_config("mysql") then
     elseif is_plat("linux") and linuxos.name() == "ubuntu" then
         add_requires("apt::libmysqlclient-dev")
     end
+end
+
+if has_config("http_client") then
+    add_requires("nng")
 end
 
 set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
@@ -223,17 +158,18 @@ target("hku_utils")
     add_configfiles("$(projectdir)/version.h.in")
     add_configfiles("$(projectdir)/config.h.in")
 
-    set_configvar("HKU_ENABLE_MYSQL", get_config("mysql") and 1 or 0)
-    set_configvar("HKU_ENABLE_SQLITE", (get_config("sqlite") or get_config("sqlcipher")) and 1 or 0)
-    set_configvar("HKU_ENABLE_SQLCIPHER", get_config("sqlcipher") and 1 or 0)
-    set_configvar("HKU_SQL_TRACE", get_config("sql_trace") and 1 or 0)
-    set_configvar("HKU_SUPPORT_DATETIME", get_config("datetime") and 1 or 0)
-    set_configvar("HKU_ENABLE_INI_PARSER", get_config("ini_parser") and 1 or 0)
-    set_configvar("HKU_ENABLE_STACK_TRACE", get_config("stacktrace") and 1 or 0)
-    set_configvar("HKU_CLOSE_SPEND_TIME", get_config("spend_time") and 0 or 1)
-    set_configvar("HKU_ENABLE_MO", get_config("mo") and 1 or 0)
+    set_configvar("HKU_ENABLE_MYSQL", has_config("mysql") and 1 or 0)
+    set_configvar("HKU_ENABLE_SQLITE", (has_config("sqlite") or has_config("sqlcipher")) and 1 or 0)
+    set_configvar("HKU_ENABLE_SQLCIPHER", has_config("sqlcipher") and 1 or 0)
+    set_configvar("HKU_SQL_TRACE", has_config("sql_trace") and 1 or 0)
+    set_configvar("HKU_SUPPORT_DATETIME", has_config("datetime") and 1 or 0)
+    set_configvar("HKU_ENABLE_INI_PARSER", has_config("ini_parser") and 1 or 0)
+    set_configvar("HKU_ENABLE_STACK_TRACE", has_config("stacktrace") and 1 or 0)
+    set_configvar("HKU_CLOSE_SPEND_TIME", has_config("spend_time") and 0 or 1)
+    set_configvar("HKU_ENABLE_MO", has_config("mo") and 1 or 0)
+    set_configvar("HKU_ENABLE_HTTP_CLIENT", has_config("http_client") and 1 or 0)
     set_configvar("HKU_DEFAULT_LOG_NAME", get_config("log_name"))
-    set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", get_config("async_log") and 1 or 0)
+    set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", has_config("async_log") and 1 or 0)
     local level = get_config("log_level")
     if level == "trace" then
         set_configvar("HKU_LOG_ACTIVE_LEVEL", 0)
@@ -255,9 +191,9 @@ target("hku_utils")
 
     add_includedirs(".")
 
-    if get_config("sqlcipher") then
+    if has_config("sqlcipher") then
         add_packages("sqlcipher")
-    elseif get_config("sqlite") then
+    elseif has_config("sqlite") then
         if is_plat("windows", "android", "cross") then
             add_packages("sqlite3")
         elseif is_plat("linux", "cross") then 
@@ -270,8 +206,12 @@ target("hku_utils")
         end
     end
 
-    if get_config("mysql") then
+    if has_config("mysql") then
         add_packages("mysql")
+    end
+
+    if has_config("http_client") then
+        add_packages("nng")
     end
  
     if is_plat("linux", "cross") then 
@@ -313,24 +253,28 @@ target("hku_utils")
     add_files("hikyuu/utilities/thread/*.cpp")
     add_files("hikyuu/utilities/db_connect/*.cpp")
 
-    if get_config("sqlite") then
+    if has_config("sqlite") then
         add_files("hikyuu/utilities/db_connect/sqlite/*.cpp")
     end
 
-    if get_config("mysql") then
+    if has_config("mysql") then
         add_files("hikyuu/utilities/db_connect/mysql/*.cpp")
     end
 
-    if get_config("ini_parser") then
+    if has_config("ini_parser") then
         add_files("hikyuu/utilities/ini_parser/*.cpp")
     end
 
-    if get_config("datetime") then
+    if has_config("datetime") then
         add_files("hikyuu/utilities/datetime/*.cpp")
     end
 
-    if get_config("mo") then
+    if has_config("mo") then
         add_files("hikyuu/utilities/mo/*.cpp")
+    end
+
+    if has_config("http_client") then
+        add_files("hikyuu/utilities/http_client/*.cpp")
     end
 
     before_build(function(target)
