@@ -12,6 +12,7 @@
 #include <string>
 #include <nng/nng.h>
 #include <nng/supplemental/http/http.h>
+#include "hikyuu/utilities/Log.h"
 
 namespace hku {
 namespace nng {
@@ -19,8 +20,14 @@ namespace nng {
 class url final {
 public:
     url() = default;
-    explicit url(const std::string& url_) {
-        nng_url_parse(&m_url, url_.c_str());
+    url(const std::string& url_) {
+        int rv = nng_url_parse(&m_url, url_.c_str());
+        HKU_WARN_IF(rv != 0, "Invalid url: {}", url_);
+    }
+
+    url(const url&) = delete;
+    url(url&& rhs) noexcept : m_url(rhs.m_url) {
+        rhs.m_url = nullptr;
     }
 
     ~url() {
@@ -33,7 +40,9 @@ public:
         if (m_url) {
             nng_url_free(m_url);
         }
-        nng_url_parse(&m_url, url_.c_str());
+
+        int rv = nng_url_parse(&m_url, url_.c_str());
+        HKU_WARN_IF(rv != 0, "Invalid url: {}", url_);
     }
 
     nng_url* get() const noexcept {
@@ -51,6 +60,33 @@ public:
 private:
     nng_url* m_url{nullptr};
 };
+
+class http_client final {
+public:
+    http_client() = delete;
+    http_client(const nng::url& url) {
+        nng_http_client_alloc(&m_client, url.get());
+    }
+
+    ~http_client() {
+        if (m_client) {
+            nng_http_client_free(m_client);
+        }
+    }
+
+    nng_http_client* get() const noexcept {
+        return m_client;
+    }
+
+    explicit operator bool() const noexcept {
+        return m_client != nullptr;
+    }
+
+private:
+    nng_http_client* m_client{nullptr};
+};
+
+class req final {};
 
 }  // namespace nng
 }  // namespace hku

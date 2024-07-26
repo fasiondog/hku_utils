@@ -19,28 +19,30 @@
 
 namespace hku {
 
-HttpClient::HttpClient(const std::string& url) {
-    int rv = nng_url_parse(&m_url, url.c_str());
-    NNG_CHECK(rv);
+HttpClient::HttpClient(const std::string& url) noexcept : m_url(nng::url(url)) {
+    if (!m_url) {
+        HKU_WARN("Invalid url: {}", url);
+        return;
+    }
 
-    rv = nng_http_client_alloc(&m_client, m_url);
+    int rv = nng_http_client_alloc(&m_client, m_url.get());
     if (rv != 0) {
-        nng_url_free(m_url);
-        HKU_THROW("[NNG_ERROR] {}", nng_strerror(rv));
+        HKU_WARN("[NNG_ERROR] {}", nng_strerror(rv));
+        return;
     }
 
     rv = nng_aio_alloc(&m_aio, NULL, NULL);
     if (rv != 0) {
-        nng_url_free(m_url);
         nng_http_client_free(m_client);
-        HKU_THROW("[NNG_ERROR] {}", nng_strerror(rv));
+        HKU_WARN("[NNG_ERROR] {}", nng_strerror(rv));
+        return;
     }
 
     nng_http_client_connect(m_client, m_aio);
+    m_valid = true;
 }
 
 HttpClient::~HttpClient() {
-    nng_url_free(m_url);
     nng_http_conn_close(m_conn);
     nng_http_client_free(m_client);
     // nng_aio_free(m_aio);  // nng_http_client_free会释放 aio
@@ -48,7 +50,7 @@ HttpClient::~HttpClient() {
 
 void HttpClient::get(const std::string& path) {
     nng_http_req* req;
-    int rv = nng_http_req_alloc(&req, m_url);
+    int rv = nng_http_req_alloc(&req, m_url.get());
     NNG_CHECK(rv);
 
     rv = nng_http_req_set_method(req, "GET");

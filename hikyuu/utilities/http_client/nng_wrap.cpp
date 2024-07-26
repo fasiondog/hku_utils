@@ -5,7 +5,6 @@
  *      Author: fasiondog
  */
 
-#include "hikyuu/utilities/Log.h"
 #include "nng_wrap.h"
 
 #ifndef NNG_CHECK
