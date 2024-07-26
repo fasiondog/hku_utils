@@ -459,6 +459,15 @@ protected:                    \
 #define CLS_FATAL_IF_RETURN(expr, ret, ...) \
     HKU_FATAL_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
 
+#define CLS_ASSERT HKU_ASSERT
+#define CLS_CHECK(expr, ...) \
+    HKU_CHECK(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_CHECK_THROW(expr, except, ...) \
+    HKU_CHECK_THROW(expr, except, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_THROW(...) HKU_THROW(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+#define CLS_THROW_EXCEPTION(except, ...) \
+    HKU_THROW_EXCEPTION(except, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+
 /** @} */
 
 } /* namespace hku */
