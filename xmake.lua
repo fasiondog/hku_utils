@@ -165,9 +165,9 @@ end
 add_repositories("hikyuu-repo https://github.com/fasiondog/hikyuu_extern_libs.git")
 -- add_repositories("hikyuu-repo https://gitee.com/fasiondog/hikyuu_extern_libs.git
 
-add_requires("fmt", {system=false})
-add_requires("spdlog", {system = false, configs = {header_only = true, fmt_external = true}})
-add_requires("yas", {system=false})
+add_requires("fmt", {configs = {header_only = true}})
+add_requires("spdlog", {configs = {header_only = true, fmt_external = true}})
+add_requires("yas")
 add_requires("boost", {
     system = false,
     debug = is_mode("debug"),
