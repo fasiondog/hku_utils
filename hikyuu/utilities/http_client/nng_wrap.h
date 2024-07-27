@@ -12,17 +12,36 @@
 #include <string>
 #include <nng/nng.h>
 #include <nng/supplemental/http/http.h>
+#include <nng/supplemental/tls/tls.h>
 #include "hikyuu/utilities/Log.h"
 
 namespace hku {
 namespace nng {
 
+#ifndef NNG_CHECK
+#define NNG_CHECK(rv)                                       \
+    {                                                       \
+        if (rv != 0) {                                      \
+            HKU_THROW("[NNG_ERROR] {} ", nng_strerror(rv)); \
+        }                                                   \
+    }
+#endif
+
+#ifndef NNG_CHECK_M
+#define NNG_CHECK_M(rv, ...)                                                              \
+    {                                                                                     \
+        if (rv != 0) {                                                                    \
+            HKU_THROW("{} | [NNG_ERROR] {}", fmt::format(__VA_ARGS__), nng_strerror(rv)); \
+        }                                                                                 \
+    }
+#endif
+
 class url final {
 public:
     url() = default;
     url(const std::string& url_) {
-        int rv = nng_url_parse(&m_url, url_.c_str());
-        HKU_WARN_IF(rv != 0, "Invalid url: {}", url_);
+        HKU_WARN_IF(nng_url_parse(&m_url, url_.c_str()) != 0, "Invalid url: {}", url_);
+        // NNG_CHECK_M(nng_url_parse(&m_url, url_.c_str()), "Invalid url: {}", url_);
     }
 
     url(const url&) = delete;

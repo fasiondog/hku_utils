@@ -26,7 +26,7 @@ namespace hku {
 class HKU_UTILS_API HttpClient {
 public:
     HttpClient() = delete;
-    explicit HttpClient(const std::string& url) noexcept;
+    explicit HttpClient(const std::string& url);
     virtual ~HttpClient();
 
     explicit operator bool() const noexcept {
@@ -40,6 +40,7 @@ private:
     nng_http_client* m_client{nullptr};
     nng_aio* m_aio{nullptr};
     nng_http_conn* m_conn{nullptr};
+    nng_tls_config* m_tls_cfg{nullptr};
     bool m_valid{false};
 };
 

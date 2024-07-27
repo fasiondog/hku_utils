@@ -145,7 +145,7 @@ if has_config("mysql") then
 end
 
 if has_config("http_client") then
-    add_requires("nng")
+    add_requires("nng", {configs = {NNG_ENABLE_TLS = true}})
 end
 
 set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")

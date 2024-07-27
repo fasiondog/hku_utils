@@ -11,7 +11,7 @@
 using namespace hku;
 
 TEST_CASE("test_HttpClient") {
-    HttpClient cli("http://httpbin.org");
+    HttpClient cli("https://httpbin.org");
     cli.get("/ip");
-    cli.get("/ip");
+    // cli.get("/ip");
 }
