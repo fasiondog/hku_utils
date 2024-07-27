@@ -55,6 +55,7 @@ option("leak_check", {description = "Enable leak check for test", default = fals
 option("ini_parser", {description = "Enable ini parser.", default = true})
 option("mo", {description = "International language support", default = false})
 option("http_client", {description = "use http client", default = true})
+option("http_client_ssl", {description = "enable https support for http client", default = true})
 
 if has_config("leak_check") then
     -- 需要 export LD_PRELOAD=libasan.so
@@ -145,7 +146,7 @@ if has_config("mysql") then
 end
 
 if has_config("http_client") then
-    add_requires("nng", {configs = {NNG_ENABLE_TLS = true}})
+    add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
 end
 
 set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
@@ -168,6 +169,7 @@ target("hku_utils")
     set_configvar("HKU_CLOSE_SPEND_TIME", has_config("spend_time") and 0 or 1)
     set_configvar("HKU_ENABLE_MO", has_config("mo") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT", has_config("http_client") and 1 or 0)
+    set_configvar("HKU_ENABLE_HTTP_CLIENT_SSL", has_config("http_client_ssl") and 1 or 0)
     set_configvar("HKU_DEFAULT_LOG_NAME", get_config("log_name"))
     set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", has_config("async_log") and 1 or 0)
     local level = get_config("log_level")

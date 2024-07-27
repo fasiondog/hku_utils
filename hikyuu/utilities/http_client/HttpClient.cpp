@@ -10,54 +10,37 @@
 
 namespace hku {
 
-HttpClient::HttpClient(const std::string& url) : m_url(nng::url(url)) {
-    if (!m_url) {
-        HKU_WARN("Invalid url: {}", url);
-        return;
-    }
-
-    int rv = nng_http_client_alloc(&m_client, m_url.get());
-    if (rv != 0) {
-        HKU_WARN("[NNG_ERROR] {}", nng_strerror(rv));
-        return;
-    }
-
-    rv = nng_tls_config_alloc(&m_tls_cfg, NNG_TLS_MODE_CLIENT);
-    NNG_CHECK(rv);
-
-    rv = nng_tls_config_ca_file(m_tls_cfg, "test_data/ca-bundle.crt");
-    NNG_CHECK(rv);
-
-    nng_http_client_set_tls(m_client, m_tls_cfg);
-    NNG_CHECK(rv);
-
-    rv = nng_aio_alloc(&m_aio, NULL, NULL);
-    if (rv != 0) {
-        nng_http_client_free(m_client);
-        HKU_WARN("[NNG_ERROR] {}", nng_strerror(rv));
-        return;
-    }
-
-    nng_http_client_connect(m_client, m_aio);
-    m_valid = true;
-}
-
 HttpClient::~HttpClient() {
     if (m_conn) {
         nng_http_conn_close(m_conn);
     }
 
-    if (m_client) {
-        nng_http_client_free(m_client);
-    }
-
     if (m_tls_cfg) {
         nng_tls_config_free(m_tls_cfg);
     }
-    // nng_aio_free(m_aio);  // nng_http_client_free会释放 aio
+}
+
+void HttpClient::_connect() {
+    HKU_CHECK(m_url.valid(), "Invalid url: {}", m_url.rawUrl());
+
+    m_client.setUrl(m_url);
+
+    int rv = nng_tls_config_alloc(&m_tls_cfg, NNG_TLS_MODE_CLIENT);
+    NNG_CHECK(rv);
+
+    rv = nng_tls_config_ca_file(m_tls_cfg, "test_data/ca-bundle.crt");
+    NNG_CHECK(rv);
+
+    nng_http_client_set_tls(m_client.get(), m_tls_cfg);
+    NNG_CHECK(rv);
+
+    m_aio.alloc();
+    m_aio.setTimeout(m_timeout_ms);
+    m_client.connect(m_aio.get());
 }
 
 void HttpClient::get(const std::string& path) {
+    _connect();
     nng_http_req* req;
     int rv = nng_http_req_alloc(&req, m_url.get());
     NNG_CHECK(rv);
@@ -68,20 +51,19 @@ void HttpClient::get(const std::string& path) {
     rv = nng_http_req_set_uri(req, path.c_str());
     NNG_CHECK(rv);
 
-    nng_aio_wait(m_aio);
-
-    rv = nng_aio_result(m_aio);
-    NNG_CHECK(rv);
+    m_aio.wait();
+    m_aio.result();
 
     if (!m_conn) {
-        m_conn = (nng_http_conn*)nng_aio_get_output(m_aio, 0);
+        m_conn = (nng_http_conn*)nng_aio_get_output(m_aio.get(), 0);
     }
 
     nng_http_res* res{nullptr};
     rv = nng_http_res_alloc(&res);
-    nng_http_conn_transact(m_conn, req, res, m_aio);
-    nng_aio_wait(m_aio);
-    nng_aio_result(m_aio);
+    nng_http_conn_transact(m_conn, req, res, m_aio.get());
+    m_aio.wait();
+    m_aio.result();
+
     if (nng_http_res_get_status(res) != NNG_HTTP_STATUS_OK) {
         HKU_INFO("HTTP Server Responded: {} {}", nng_http_res_get_status(res),
                  nng_http_res_get_reason(res));

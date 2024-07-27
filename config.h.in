@@ -37,6 +37,7 @@ ${define HKU_LOG_ACTIVE_LEVEL}
 ${define HKU_ENABLE_MO}
 
 ${define HKU_ENABLE_HTTP_CLIENT}
+${define HKU_ENABLE_HTTP_CLIENT_SSL}
 
 // clang-format on
 
