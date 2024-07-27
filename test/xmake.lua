@@ -18,7 +18,7 @@ target("unit-test")
     end
 
     if has_config("http_client") then
-        add_packages("nng")
+        add_packages("nng", "nlohmann_json")
     end
 
     add_includedirs("..", ".")

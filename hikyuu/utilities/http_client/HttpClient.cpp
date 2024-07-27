@@ -11,39 +11,42 @@
 namespace hku {
 
 HttpClient::~HttpClient() {
-    if (m_conn) {
-        nng_http_conn_close(m_conn);
-    }
-
     if (m_tls_cfg) {
         nng_tls_config_free(m_tls_cfg);
     }
 }
 
 void HttpClient::_connect() {
-    HKU_CHECK(m_url.valid(), "Invalid url: {}", m_url.rawUrl());
+    HKU_CHECK(m_url.valid(), "Invalid url: {}", m_url.raw_url());
 
-    m_client.setUrl(m_url);
+    m_client.set_url(m_url);
 
-    int rv = nng_tls_config_alloc(&m_tls_cfg, NNG_TLS_MODE_CLIENT);
-    NNG_CHECK(rv);
+    if (m_url.is_https()) {
+        int rv = nng_tls_config_alloc(&m_tls_cfg, NNG_TLS_MODE_CLIENT);
+        NNG_CHECK(rv);
 
-    rv = nng_tls_config_ca_file(m_tls_cfg, "test_data/ca-bundle.crt");
-    NNG_CHECK(rv);
+        rv = nng_tls_config_ca_file(m_tls_cfg, "test_data/ca-bundle.crt");
+        NNG_CHECK(rv);
 
-    nng_http_client_set_tls(m_client.get(), m_tls_cfg);
-    NNG_CHECK(rv);
+        m_client.set_tls(m_tls_cfg);
+    }
 
     m_aio.alloc();
-    m_aio.setTimeout(m_timeout_ms);
+    m_aio.set_timeout(m_timeout_ms);
     m_client.connect(m_aio.get());
 }
 
-void HttpClient::get(const std::string& path) {
+HttpResponse HttpClient::get(const std::string& path) {
+    HttpResponse res;
     _connect();
+
     nng_http_req* req;
     int rv = nng_http_req_alloc(&req, m_url.get());
     NNG_CHECK(rv);
+
+    // HKU_INFO("http version: {}", nng_http_req_get_version(req));
+    // nng_http_req_set_header(req, "Connection", "keep-alive");
+    // HKU_INFO("Connection: {}", nng_http_req_get_header(req, "Connection"));
 
     rv = nng_http_req_set_method(req, "GET");
     NNG_CHECK(rv);
@@ -54,101 +57,83 @@ void HttpClient::get(const std::string& path) {
     m_aio.wait();
     m_aio.result();
 
-    if (!m_conn) {
-        m_conn = (nng_http_conn*)nng_aio_get_output(m_aio.get(), 0);
+    if (!m_conn.valid()) {
+        m_conn = std::move(nng::http_conn((nng_http_conn*)m_aio.get_output(0)));
     }
 
-    nng_http_res* res{nullptr};
-    rv = nng_http_res_alloc(&res);
-    nng_http_conn_transact(m_conn, req, res, m_aio.get());
+    // Send the request, and wait for that to finish.
+    m_conn.write_req(req, m_aio.get());
+
     m_aio.wait();
     m_aio.result();
 
-    if (nng_http_res_get_status(res) != NNG_HTTP_STATUS_OK) {
-        HKU_INFO("HTTP Server Responded: {} {}", nng_http_res_get_status(res),
-                 nng_http_res_get_reason(res));
-        return;
-    }
+    m_conn.read_res(res.get(), m_aio.get());
 
-    void* data;
-    size_t len;
-    nng_http_res_get_data(res, &data, &len);
-    HKU_INFO("data len: {}", len);
+    m_aio.wait();
+    m_aio.result();
 
     nng_http_req_free(req);
-    nng_http_res_free(res);
 
-#if 0
-    // Send the request, and wait for that to finish.
-    nng_http_conn_write_req(m_conn, req, m_aio);
-
-    HKU_INFO("*******************");
-
-    nng_aio_wait(m_aio);
-    rv = nng_aio_result(m_aio);
-    HKU_INFO("*******************");
-
-    nng_http_req_free(req);
-    HKU_INFO("*******************");
-    NNG_CHECK(rv);
-    HKU_INFO("*******************");
-
-    // Read a response.
-    nng_http_res* res{nullptr};
-    rv = nng_http_res_alloc(&res);
-    NNG_CHECK(rv);
-
-    nng_http_conn_read_res(m_conn, res, m_aio);
-    nng_aio_wait(m_aio);
-    rv = nng_aio_result(m_aio);
-    NNG_CHECK(rv);
-
-    if (nng_http_res_get_status(res) != NNG_HTTP_STATUS_OK) {
-        HKU_INFO("HTTP Server Responded: {} {}", nng_http_res_get_status(res),
-                 nng_http_res_get_reason(res));
-        return;
+    if (res.status() != NNG_HTTP_STATUS_OK) {
+        HKU_INFO("HTTP Server Responded: {} {}", res.status(), res.reason());
+        return res;
     }
 
-    const char* hdr;
-    if ((hdr = nng_http_res_get_header(res, "Content-Length")) == NULL) {
+    std::string hdr = res.getHeader("Content-Length");
+    if (hdr.empty()) {
         HKU_INFO("Missing Content-Length header.");
-        return;
+        return res;
     }
 
-    int len = std::atoi(hdr);
+    size_t len = std::stoi(hdr);
     if (len == 0) {
-        return;
+        return res;
     }
 
-    HKU_INFO("data len: {}", len);
-
-    void* data{nullptr};
-    nng_iov iov;
-    // Allocate a buffer to receive the body data.
-    data = malloc(len);
+    res._resizeBody(len);
 
     // Set up a single iov to point to the buffer.
+    nng_iov iov;
     iov.iov_len = len;
-    iov.iov_buf = data;
+    iov.iov_buf = res.m_body.data();
 
     // Following never fails with fewer than 5 elements.
-    nng_aio_set_iov(m_aio, 1, &iov);
+    nng_aio_set_iov(m_aio.get(), 1, &iov);
 
     // Now attempt to receive the data.
-    nng_http_conn_read_all(m_conn, m_aio);
+    m_conn.read_all(m_aio.get());
 
     // Wait for it to complete.
-    nng_aio_wait(m_aio);
+    m_aio.wait();
+    m_aio.result();
 
-    nng_http_res_free(res);
+    return res;
+}
 
-    if ((rv = nng_aio_result(m_aio)) != 0) {
-        free(data);
-        HKU_THROW("[NNG_ERROR] {}", nng_strerror(rv));
+HttpResponse::HttpResponse() {
+    NNG_CHECK(nng_http_res_alloc(&m_res));
+}
+
+HttpResponse::~HttpResponse() {
+    if (m_res) {
+        nng_http_res_free(m_res);
     }
+}
 
-    free(data);
-#endif
+HttpResponse::HttpResponse(HttpResponse&& rhs) : m_res(rhs.m_res), m_body(std::move(rhs.m_body)) {
+    rhs.m_res = nullptr;
+}
+
+HttpResponse& HttpResponse::operator=(HttpResponse&& rhs) {
+    if (this != &rhs) {
+        if (m_res != nullptr) {
+            nng_http_res_free(m_res);
+        }
+        m_res = rhs.m_res;
+        rhs.m_res = nullptr;
+        m_body = std::move(rhs.m_body);
+    }
+    return *this;
 }
 
 }  // namespace hku

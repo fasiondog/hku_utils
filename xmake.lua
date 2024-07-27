@@ -147,6 +147,7 @@ end
 
 if has_config("http_client") then
     add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
+    add_requires("nlohmann_json")
 end
 
 set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
@@ -213,7 +214,7 @@ target("hku_utils")
     end
 
     if has_config("http_client") then
-        add_packages("nng")
+        add_packages("nng", "nlohmann_json")
     end
  
     if is_plat("linux", "cross") then 
