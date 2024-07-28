@@ -26,48 +26,7 @@ using json = nlohmann::json;
 
 namespace hku {
 
-class HKU_UTILS_API HttpResponse;
-
-class HKU_UTILS_API HttpClient {
-public:
-    HttpClient() = default;
-    explicit HttpClient(const std::string& url) : m_url(nng::url(url)) {};
-    virtual ~HttpClient();
-
-    bool valid() const noexcept {
-        return m_url.valid();
-    }
-
-    const std::string& url() const noexcept {
-        return m_url.raw_url();
-    }
-
-    void setUrl(const std::string& url) noexcept {
-        m_url = std::move(nng::url(url));
-    }
-
-    void setTimeout(int32_t ms) {
-        m_timeout_ms = ms;
-        reset();
-    }
-
-    void reset();
-
-    HttpResponse get(const std::string& path);
-
-private:
-    void _connect();
-
-private:
-    nng::url m_url;
-    nng::http_client m_client;
-    nng::aio m_aio;
-    nng::http_conn m_conn;
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-    nng::tls_config m_tls_cfg;
-#endif
-    int32_t m_timeout_ms{0};
-};
+class HKU_UTILS_API HttpClient;
 
 class HKU_UTILS_API HttpResponse final {
     friend class HKU_UTILS_API HttpClient;
@@ -120,6 +79,61 @@ private:
 private:
     nng_http_res* m_res{nullptr};
     std::string m_body;
+};
+
+class HKU_UTILS_API HttpClient {
+public:
+    HttpClient() = default;
+    explicit HttpClient(const std::string& url) : m_url(nng::url(url)) {};
+    virtual ~HttpClient();
+
+    bool valid() const noexcept {
+        return m_url.valid();
+    }
+
+    const std::string& url() const noexcept {
+        return m_url.raw_url();
+    }
+
+    void setUrl(const std::string& url) noexcept {
+        m_url = std::move(nng::url(url));
+    }
+
+    void setTimeout(int32_t ms) {
+        m_timeout_ms = ms;
+        reset();
+    }
+
+    void setDefaultHeaders(const HttpHeaders& headers) {
+        m_default_headers = headers;
+    }
+
+    void setDefaultHeaders(HttpHeaders&& headers) {
+        m_default_headers = std::move(headers);
+    }
+
+    void reset();
+
+    HttpResponse get(const std::string& path) {
+        return request("GET", path, {}, nullptr, 0, "");
+    }
+
+private:
+    HttpResponse request(const std::string& method, const std::string& path, const HttpHeaders&,
+                         const char* body, size_t len, const std::string& content_type);
+
+    void _connect();
+
+private:
+    HttpHeaders m_default_headers;
+    nng::url m_url;
+    nng::http_client m_client;
+    nng::aio m_aio;
+    nng::http_conn m_conn;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    nng::tls_config m_tls_cfg;
+#endif
+    int32_t m_timeout_ms{0};
 };
 
 }  // namespace hku

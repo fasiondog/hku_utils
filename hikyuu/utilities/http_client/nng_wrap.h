@@ -20,10 +20,14 @@
 #endif
 
 namespace hku {
+
 struct HttpTimeoutException : hku::exception {
     HttpTimeoutException() : hku::exception("Http timeout!") {}
     virtual ~HttpTimeoutException() noexcept = default;
 };
+
+using HttpHeaders = std::map<std::string, std::string>;
+
 }  // namespace hku
 
 namespace hku {
@@ -112,6 +116,14 @@ public:
         }
     }
 
+    nng_aio* get() const noexcept {
+        return m_aio;
+    }
+
+    nng_aio* operator->() const noexcept {
+        return m_aio;
+    }
+
     void alloc() {
         if (m_aio == nullptr) {
             NNG_CHECK(nng_aio_alloc(&m_aio, NULL, NULL));
@@ -125,12 +137,13 @@ public:
         }
     }
 
-    void wait() {
+    aio& wait() {
         nng_aio_wait(m_aio);
+        return *this;
     }
 
-    int result() {
-        return nng_aio_result(m_aio);
+    void result() {
+        NNG_CHECK(nng_aio_result(m_aio));
     }
 
     void* get_output(unsigned index) {
@@ -154,12 +167,8 @@ public:
         }
     }
 
-    nng_aio* get() const noexcept {
-        return m_aio;
-    }
-
-    nng_aio* operator->() const noexcept {
-        return m_aio;
+    void set_iov(unsigned n, const nng_iov* iov) {
+        NNG_CHECK(nng_aio_set_iov(m_aio, n, iov));
     }
 
 private:
@@ -253,8 +262,8 @@ public:
         }
     }
 
-    void connect(nng_aio* aio) {
-        nng_http_client_connect(m_client, aio);
+    void connect(const aio& aio) {
+        nng_http_client_connect(m_client, aio.get());
     }
 
     void set_tls(nng_tls_config* cfg) {
@@ -282,6 +291,83 @@ public:
 
 private:
     nng_http_client* m_client{nullptr};
+};
+
+class http_req final {
+public:
+    http_req() = default;
+    http_req(url& url) {
+        NNG_CHECK(nng_http_req_alloc(&m_req, url.get()));
+    }
+
+    http_req(const http_req&) = delete;
+    http_req(http_req&& rhs) : m_req(rhs.m_req) {
+        rhs.m_req = nullptr;
+    }
+
+    ~http_req() {
+        if (m_req) {
+            nng_http_req_free(m_req);
+        }
+    }
+
+    http_req& operator=(const http_req&) = delete;
+    http_req& operator=(http_req&& rhs) {
+        if (this != &rhs) {
+            if (m_req) {
+                nng_http_req_free(m_req);
+            }
+            m_req = rhs.m_req;
+            rhs.m_req = nullptr;
+        }
+        return *this;
+    }
+
+    nng_http_req* get() const noexcept {
+        return m_req;
+    }
+
+    http_req& set_method(const std::string& method) {
+        NNG_CHECK(nng_http_req_set_method(m_req, method.c_str()));
+        return *this;
+    }
+
+    http_req& set_uri(const std::string& uri) {
+        NNG_CHECK(nng_http_req_set_uri(m_req, uri.c_str()));
+        return *this;
+    }
+
+    http_req& add_header(const std::string& key, const std::string& val) {
+        NNG_CHECK_M(nng_http_req_add_header(m_req, key.c_str(), val.c_str()),
+                    "Failed add head {}: {}", key, val);
+        return *this;
+    }
+
+    http_req& add_headers(const HttpHeaders& headers) {
+        for (auto iter = headers.cbegin(); iter != headers.cend(); ++iter) {
+            NNG_CHECK_M(nng_http_req_add_header(m_req, iter->first.c_str(), iter->second.c_str()),
+                        "Failed add header {}: {}", iter->first, iter->second);
+        }
+        return *this;
+    }
+
+    /* 注: data 需要自行管理且在 req 释放之前应该一直存在，主要避免拷贝 */
+    http_req& set_data(const char* data, size_t len) {
+        if (data != nullptr && len != 0) {
+            NNG_CHECK(nng_http_req_set_data(m_req, data, len));
+        }
+        return *this;
+    }
+
+    http_req& copy_data(const char* data, size_t len) {
+        if (data != nullptr && len != 0) {
+            NNG_CHECK(nng_http_req_copy_data(m_req, data, len));
+        }
+        return *this;
+    }
+
+private:
+    nng_http_req* m_req;
 };
 
 class http_conn final {
@@ -333,23 +419,21 @@ public:
         return m_conn != nullptr;
     }
 
-    void write_req(nng_http_req* req, nng_aio* aio) {
-        nng_http_conn_write_req(m_conn, req, aio);
+    void write_req(const http_req& req, const aio& aio) {
+        nng_http_conn_write_req(m_conn, req.get(), aio.get());
     }
 
-    void read_res(nng_http_res* res, nng_aio* aio) {
-        nng_http_conn_read_res(m_conn, res, aio);
+    void read_res(nng_http_res* res, const aio& aio) {
+        nng_http_conn_read_res(m_conn, res, aio.get());
     }
 
-    void read_all(nng_aio* aio) {
-        nng_http_conn_read_all(m_conn, aio);
+    void read_all(const aio& aio) {
+        nng_http_conn_read_all(m_conn, aio.get());
     }
 
 private:
     nng_http_conn* m_conn{nullptr};
 };
-
-class req final {};
 
 }  // namespace nng
 }  // namespace hku

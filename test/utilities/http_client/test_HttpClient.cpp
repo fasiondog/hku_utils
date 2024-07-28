@@ -34,7 +34,7 @@ TEST_CASE("test_HttpClient") {
     CHECK_UNARY(!invalid_cli2.valid());
 
     // 超时
-    HttpClient cli("https://httpbin.org/");
+    HttpClient cli("http://httpbin.org/");
     CHECK_UNARY(cli.valid());
 
     cli.setTimeout(3);
