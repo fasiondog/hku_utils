@@ -12,8 +12,12 @@
 #include <string>
 #include <nng/nng.h>
 #include <nng/supplemental/http/http.h>
-#include <nng/supplemental/tls/tls.h>
 #include "hikyuu/utilities/Log.h"
+
+#include "hikyuu/utilities/config.h"
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+#include <nng/supplemental/tls/tls.h>
+#endif
 
 namespace hku {
 struct HttpTimeoutException : hku::exception {
@@ -125,15 +129,8 @@ public:
         nng_aio_wait(m_aio);
     }
 
-    void result() {
-        int rv = nng_aio_result(m_aio);
-        HKU_IF_RETURN(rv == 0, void());
-
-        if (rv == NNG_ETIMEDOUT) {
-            throw HttpTimeoutException();
-        } else {
-            HKU_THROW("[NNG_ERROR] {} ", nng_strerror(rv));
-        }
+    int result() {
+        return nng_aio_result(m_aio);
     }
 
     void* get_output(unsigned index) {
@@ -169,6 +166,72 @@ private:
     nng_aio* m_aio{nullptr};
 };
 
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+class tls_config final {
+public:
+    tls_config() = default;
+
+    tls_config(const tls_config& th) : m_cfg(th.m_cfg) {
+        if (m_cfg) {
+            nng_tls_config_hold(th.m_cfg);
+        }
+    }
+
+    tls_config(tls_config&& rhs) : m_cfg(rhs.m_cfg) {
+        rhs.m_cfg = nullptr;
+    }
+
+    ~tls_config() {
+        if (m_cfg) {
+            nng_tls_config_free(m_cfg);
+        }
+    }
+
+    tls_config& operator=(const tls_config& th) {
+        if (this != &th) {
+            m_cfg = th.m_cfg;
+            if (m_cfg) {
+                nng_tls_config_hold(m_cfg);
+            }
+        }
+        return *this;
+    }
+
+    tls_config& operator=(tls_config&& rhs) {
+        if (this != &rhs) {
+            m_cfg = rhs.m_cfg;
+            rhs.m_cfg = nullptr;
+        }
+        return *this;
+    }
+
+    void release() {
+        if (m_cfg) {
+            nng_tls_config_free(m_cfg);
+            m_cfg = nullptr;
+        }
+    }
+
+    nng_tls_config* get() const noexcept {
+        return m_cfg;
+    }
+
+    tls_config& set_ca_file(const std::string& filename) {
+        NNG_CHECK(alloc());
+        NNG_CHECK(nng_tls_config_ca_file(m_cfg, filename.c_str()));
+        return *this;
+    }
+
+private:
+    int alloc() {
+        return m_cfg ? 0 : nng_tls_config_alloc(&m_cfg, NNG_TLS_MODE_CLIENT);
+    }
+
+private:
+    nng_tls_config* m_cfg{nullptr};
+};
+#endif  // #if HKU_ENABLE_HTTP_CLIENT_SSL
+
 class http_client final {
 public:
     http_client() = default;
@@ -179,6 +242,12 @@ public:
     }
 
     void set_url(const nng::url& url) {
+#if !HKU_ENABLE_HTTP_CLIENT_SSL
+        if (url.is_https()) {
+            HKU_THROW("Not support https: ({})! Please compile with --http_client_ssl",
+                      url.raw_url());
+        }
+#endif
         if (!m_client) {
             NNG_CHECK(nng_http_client_alloc(&m_client, url.get()));
         }
@@ -242,6 +311,13 @@ public:
     ~http_conn() {
         if (m_conn) {
             nng_http_conn_close(m_conn);
+        }
+    }
+
+    void close() {
+        if (m_conn) {
+            nng_http_conn_close(m_conn);
+            m_conn = nullptr;
         }
     }
 

@@ -11,9 +11,18 @@
 namespace hku {
 
 HttpClient::~HttpClient() {
-    if (m_tls_cfg) {
-        nng_tls_config_free(m_tls_cfg);
-    }
+    reset();
+}
+
+void HttpClient::reset() {
+    m_client.release();
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    m_tls_cfg.release();
+#endif
+
+    m_conn.close();
+    m_aio.release();
 }
 
 void HttpClient::_connect() {
@@ -22,90 +31,101 @@ void HttpClient::_connect() {
     m_client.set_url(m_url);
 
     if (m_url.is_https()) {
-        int rv = nng_tls_config_alloc(&m_tls_cfg, NNG_TLS_MODE_CLIENT);
-        NNG_CHECK(rv);
-
-        rv = nng_tls_config_ca_file(m_tls_cfg, "test_data/ca-bundle.crt");
-        NNG_CHECK(rv);
-
-        m_client.set_tls(m_tls_cfg);
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        m_tls_cfg.set_ca_file("test_data/ca-bundle.crt");
+        m_client.set_tls(m_tls_cfg.get());
+#endif
     }
 
     m_aio.alloc();
     m_aio.set_timeout(m_timeout_ms);
     m_client.connect(m_aio.get());
+
+    if (!m_conn.valid()) {
+        m_aio.wait();
+        NNG_CHECK(m_aio.result());
+        m_conn = std::move(nng::http_conn((nng_http_conn*)m_aio.get_output(0)));
+    }
 }
 
 HttpResponse HttpClient::get(const std::string& path) {
     HttpResponse res;
-    _connect();
 
-    nng_http_req* req;
-    int rv = nng_http_req_alloc(&req, m_url.get());
-    NNG_CHECK(rv);
+    try {
+        _connect();
 
-    // HKU_INFO("http version: {}", nng_http_req_get_version(req));
-    // nng_http_req_set_header(req, "Connection", "keep-alive");
-    // HKU_INFO("Connection: {}", nng_http_req_get_header(req, "Connection"));
-
-    rv = nng_http_req_set_method(req, "GET");
-    NNG_CHECK(rv);
-
-    rv = nng_http_req_set_uri(req, path.c_str());
-    NNG_CHECK(rv);
-
-    m_aio.wait();
-    m_aio.result();
-
-    if (!m_conn.valid()) {
-        m_conn = std::move(nng::http_conn((nng_http_conn*)m_aio.get_output(0)));
+    } catch (...) {
+        reset();
+        _connect();
     }
 
-    // Send the request, and wait for that to finish.
-    m_conn.write_req(req, m_aio.get());
+    try {
+        nng_http_req* req;
+        int rv = nng_http_req_alloc(&req, m_url.get());
+        NNG_CHECK(rv);
 
-    m_aio.wait();
-    m_aio.result();
+        rv = nng_http_req_set_method(req, "GET");
+        NNG_CHECK(rv);
 
-    m_conn.read_res(res.get(), m_aio.get());
+        rv = nng_http_req_set_uri(req, path.c_str());
+        NNG_CHECK(rv);
 
-    m_aio.wait();
-    m_aio.result();
+        // Send the request, and wait for that to finish.
+        m_conn.write_req(req, m_aio.get());
 
-    nng_http_req_free(req);
+        m_aio.wait();
+        NNG_CHECK(m_aio.result());
 
-    if (res.status() != NNG_HTTP_STATUS_OK) {
-        HKU_INFO("HTTP Server Responded: {} {}", res.status(), res.reason());
-        return res;
+        m_conn.read_res(res.get(), m_aio.get());
+
+        m_aio.wait();
+        m_aio.result();
+
+        nng_http_req_free(req);
+
+        if (res.status() != NNG_HTTP_STATUS_OK) {
+            HKU_INFO("HTTP Server Responded: {} {}", res.status(), res.reason());
+            return res;
+        }
+
+        std::string hdr = res.getHeader("Content-Length");
+        if (hdr.empty()) {
+            HKU_INFO("Missing Content-Length header.");
+            return res;
+        }
+
+        size_t len = std::stoi(hdr);
+        if (len == 0) {
+            return res;
+        }
+
+        res._resizeBody(len);
+
+        // Set up a single iov to point to the buffer.
+        nng_iov iov;
+        iov.iov_len = len;
+        iov.iov_buf = res.m_body.data();
+
+        // Following never fails with fewer than 5 elements.
+        nng_aio_set_iov(m_aio.get(), 1, &iov);
+
+        // Now attempt to receive the data.
+        m_conn.read_all(m_aio.get());
+
+        // Wait for it to complete.
+        m_aio.wait();
+        NNG_CHECK(m_aio.result());
+
+    } catch (const hku::HttpTimeoutException&) {
+        throw;
+        reset();
+    } catch (const std::exception& e) {
+        HKU_THROW(e.what());
+        reset();
+    } catch (...) {
+        HKU_THROW_UNKNOWN;
+        reset();
     }
-
-    std::string hdr = res.getHeader("Content-Length");
-    if (hdr.empty()) {
-        HKU_INFO("Missing Content-Length header.");
-        return res;
-    }
-
-    size_t len = std::stoi(hdr);
-    if (len == 0) {
-        return res;
-    }
-
-    res._resizeBody(len);
-
-    // Set up a single iov to point to the buffer.
-    nng_iov iov;
-    iov.iov_len = len;
-    iov.iov_buf = res.m_body.data();
-
-    // Following never fails with fewer than 5 elements.
-    nng_aio_set_iov(m_aio.get(), 1, &iov);
-
-    // Now attempt to receive the data.
-    m_conn.read_all(m_aio.get());
-
-    // Wait for it to complete.
-    m_aio.wait();
-    m_aio.result();
 
     return res;
 }

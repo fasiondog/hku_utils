@@ -48,7 +48,10 @@ public:
 
     void setTimeout(int32_t ms) {
         m_timeout_ms = ms;
+        reset();
     }
+
+    void reset();
 
     HttpResponse get(const std::string& path);
 
@@ -60,8 +63,9 @@ private:
     nng::http_client m_client;
     nng::aio m_aio;
     nng::http_conn m_conn;
-    // nng_http_conn* m_conn{nullptr};
-    nng_tls_config* m_tls_cfg{nullptr};
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    nng::tls_config m_tls_cfg;
+#endif
     int32_t m_timeout_ms{0};
 };
 
