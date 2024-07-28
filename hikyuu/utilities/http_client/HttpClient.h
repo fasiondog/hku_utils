@@ -121,14 +121,29 @@ public:
 
     void reset();
 
-    HttpResponse get(const std::string& path) {
-        return request("GET", path, {}, nullptr, 0, "");
+    HttpResponse request(const std::string& method, const std::string& path,
+                         const HttpHeaders& headers, const char* body, size_t len,
+                         const std::string& content_type);
+
+    HttpResponse get(const std::string& path, const HttpHeaders& headers = {}) {
+        return request("GET", path, headers, nullptr, 0, "");
+    }
+
+    HttpResponse post(const std::string& path, const HttpHeaders& headers, const char* body,
+                      size_t len, const std::string& content_type) {
+        return request("POST", path, headers, body, len, content_type);
+    }
+
+    HttpResponse post(const std::string& path, const HttpHeaders& headers,
+                      const std::string& content, const std::string& content_type = "text/plaint") {
+        return post(path, headers, content.data(), content.size(), content_type);
+    }
+
+    HttpResponse post(const std::string& path, const HttpHeaders& headers, const json& body) {
+        return post(path, headers, body.dump(), "application/json");
     }
 
 private:
-    HttpResponse request(const std::string& method, const std::string& path, const HttpHeaders&,
-                         const char* body, size_t len, const std::string& content_type);
-
     void _connect();
 
 private:

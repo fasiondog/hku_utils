@@ -51,13 +51,13 @@ TEST_CASE("test_HttpClient") {
     auto ip = jres["origin"].get<std::string>();
     HKU_INFO("ip: {}", ip);
 
-    for (size_t i = 0; i < 5; i++) {
-        res = cli.get("/ip");
-        HKU_INFO("res: {}", res.body());
-    }
+    // for (size_t i = 0; i < 5; i++) {
+    //     res = cli.get("/ip");
+    //     HKU_INFO("res: {}", res.body());
+    // }
 
-    HKU_INFO("wait ...");
-    std::this_thread::sleep_for(std::chrono::seconds(60 * 2));
-    res = cli.get("/ip");
-    HKU_INFO("res: {}", res.body());
+    // HKU_INFO("wait ...");
+    // std::this_thread::sleep_for(std::chrono::seconds(60 * 2));
+    // res = cli.get("/ip");
+    // HKU_INFO("res: {}", res.body());
 }

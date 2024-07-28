@@ -121,7 +121,7 @@ HttpResponse HttpClient::request(const std::string& method, const std::string& p
             m_conn.write_req(req, m_aio);
             int rv = m_aio.wait().result();
             if (NNG_ECLOSED == rv || NNG_ECONNSHUT == rv || NNG_ECONNREFUSED == rv) {
-                HKU_INFO("rv: {}", nng_strerror(rv));
+                // HKU_DEBUG("rv: {}", nng_strerror(rv));
                 reset();
                 res.reset();
                 continue;
@@ -138,7 +138,7 @@ HttpResponse HttpClient::request(const std::string& method, const std::string& p
             } else if (NNG_ETIMEDOUT == rv) {
                 throw HttpTimeoutException();
             } else if (NNG_ECLOSED == rv || NNG_ECONNSHUT == rv || NNG_ECONNREFUSED == rv) {
-                HKU_INFO("rv: {}", nng_strerror(rv));
+                // HKU_DEBUG("rv: {}", nng_strerror(rv));
                 reset();
                 res.reset();
             } else {
@@ -191,6 +191,7 @@ HttpResponse HttpClient::request(const std::string& method, const std::string& p
 #endif  // #if HKU_ENABLE_HTTP_CLIENT_ZIP
 
         if (res.getHeader("Connection") == "close") {
+            HKU_WARN("Connect closed");
             reset();
         }
     } catch (const std::exception&) {
