@@ -56,6 +56,7 @@ option("ini_parser", {description = "Enable ini parser.", default = true})
 option("mo", {description = "International language support", default = false})
 option("http_client", {description = "use http client", default = true})
 option("http_client_ssl", {description = "enable https support for http client", default = true})
+option("http_client_zip", {description = "enable http support gzip", default = true})
 
 if has_config("leak_check") then
     -- 需要 export LD_PRELOAD=libasan.so
@@ -148,6 +149,9 @@ end
 if has_config("http_client") then
     add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
     add_requires("nlohmann_json")
+    if has_config("http_client_zip") then
+        add_requires("gzip-hpp")
+    end
 end
 
 set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
@@ -171,6 +175,8 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_MO", has_config("mo") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT", has_config("http_client") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_SSL", has_config("http_client_ssl") and 1 or 0)
+    set_configvar("HKU_ENABLE_HTTP_CLIENT_ZIP", has_config("http_client_zip") and 1 or 0)
+    
     set_configvar("HKU_DEFAULT_LOG_NAME", get_config("log_name"))
     set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", has_config("async_log") and 1 or 0)
     local level = get_config("log_level")
@@ -214,7 +220,7 @@ target("hku_utils")
     end
 
     if has_config("http_client") then
-        add_packages("nng", "nlohmann_json")
+        add_packages("nng", "nlohmann_json", "gzip-hpp")
     end
  
     if is_plat("linux", "cross") then 

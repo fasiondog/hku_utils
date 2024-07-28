@@ -116,6 +116,10 @@ public:
         }
     }
 
+    bool valid() const noexcept {
+        return m_aio != nullptr;
+    }
+
     nng_aio* get() const noexcept {
         return m_aio;
     }
@@ -124,10 +128,11 @@ public:
         return m_aio;
     }
 
-    void alloc() {
+    void alloc(int32_t timeout_ms) {
         if (m_aio == nullptr) {
             NNG_CHECK(nng_aio_alloc(&m_aio, NULL, NULL));
         }
+        set_timeout(timeout_ms);
     }
 
     void release() {
@@ -142,8 +147,9 @@ public:
         return *this;
     }
 
-    void result() {
-        NNG_CHECK(nng_aio_result(m_aio));
+    int result() {
+        // 直接返回结果，在调用处判断异常，才知道是在具体哪里
+        return nng_aio_result(m_aio);
     }
 
     void* get_output(unsigned index) {
@@ -155,16 +161,14 @@ public:
      * <0 - 不限制
      */
     void set_timeout(int32_t ms) {
-        // #define NNG_DURATION_INFINITE (-1)
-        // #define NNG_DURATION_DEFAULT (-2)
-        // #define NNG_DURATION_ZERO (0)
-        if (ms > 0) {
+        if (ms != m_timeout) {
+            m_timeout = ms;
             nng_aio_set_timeout(m_aio, ms);
-        } else if (ms == 0) {
-            nng_aio_set_timeout(m_aio, NNG_DURATION_DEFAULT);
-        } else {
-            nng_aio_set_timeout(m_aio, NNG_DURATION_INFINITE);
         }
+    }
+
+    int32_t get_timeout() const noexcept {
+        return m_timeout;
     }
 
     void set_iov(unsigned n, const nng_iov* iov) {
@@ -173,6 +177,7 @@ public:
 
 private:
     nng_aio* m_aio{nullptr};
+    int32_t m_timeout{NNG_DURATION_DEFAULT};
 };
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
@@ -259,15 +264,27 @@ public:
 #endif
         if (!m_client) {
             NNG_CHECK(nng_http_client_alloc(&m_client, url.get()));
+            m_tls_cfg = nullptr;
+            m_aio = nullptr;
         }
     }
 
     void connect(const aio& aio) {
-        nng_http_client_connect(m_client, aio.get());
+        if (m_aio != aio.get()) {
+            nng_http_client_connect(m_client, aio.get());
+            m_aio = aio.get();
+        }
     }
 
-    void set_tls(nng_tls_config* cfg) {
-        NNG_CHECK(nng_http_client_set_tls(m_client, cfg));
+    void set_tls_cfg(nng_tls_config* cfg) {
+        if (cfg != m_tls_cfg) {
+            NNG_CHECK(nng_http_client_set_tls(m_client, cfg));
+            m_tls_cfg = cfg;
+        }
+    }
+
+    nng_tls_config* get_tls_cfg() const noexcept {
+        return m_tls_cfg;
     }
 
     nng_http_client* get() const noexcept {
@@ -286,11 +303,15 @@ public:
         if (m_client) {
             nng_http_client_free(m_client);
             m_client = nullptr;
+            m_aio = nullptr;
+            m_tls_cfg = nullptr;
         }
     }
 
 private:
     nng_http_client* m_client{nullptr};
+    nng_aio* m_aio{nullptr};
+    nng_tls_config* m_tls_cfg{nullptr};
 };
 
 class http_req final {
@@ -348,6 +369,16 @@ public:
             NNG_CHECK_M(nng_http_req_add_header(m_req, iter->first.c_str(), iter->second.c_str()),
                         "Failed add header {}: {}", iter->first, iter->second);
         }
+        return *this;
+    }
+
+    std::string get_header(const std::string& key) {
+        const char* head = nng_http_req_get_header(m_req, key.c_str());
+        return head ? std::string(head) : std::string();
+    }
+
+    http_req& del_header(const std::string& key) {
+        nng_http_req_del_header(m_req, key.c_str());
         return *this;
     }
 

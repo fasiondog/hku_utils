@@ -76,6 +76,8 @@ private:
         return m_res;
     }
 
+    void reset();
+
 private:
     nng_http_res* m_res{nullptr};
     std::string m_body;
@@ -99,9 +101,14 @@ public:
         m_url = std::move(nng::url(url));
     }
 
+    // #define NNG_DURATION_INFINITE (-1)
+    // #define NNG_DURATION_DEFAULT (-2)
+    // #define NNG_DURATION_ZERO (0)
     void setTimeout(int32_t ms) {
-        m_timeout_ms = ms;
-        reset();
+        if (m_timeout_ms != ms) {
+            m_timeout_ms = ms;
+            reset();
+        }
     }
 
     void setDefaultHeaders(const HttpHeaders& headers) {
@@ -133,7 +140,7 @@ private:
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     nng::tls_config m_tls_cfg;
 #endif
-    int32_t m_timeout_ms{0};
+    int32_t m_timeout_ms{NNG_DURATION_DEFAULT};
 };
 
 }  // namespace hku

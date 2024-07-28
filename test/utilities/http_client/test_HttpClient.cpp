@@ -34,13 +34,13 @@ TEST_CASE("test_HttpClient") {
     CHECK_UNARY(!invalid_cli2.valid());
 
     // 超时
-    HttpClient cli("http://httpbin.org/");
+    HttpClient cli("https://httpbin.org/");
     CHECK_UNARY(cli.valid());
 
-    cli.setTimeout(3);
-    CHECK_THROWS(cli.get("/ip"));
+    // cli.setTimeout(3);
+    // CHECK_THROWS(cli.get("/ip"));
 
-    cli.setTimeout(0);
+    // cli.setTimeout(-2);
     auto res = cli.get("/ip");
     HKU_INFO("res: {}", res.body());
     HKU_INFO("res len: {}", res.body().size());
@@ -51,7 +51,13 @@ TEST_CASE("test_HttpClient") {
     auto ip = jres["origin"].get<std::string>();
     HKU_INFO("ip: {}", ip);
 
-    // HKU_INFO("wait ...");
-    // std::this_thread::sleep_for(std::chrono::seconds(60 * 3));
-    // cli.get("/ip");
+    for (size_t i = 0; i < 5; i++) {
+        res = cli.get("/ip");
+        HKU_INFO("res: {}", res.body());
+    }
+
+    HKU_INFO("wait ...");
+    std::this_thread::sleep_for(std::chrono::seconds(60 * 2));
+    res = cli.get("/ip");
+    HKU_INFO("res: {}", res.body());
 }

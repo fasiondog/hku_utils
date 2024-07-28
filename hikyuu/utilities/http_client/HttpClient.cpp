@@ -8,6 +8,11 @@
 #include "hikyuu/utilities/Log.h"
 #include "HttpClient.h"
 
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+#include "gzip/compress.hpp"
+#include "gzip/decompress.hpp"
+#endif
+
 namespace hku {
 
 HttpResponse::HttpResponse() {
@@ -17,6 +22,13 @@ HttpResponse::HttpResponse() {
 HttpResponse::~HttpResponse() {
     if (m_res) {
         nng_http_res_free(m_res);
+    }
+}
+
+void HttpResponse::reset() {
+    if (m_res) {
+        nng_http_res_free(m_res);
+        NNG_CHECK(nng_http_res_alloc(&m_res));
     }
 }
 
@@ -38,15 +50,13 @@ HttpResponse& HttpResponse::operator=(HttpResponse&& rhs) {
 
 HttpClient::~HttpClient() {
     reset();
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    m_tls_cfg.release();
+#endif
 }
 
 void HttpClient::reset() {
     m_client.release();
-
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-    m_tls_cfg.release();
-#endif
-
     m_conn.close();
     m_aio.release();
 }
@@ -58,17 +68,19 @@ void HttpClient::_connect() {
 
     if (m_url.is_https()) {
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-        m_tls_cfg.set_ca_file("test_data/ca-bundle.crt");
-        m_client.set_tls(m_tls_cfg.get());
+        auto* old_cfg = m_client.get_tls_cfg();
+        if (!old_cfg || old_cfg != m_tls_cfg.get()) {
+            m_tls_cfg.set_ca_file("test_data/ca-bundle.crt");
+            m_client.set_tls_cfg(m_tls_cfg.get());
+        }
 #endif
     }
 
-    m_aio.alloc();
-    m_aio.set_timeout(m_timeout_ms);
+    m_aio.alloc(m_timeout_ms);
     m_client.connect(m_aio);
 
     if (!m_conn.valid()) {
-        m_aio.wait().result();
+        NNG_CHECK(m_aio.wait().result());
         m_conn = std::move(nng::http_conn((nng_http_conn*)m_aio.get_output(0)));
     }
 }
@@ -81,22 +93,58 @@ HttpResponse HttpClient::request(const std::string& method, const std::string& p
     HttpResponse res;
     try {
         nng::http_req req(m_url);
-        req.set_method(method)
-          .set_uri(path)
-          .add_headers(m_default_headers)
-          .add_headers(headers)
-          .set_data(body, len);
-        if (len != 0) {
+        req.set_method(method).set_uri(path).add_headers(m_default_headers).add_headers(headers);
+        if (body != nullptr) {
+            HKU_CHECK(len > 0, "Body is not null, but len is zero!");
             req.add_header("Content-Type", content_type);
+
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+            if (req.get_header("Content-Encoding") == "gzip") {
+                gzip::Compressor comp(Z_DEFAULT_COMPRESSION);
+                std::string output;
+                comp.compress(output, body, len);
+                req.copy_data(output.data(), output.size());
+            } else {
+                req.set_data(body, len);
+            }
+#else
+            req.del_header("Content-Encoding").set_data(body, len);
+#endif
         }
 
-        _connect();
+        int count = 0;
+        while (count < 2) {
+            count++;
+            _connect();
 
-        // Send the request, and wait for that to finish.
-        m_conn.write_req(req, m_aio);
-        m_aio.wait().result();
-        m_conn.read_res(res.get(), m_aio);
-        m_aio.wait().result();
+            // Send the request, and wait for that to finish.
+            m_conn.write_req(req, m_aio);
+            int rv = m_aio.wait().result();
+            if (NNG_ECLOSED == rv || NNG_ECONNSHUT == rv || NNG_ECONNREFUSED == rv) {
+                HKU_INFO("rv: {}", nng_strerror(rv));
+                reset();
+                res.reset();
+                continue;
+            } else if (NNG_ETIMEDOUT == rv) {
+                throw HttpTimeoutException();
+            } else if (0 != rv) {
+                HKU_THROW("[NNG_ERROR] {} ", nng_strerror(rv));
+            }
+
+            m_conn.read_res(res.get(), m_aio);
+            rv = m_aio.wait().result();
+            if (0 == rv) {
+                break;
+            } else if (NNG_ETIMEDOUT == rv) {
+                throw HttpTimeoutException();
+            } else if (NNG_ECLOSED == rv || NNG_ECONNSHUT == rv || NNG_ECONNREFUSED == rv) {
+                HKU_INFO("rv: {}", nng_strerror(rv));
+                reset();
+                res.reset();
+            } else {
+                HKU_THROW("[NNG_ERROR] {} ", nng_strerror(rv));
+            }
+        }
 
         HKU_IF_RETURN(res.status() != NNG_HTTP_STATUS_OK, res);
 
@@ -106,27 +154,47 @@ HttpResponse HttpClient::request(const std::string& method, const std::string& p
         size_t len = std::stoi(hdr);
         HKU_IF_RETURN(len == 0, res);
 
-        res._resizeBody(len);
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+        if (res.getHeader("Content-Encoding") == "gzip") {
+            nng_iov iov;
+            auto data = std::unique_ptr<char[]>(new char[len]);
+            iov.iov_len = len;
+            iov.iov_buf = data.get();
+            m_aio.set_iov(1, &iov);
+            m_conn.read_all(m_aio);
+            NNG_CHECK(m_aio.wait().result());
 
-        // Set up a single iov to point to the buffer.
+            gzip::Decompressor decomp;
+            decomp.decompress(res.m_body, data.get(), len);
+
+        } else {
+            res._resizeBody(len);
+            nng_iov iov;
+            iov.iov_len = len;
+            iov.iov_buf = res.m_body.data();
+            m_aio.set_iov(1, &iov);
+            m_conn.read_all(m_aio);
+            NNG_CHECK(m_aio.wait().result());
+        }
+#else
+        HKU_WARN_IF(
+          res.getHeader("Content-Encoding") == "gzip",
+          "Automatic decompression is not supported. You need to decompress it yourself!");
+        res._resizeBody(len);
         nng_iov iov;
         iov.iov_len = len;
         iov.iov_buf = res.m_body.data();
-
-        // Following never fails with fewer than 5 elements.
         m_aio.set_iov(1, &iov);
-
-        // Now attempt to receive the data.
         m_conn.read_all(m_aio);
+        NNG_CHECK(m_aio.wait().result());
 
-        // Wait for it to complete.
-        m_aio.wait().result();
+#endif  // #if HKU_ENABLE_HTTP_CLIENT_ZIP
 
-    } catch (const hku::HttpTimeoutException&) {
+        if (res.getHeader("Connection") == "close") {
+            reset();
+        }
+    } catch (const std::exception&) {
         throw;
-        reset();
-    } catch (const std::exception& e) {
-        HKU_THROW(e.what());
         reset();
     } catch (...) {
         HKU_THROW_UNKNOWN;
