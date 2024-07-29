@@ -147,8 +147,12 @@ if has_config("mysql") then
 end
 
 if has_config("http_client") then
-    add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
     add_requires("nlohmann_json")
+    if is_kind("shared") then
+        add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl"), cxflags = "-fPIC"}})
+    else
+        add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
+    end
     if has_config("http_client_zip") then
         add_requires("gzip-hpp")
     end
