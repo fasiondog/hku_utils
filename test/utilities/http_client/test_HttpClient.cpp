@@ -34,26 +34,26 @@ TEST_CASE("test_HttpClient") {
     CHECK_UNARY(!invalid_cli2.valid());
 
     // 超时
-    HttpClient cli("https://httpbin.org/");
+    HttpClient cli("http://httpbin.org/");
     CHECK_UNARY(cli.valid());
-
     cli.setTimeout(1);
     CHECK_THROWS(cli.get("/ip"));
 
+    // 正常访问 http
     cli.setTimeout(-2);
     auto res = cli.get("/ip");
-
     json jres = res.json();
     auto ip = jres["origin"].get<std::string>();
     HKU_INFO("ip: {}", ip);
 
-    // for (size_t i = 0; i < 5; i++) {
-    //     res = cli.get("/ip");
-    //     HKU_INFO("res: {}", res.body());
-    // }
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    // 访问 https, 无 CA file
+    cli.setUrl("https://httpbin.org/");
+    CHECK_THROWS(cli.get("/ip"));
 
-    // HKU_INFO("wait ...");
-    // std::this_thread::sleep_for(std::chrono::seconds(60 * 2));
-    // res = cli.get("/ip");
-    // HKU_INFO("res: {}", res.body());
+    // 正常访问 https
+    cli.setCaFile("test_data/ca-bundle.crt");
+    res = cli.get("/ip");
+    HKU_INFO("{} {}", cli.url(), res.status());
+#endif
 }

@@ -70,6 +70,7 @@ public:
                 nng_url_free(m_url);
             }
             m_url = rhs.m_url;
+            m_rawurl = std::move(rhs.m_rawurl);
             rhs.m_url = nullptr;
         }
         return *this;

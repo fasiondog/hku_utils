@@ -6,6 +6,7 @@
  */
 
 #include "hikyuu/utilities/Log.h"
+#include "hikyuu/utilities/os.h"
 #include "HttpClient.h"
 
 #if HKU_ENABLE_HTTP_CLIENT_ZIP
@@ -61,6 +62,19 @@ void HttpClient::reset() {
     m_aio.release();
 }
 
+void HttpClient::setCaFile(const std::string& filename) {
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    HKU_CHECK(!filename.empty(), "Input filename is empty!");
+    HKU_IF_RETURN(filename == m_ca_file, void());
+    HKU_CHECK(existFile(filename), "Not exist file: {}", filename);
+    m_tls_cfg.set_ca_file(filename);
+    m_ca_file = filename;
+    reset();
+#else
+    HKU_THROW("Not support https! Please complie with --http_client_ssl!");
+#endif
+}
+
 void HttpClient::_connect() {
     HKU_CHECK(m_url.valid(), "Invalid url: {}", m_url.raw_url());
 
@@ -70,7 +84,6 @@ void HttpClient::_connect() {
 #if HKU_ENABLE_HTTP_CLIENT_SSL
         auto* old_cfg = m_client.get_tls_cfg();
         if (!old_cfg || old_cfg != m_tls_cfg.get()) {
-            m_tls_cfg.set_ca_file("test_data/ca-bundle.crt");
             m_client.set_tls_cfg(m_tls_cfg.get());
         }
 #endif

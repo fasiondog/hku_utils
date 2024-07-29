@@ -86,7 +86,7 @@ private:
 class HKU_UTILS_API HttpClient {
 public:
     HttpClient() = default;
-    explicit HttpClient(const std::string& url) : m_url(nng::url(url)){};
+    explicit HttpClient(const std::string& url) : m_url(nng::url(url)) {};
     virtual ~HttpClient();
 
     bool valid() const noexcept {
@@ -99,6 +99,7 @@ public:
 
     void setUrl(const std::string& url) noexcept {
         m_url = std::move(nng::url(url));
+        reset();
     }
 
     // #define NNG_DURATION_INFINITE (-1)
@@ -118,6 +119,8 @@ public:
     void setDefaultHeaders(HttpHeaders&& headers) {
         m_default_headers = std::move(headers);
     }
+
+    void setCaFile(const std::string& filename);
 
     void reset();
 
@@ -154,7 +157,9 @@ private:
     nng::http_conn m_conn;
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     nng::tls_config m_tls_cfg;
+    std::string m_ca_file;
 #endif
+
     int32_t m_timeout_ms{NNG_DURATION_DEFAULT};
 };
 
