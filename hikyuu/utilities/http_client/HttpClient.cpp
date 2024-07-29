@@ -208,11 +208,11 @@ HttpResponse HttpClient::request(const std::string& method, const std::string& p
             reset();
         }
     } catch (const std::exception&) {
+        reset();
         throw;
-        reset();
     } catch (...) {
-        HKU_THROW_UNKNOWN;
         reset();
+        HKU_THROW_UNKNOWN;
     }
     return res;
 }

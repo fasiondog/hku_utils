@@ -318,7 +318,7 @@ private:
 class http_req final {
 public:
     http_req() = default;
-    http_req(url& url) {
+    explicit http_req(const url& url) {
         NNG_CHECK(nng_http_req_alloc(&m_req, url.get()));
     }
 
@@ -399,7 +399,7 @@ public:
     }
 
 private:
-    nng_http_req* m_req;
+    nng_http_req* m_req{nullptr};
 };
 
 class http_conn final {
