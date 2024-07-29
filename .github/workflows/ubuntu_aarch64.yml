@@ -51,7 +51,7 @@ jobs:
 
     - name: configure
       run: |
-        xmake f -p cross -a aarch64 --sdk=`pwd`/${{ matrix.cross }}-cross -k shared
+        xmake f -p cross -a aarch64 --sdk=`pwd`/${{ matrix.cross }}-cross -k shared -y -vD
 
     - name: build
       run: |
