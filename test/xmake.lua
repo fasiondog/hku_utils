@@ -17,6 +17,10 @@ target("unit-test")
         add_packages("sqlite3")
     end
 
+    if has_config("http_client") then
+        add_packages("nng", "nlohmann_json", "gzip-hpp")
+    end
+
     add_includedirs("..", ".")
 
     if is_plat("macosx", "linux", "cross") then
@@ -48,6 +52,10 @@ target("unit-test")
 
     if get_config("mo") then
         add_files("utilities/mo/**.cpp")
+    end
+
+    if has_config("http_client") then
+        add_files("utilities/http_client/**.cpp")
     end
 
     before_build(function(target)

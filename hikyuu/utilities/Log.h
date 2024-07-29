@@ -409,6 +409,7 @@ std::string HKU_UTILS_API getLocalTime();
 
 /** 用于 catch (...) 中打印，减少编译后代码大小 */
 extern std::string g_unknown_error_msg;
+#define HKU_THROW_UNKNOWN HKU_THROW(g_unknown_error_msg);
 #define HKU_TRACE_UNKNOWN HKU_TRACE(g_unknown_error_msg)
 #define HKU_DEBUG_UNKNOWN HKU_DEBUG(g_unknown_error_msg)
 #define HKU_INFO_UNKNOWN HKU_INFO(g_unknown_error_msg)

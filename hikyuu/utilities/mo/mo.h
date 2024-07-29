@@ -7,6 +7,11 @@
 
 #pragma once
 
+#include "hikyuu/utilities/config.h"
+#if !HKU_ENABLE_MO
+#error "Don't enable mo, please config with --mo=y"
+#endif
+
 #include <unordered_map>
 #include "hikyuu/utilities/string_view.h"
 #include "moFileReader.h"
