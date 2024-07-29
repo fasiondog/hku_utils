@@ -37,15 +37,11 @@ TEST_CASE("test_HttpClient") {
     HttpClient cli("https://httpbin.org/");
     CHECK_UNARY(cli.valid());
 
-    // cli.setTimeout(3);
-    // CHECK_THROWS(cli.get("/ip"));
+    cli.setTimeout(1);
+    CHECK_THROWS(cli.get("/ip"));
 
-    // cli.setTimeout(-2);
+    cli.setTimeout(-2);
     auto res = cli.get("/ip");
-    HKU_INFO("res: {}", res.body());
-    HKU_INFO("res len: {}", res.body().size());
-    HKU_INFO("Content-Type: {}", res.getHeader("Content-Type"));
-    HKU_INFO("Connection: {}", res.getHeader("Connection"));
 
     json jres = res.json();
     auto ip = jres["origin"].get<std::string>();

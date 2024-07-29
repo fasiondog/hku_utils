@@ -22,9 +22,9 @@
 #define HKU_UTILS_API
 #endif
 
-using json = nlohmann::json;
-
 namespace hku {
+
+using json = nlohmann::json;
 
 class HKU_UTILS_API HttpClient;
 
@@ -45,7 +45,7 @@ public:
         return m_body;
     }
 
-    json json() const {
+    hku::json json() const {
         return json::parse(m_body);
     }
 
@@ -86,7 +86,7 @@ private:
 class HKU_UTILS_API HttpClient {
 public:
     HttpClient() = default;
-    explicit HttpClient(const std::string& url) : m_url(nng::url(url)) {};
+    explicit HttpClient(const std::string& url) : m_url(nng::url(url)){};
     virtual ~HttpClient();
 
     bool valid() const noexcept {
