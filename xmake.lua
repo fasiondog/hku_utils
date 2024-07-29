@@ -1,5 +1,5 @@
 -- config version
-set_version("1.0.0", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.0.1", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 set_warnings("all", "error")
@@ -55,8 +55,8 @@ option("leak_check", {description = "Enable leak check for test", default = fals
 option("ini_parser", {description = "Enable ini parser.", default = true})
 option("mo", {description = "International language support", default = false})
 option("http_client", {description = "use http client", default = true})
-option("http_client_ssl", {description = "enable https support for http client", default = true})
-option("http_client_zip", {description = "enable http support gzip", default = true})
+option("http_client_ssl", {description = "enable https support for http client", default = false})
+option("http_client_zip", {description = "enable http support gzip", default = false})
 
 if has_config("leak_check") then
     -- 需要 export LD_PRELOAD=libasan.so
