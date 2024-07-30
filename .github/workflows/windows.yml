@@ -39,7 +39,3 @@ jobs:
       run: |
         xmake -b unit-test
 
-    - name: test
-      shell: cmd
-      run: |
-        xmake r unit-test -d

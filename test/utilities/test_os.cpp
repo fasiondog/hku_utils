@@ -13,7 +13,6 @@
 
 using namespace hku;
 
-#if 0
 static void createTestFile(const std::string &filename) {
     FILE *fp = fopen(HKU_PATH(filename).c_str(), "wb");
     int len = 10;
@@ -160,4 +159,3 @@ TEST_CASE("test_getDiskFreeSpace") {
     HKU_INFO("disk free space /: {}", getDiskFreeSpace("/"));
     HKU_INFO("disk free space .: {}", getDiskFreeSpace("."));
 }
-#endif
