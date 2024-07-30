@@ -41,4 +41,4 @@ jobs:
     - name: test
       shell: cmd
       run: |
-        xmake r unit-test
+        xmake r unit-test -d
