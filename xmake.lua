@@ -147,7 +147,7 @@ if has_config("mysql") then
     end
 end
 
-if has_config("http_client") then
+if has_config("http_client") or has_config("node") then
     add_requires("nlohmann_json")
     if is_kind("shared") then
         add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl"), cxflags = "-fPIC"}})
@@ -156,15 +156,6 @@ if has_config("http_client") then
     end
     if has_config("http_client_zip") then
         add_requires("gzip-hpp")
-    end
-end
-
-if has_config("node") and not has_config("http_client") then
-    add_requires("nlohmann_json")
-    if is_kind("node") then
-        add_requires("nng", {configs = {cxflags = "-fPIC"}})
-    else 
-        add_requires("nng")
     end
 end
 
