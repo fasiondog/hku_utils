@@ -319,7 +319,7 @@ target("hku_utils")
     after_install(function(target)
         local destpath = target:installdir()
         import("core.project.task")
-        task.run("copy_dependents", {}, target, destpath, true)
+        task.run("copy_dependents", {}, target, destpath, false)
     end)
 target_end()
 
