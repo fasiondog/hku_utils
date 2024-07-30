@@ -27,7 +27,6 @@ TEST_CASE("test_base64_encode") {
     CHECK_EQ(base64_encode(src), dst);
 }
 
-#if 0
 TEST_CASE("test_base64_decode") {
     // C++17 string_view 无法正确处理 null_ptr
     // auto x = std::string_view(nullptr);
@@ -51,4 +50,3 @@ TEST_CASE("test_base64_decode") {
       "cHFyc3R1dnd4eXo=");
     CHECK_EQ(base64_decode(dst), src);
 }
-#endif
