@@ -40,6 +40,8 @@ ${define HKU_ENABLE_HTTP_CLIENT}
 ${define HKU_ENABLE_HTTP_CLIENT_SSL}
 ${define HKU_ENABLE_HTTP_CLIENT_ZIP}
 
+${define HKU_ENABLE_NODE}
+
 // clang-format on
 
 #endif /* HKU_UTILS_CONFIG_H_*/

@@ -7,6 +7,11 @@
 
 #pragma once
 
+#include "hikyuu/utilities/config.h"
+#if !HKU_ENABLE_NODE
+#error "Don't enable node server, please config with --node=y"
+#endif
+
 #include <string>
 #include <unordered_map>
 #include <nng/nng.h>

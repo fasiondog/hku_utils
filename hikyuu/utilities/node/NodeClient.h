@@ -7,6 +7,11 @@
 
 #pragma once
 
+#include "hikyuu/utilities/config.h"
+#if !HKU_ENABLE_NODE
+#error "Don't enable node client, please config with --node=y"
+#endif
+
 #include <atomic>
 #include <nng/nng.h>
 #include <nng/protocol/reqrep0/req.h>

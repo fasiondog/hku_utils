@@ -1,5 +1,5 @@
 -- config version
-set_version("1.0.1", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.0.2", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 set_warnings("all", "error")
@@ -57,6 +57,7 @@ option("mo", {description = "International language support", default = false})
 option("http_client", {description = "use http client", default = true})
 option("http_client_ssl", {description = "enable https support for http client", default = false})
 option("http_client_zip", {description = "enable http support gzip", default = false})
+option("node", {description = "enable node reqrep server/client", default = true})
 
 if has_config("leak_check") then
     -- 需要 export LD_PRELOAD=libasan.so
@@ -158,6 +159,15 @@ if has_config("http_client") then
     end
 end
 
+if has_config("node") and not has_config("http_client") then
+    add_requires("nlohmann_json")
+    if is_kind("node") then
+        add_requires("nng", {configs = {cxflags = "-fPIC"}})
+    else 
+        add_requires("nng")
+    end
+end
+
 set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
 set_targetdir("$(buildir)/$(mode)/$(plat)/$(arch)/lib")
 
@@ -180,6 +190,7 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_HTTP_CLIENT", has_config("http_client") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_SSL", has_config("http_client_ssl") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_ZIP", has_config("http_client_zip") and 1 or 0)
+    set_configvar("HKU_ENABLE_NODE", has_config("node") and 1 or 0)
     
     set_configvar("HKU_DEFAULT_LOG_NAME", get_config("log_name"))
     set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", has_config("async_log") and 1 or 0)
@@ -223,8 +234,12 @@ target("hku_utils")
         add_packages("mysql")
     end
 
-    if has_config("http_client") then
-        add_packages("nng", "nlohmann_json", "gzip-hpp")
+    if has_config("http_client") or has_config("node") then
+        add_packages("nng", "nlohmann_json")
+    end
+
+    if has_config("http_client_zip") then
+        add_packages("gzip-hpp")
     end
  
     if is_plat("linux", "cross") then 
