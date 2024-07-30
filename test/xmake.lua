@@ -34,6 +34,7 @@ target("unit-test")
 
     add_files("*.cpp")
     add_files("utilities/*.cpp")
+    add_files("utilities/node/*.cpp")
 
     if get_config("ini_parser") then
         add_files("utilities/ini_parser/*.cpp")
