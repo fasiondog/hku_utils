@@ -156,6 +156,6 @@ TEST_CASE("test_getDiskFreeSpace") {
 #if !HKU_OS_WINDOWS
     CHECK_EQ(getDiskFreeSpace(nullptr), Null<uint64_t>());
     HKU_INFO("disk free space /: {}", getDiskFreeSpace("/"));
-#endif
     HKU_INFO("disk free space .: {}", getDiskFreeSpace("."));
+#endif
 }
