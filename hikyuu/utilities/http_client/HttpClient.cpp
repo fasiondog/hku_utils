@@ -5,14 +5,17 @@
  *      Author: fasiondog
  */
 
-#include "hikyuu/utilities/Log.h"
-#include "hikyuu/utilities/os.h"
 #include "HttpClient.h"
 
 #if HKU_ENABLE_HTTP_CLIENT_ZIP
 #include "gzip/compress.hpp"
 #include "gzip/decompress.hpp"
 #endif
+
+#include <sstream>
+#include "hikyuu/utilities/Log.h"
+#include "hikyuu/utilities/os.h"
+#include "url.h"
 
 namespace hku {
 
@@ -31,6 +34,7 @@ void HttpResponse::reset() {
         nng_http_res_free(m_res);
         NNG_CHECK(nng_http_res_alloc(&m_res));
     }
+    m_body.clear();
 }
 
 HttpResponse::HttpResponse(HttpResponse&& rhs) : m_res(rhs.m_res), m_body(std::move(rhs.m_body)) {
@@ -99,114 +103,33 @@ void HttpClient::_connect() {
 }
 
 HttpResponse HttpClient::request(const std::string& method, const std::string& path,
-                                 const HttpHeaders& headers, const char* body, size_t len,
+                                 const HttpParams& params, const HttpHeaders& headers,
+                                 const char* body, size_t body_len,
                                  const std::string& content_type) {
     HKU_CHECK(m_url.valid(), "Invalid url: {}", m_url.raw_url());
 
     HttpResponse res;
     try {
-        nng::http_req req(m_url);
-        req.set_method(method).set_uri(path).add_headers(m_default_headers).add_headers(headers);
-        if (body != nullptr) {
-            HKU_CHECK(len > 0, "Body is not null, but len is zero!");
-            req.add_header("Content-Type", content_type);
-
-#if HKU_ENABLE_HTTP_CLIENT_ZIP
-            if (req.get_header("Content-Encoding") == "gzip") {
-                gzip::Compressor comp(Z_DEFAULT_COMPRESSION);
-                std::string output;
-                comp.compress(output, body, len);
-                req.copy_data(output.data(), output.size());
+        std::ostringstream buf;
+        bool first = true;
+        for (auto iter = params.cbegin(); iter != params.cend(); ++iter) {
+            if (first) {
+                buf << "?";
             } else {
-                req.set_data(body, len);
+                buf << "&";
             }
-#else
-            req.del_header("Content-Encoding").set_data(body, len);
-#endif
+            buf << iter->first << "=" << iter->second;
         }
 
-        int count = 0;
-        while (count < 2) {
-            count++;
-            _connect();
-
-            // Send the request, and wait for that to finish.
-            m_conn.write_req(req, m_aio);
-            int rv = m_aio.wait().result();
-            if (NNG_ECLOSED == rv || NNG_ECONNSHUT == rv || NNG_ECONNREFUSED == rv) {
-                // HKU_DEBUG("rv: {}", nng_strerror(rv));
-                reset();
-                res.reset();
-                continue;
-            } else if (NNG_ETIMEDOUT == rv) {
-                throw HttpTimeoutException();
-            } else if (0 != rv) {
-                HKU_THROW("[NNG_ERROR] {} ", nng_strerror(rv));
-            }
-
-            m_conn.read_res(res.get(), m_aio);
-            rv = m_aio.wait().result();
-            if (0 == rv) {
-                break;
-            } else if (NNG_ETIMEDOUT == rv) {
-                throw HttpTimeoutException();
-            } else if (NNG_ECLOSED == rv || NNG_ECONNSHUT == rv || NNG_ECONNREFUSED == rv) {
-                // HKU_DEBUG("rv: {}", nng_strerror(rv));
-                reset();
-                res.reset();
-            } else {
-                HKU_THROW("[NNG_ERROR] {} ", nng_strerror(rv));
-            }
-        }
-
-        HKU_IF_RETURN(res.status() != NNG_HTTP_STATUS_OK, res);
-
-        std::string hdr = res.getHeader("Content-Length");
-        HKU_WARN_IF_RETURN(hdr.empty(), res, "Missing Content-Length header.");
-
-        size_t len = std::stoi(hdr);
-        HKU_IF_RETURN(len == 0, res);
-
-#if HKU_ENABLE_HTTP_CLIENT_ZIP
-        if (res.getHeader("Content-Encoding") == "gzip") {
-            nng_iov iov;
-            auto data = std::unique_ptr<char[]>(new char[len]);
-            iov.iov_len = len;
-            iov.iov_buf = data.get();
-            m_aio.set_iov(1, &iov);
-            m_conn.read_all(m_aio);
-            NNG_CHECK(m_aio.wait().result());
-
-            gzip::Decompressor decomp;
-            decomp.decompress(res.m_body, data.get(), len);
-
-        } else {
-            res._resizeBody(len);
-            nng_iov iov;
-            iov.iov_len = len;
-            iov.iov_buf = res.m_body.data();
-            m_aio.set_iov(1, &iov);
-            m_conn.read_all(m_aio);
-            NNG_CHECK(m_aio.wait().result());
-        }
-#else
-        HKU_WARN_IF(
-          res.getHeader("Content-Encoding") == "gzip",
-          "Automatic decompression is not supported. You need to decompress it yourself!");
-        res._resizeBody(len);
-        nng_iov iov;
-        iov.iov_len = len;
-        iov.iov_buf = res.m_body.data();
-        m_aio.set_iov(1, &iov);
-        m_conn.read_all(m_aio);
-        NNG_CHECK(m_aio.wait().result());
-
-#endif  // #if HKU_ENABLE_HTTP_CLIENT_ZIP
+        std::string uri = buf.str();
+        uri = uri.empty() ? path : fmt::format("{}{}", path, uri);
+        res = _readResChunk(method, uri, headers, body, body_len, content_type);
 
         if (res.getHeader("Connection") == "close") {
             HKU_WARN("Connect closed");
             reset();
         }
+
     } catch (const std::exception&) {
         reset();
         throw;
@@ -214,6 +137,73 @@ HttpResponse HttpClient::request(const std::string& method, const std::string& p
         reset();
         HKU_THROW_UNKNOWN;
     }
+    return res;
+}
+
+HttpResponse HttpClient::_readResChunk(const std::string& method, const std::string& uri,
+                                       const HttpHeaders& headers, const char* body,
+                                       size_t body_len, const std::string& content_type) {
+    HttpResponse res;
+    nng::http_req req(m_url);
+    req.set_method(method).set_uri(uri).add_headers(m_default_headers).add_headers(headers);
+    if (body != nullptr) {
+        HKU_CHECK(body_len > 0, "Body is not null, but len is zero!");
+        req.add_header("Content-Type", content_type);
+
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+        if (req.get_header("Content-Encoding") == "gzip") {
+            gzip::Compressor comp(Z_DEFAULT_COMPRESSION);
+            std::string output;
+            comp.compress(output, body, body_len);
+            req.copy_data(output.data(), output.size());
+        } else {
+            req.set_data(body, body_len);
+        }
+#else
+        req.del_header("Content-Encoding").set_data(body, body_len);
+#endif
+    }
+
+    int count = 0;
+    while (count < 2) {
+        count++;
+        _connect();
+
+        m_conn.transact(req.get(), res.get(), m_aio);
+        int rv = m_aio.wait().result();
+        if (0 == rv) {
+            break;
+        } else if (NNG_ETIMEDOUT == rv) {
+            throw HttpTimeoutException();
+        } else if (NNG_ECLOSED == rv || NNG_ECONNSHUT == rv || NNG_ECONNREFUSED == rv) {
+            // HKU_DEBUG("rv: {}", nng_strerror(rv));
+            reset();
+            res.reset();
+        } else {
+            HKU_THROW("[NNG_ERROR] {} ", nng_strerror(rv));
+        }
+    }
+
+    HKU_IF_RETURN(res.status() != NNG_HTTP_STATUS_OK, res);
+
+    void* data;
+    size_t len;
+    nng_http_res_get_data(res.get(), &data, &len);
+
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+    if (res.getHeader("Content-Encoding") == "gzip") {
+        auto buf = std::unique_ptr<char[]>(new char[len]);
+        gzip::Decompressor decomp;
+        decomp.decompress(res.m_body, data, len);
+    } else {
+        res._resizeBody(len);
+        memcpy(res.m_body.data(), data, len);
+    }
+#else
+    res._resizeBody(len);
+    memcpy(res.m_body.data(), data, len);
+#endif
+
     return res;
 }
 

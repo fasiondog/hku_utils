@@ -46,6 +46,20 @@ TEST_CASE("test_HttpClient") {
     auto ip = jres["origin"].get<std::string>();
     HKU_INFO("ip: {}", ip);
 
+    // for (size_t i = 0; i < 15; i++) {
+    //     res = cli.get("/ip");
+    //     jres = res.json();
+    //     ip = jres["origin"].get<std::string>();
+    //     HKU_INFO("ip: {}", ip);
+    // }
+
+    // HKU_INFO("wait");
+    // std::this_thread::sleep_for(std::chrono::seconds(60));
+    // res = cli.get("/ip");
+    // jres = res.json();
+    // ip = jres["origin"].get<std::string>();
+    // HKU_INFO("ip: {}", ip);
+
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     // 访问 https, 无 CA file
     cli.setUrl("https://httpbin.org/");
@@ -56,4 +70,10 @@ TEST_CASE("test_HttpClient") {
     res = cli.get("/ip");
     HKU_INFO("{} {}", cli.url(), res.status());
 #endif
+
+    cli.setUrl("http://api.vore.top");
+    res = cli.get("/api/IPdata", {{"ip", "10.0.0.1"}}, HttpHeaders());
+    auto data = res.json();
+    HKU_INFO("{}", data.dump());
+    CHECK_EQ(data["ipinfo"]["text"].get<std::string>(), "10.0.0.1");
 }
