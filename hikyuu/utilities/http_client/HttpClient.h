@@ -125,29 +125,52 @@ public:
     void reset();
 
     HttpResponse request(const std::string& method, const std::string& path,
-                         const HttpHeaders& headers, const char* body, size_t len,
-                         const std::string& content_type);
+                         const HttpParams& params, const HttpHeaders& headers, const char* body,
+                         size_t body_len, const std::string& content_type);
 
-    HttpResponse get(const std::string& path, const HttpHeaders& headers = {}) {
-        return request("GET", path, headers, nullptr, 0, "");
+    HttpResponse get(const std::string& path, const HttpHeaders& headers = HttpHeaders()) {
+        return request("GET", path, HttpParams(), headers, nullptr, 0, "");
+    }
+
+    HttpResponse get(const std::string& path, const HttpParams& params,
+                     const HttpHeaders& headers) {
+        return request("GET", path, params, headers, nullptr, 0, "");
+    }
+
+    HttpResponse post(const std::string& path, const HttpParams& params, const HttpHeaders& headers,
+                      const char* body, size_t len, const std::string& content_type) {
+        return request("POST", path, params, headers, body, len, content_type);
     }
 
     HttpResponse post(const std::string& path, const HttpHeaders& headers, const char* body,
                       size_t len, const std::string& content_type) {
-        return request("POST", path, headers, body, len, content_type);
+        return request("POST", path, HttpParams(), headers, body, len, content_type);
+    }
+
+    HttpResponse post(const std::string& path, const HttpParams& params, const HttpHeaders& headers,
+                      const std::string& content, const std::string& content_type = "text/plaint") {
+        return post(path, params, headers, content.data(), content.size(), content_type);
     }
 
     HttpResponse post(const std::string& path, const HttpHeaders& headers,
                       const std::string& content, const std::string& content_type = "text/plaint") {
-        return post(path, headers, content.data(), content.size(), content_type);
+        return post(path, HttpParams(), headers, content, content_type);
+    }
+
+    HttpResponse post(const std::string& path, const HttpParams& params, const HttpHeaders& headers,
+                      const json& body) {
+        return post(path, params, headers, body.dump(), "application/json");
     }
 
     HttpResponse post(const std::string& path, const HttpHeaders& headers, const json& body) {
-        return post(path, headers, body.dump(), "application/json");
+        return post(path, HttpParams(), headers, body);
     }
 
 private:
     void _connect();
+    HttpResponse _readResChunk(const std::string& method, const std::string& uri,
+                               const HttpHeaders& headers, const char* body, size_t body_len,
+                               const std::string& content_type);
 
 private:
     HttpHeaders m_default_headers;

@@ -27,6 +27,7 @@ struct HttpTimeoutException : hku::exception {
 };
 
 using HttpHeaders = std::map<std::string, std::string>;
+using HttpParams = std::map<std::string, std::string>;
 
 }  // namespace hku
 
@@ -461,6 +462,10 @@ public:
 
     void read_all(const aio& aio) {
         nng_http_conn_read_all(m_conn, aio.get());
+    }
+
+    void transact(nng_http_req* req, nng_http_res* res, const aio& aio) {
+        nng_http_conn_transact(m_conn, req, res, aio.get());
     }
 
 private:

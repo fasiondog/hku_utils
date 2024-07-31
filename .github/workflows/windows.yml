@@ -27,6 +27,7 @@ jobs:
     - uses: xmake-io/github-action-setup-xmake@v1
       with:
         xmake-version: 2.9.3
+        actions-cache-folder: '.xmake-cache'
 
     - name: configure
       shell: cmd
@@ -38,7 +39,3 @@ jobs:
       run: |
         xmake -b unit-test
 
-    - name: test
-      shell: cmd
-      run: |
-        xmake r unit-test

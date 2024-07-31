@@ -17,8 +17,12 @@ target("unit-test")
         add_packages("sqlite3")
     end
 
-    if has_config("http_client") then
-        add_packages("nng", "nlohmann_json", "gzip-hpp")
+    if has_config("http_client") or has_config("node") then
+        add_packages("nng", "nlohmann_json")
+    end
+
+    if has_config("http_client_zip") then
+        add_packages("gzip-hpp")
     end
 
     add_includedirs("..", ".")
@@ -34,7 +38,7 @@ target("unit-test")
 
     add_files("*.cpp")
     add_files("utilities/*.cpp")
-
+    
     if get_config("ini_parser") then
         add_files("utilities/ini_parser/*.cpp")
     end
@@ -56,6 +60,10 @@ target("unit-test")
 
     if has_config("http_client") then
         add_files("utilities/http_client/**.cpp")
+    end
+
+    if has_config("node") then
+        add_files("utilities/node/*.cpp")
     end
 
     before_build(function(target)
