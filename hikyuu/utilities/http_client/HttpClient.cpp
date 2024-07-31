@@ -192,9 +192,7 @@ HttpResponse HttpClient::_readResChunk(const std::string& method, const std::str
 
 #if HKU_ENABLE_HTTP_CLIENT_ZIP
     if (res.getHeader("Content-Encoding") == "gzip") {
-        auto buf = std::unique_ptr<char[]>(new char[len]);
-        gzip::Decompressor decomp;
-        decomp.decompress(res.m_body, data, len);
+        res.m_body = gzip::decompress((const char*)data, len);
     } else {
         res._resizeBody(len);
         memcpy(res.m_body.data(), data, len);
