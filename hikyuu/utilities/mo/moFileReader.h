@@ -34,6 +34,11 @@
 #ifndef __MOFILEREADER_SINGLE_INCLUDE_H_INCLUDED__
 #define __MOFILEREADER_SINGLE_INCLUDE_H_INCLUDED__
 
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#endif
+
 #if defined(_MSC_VER)
 #pragma warning(disable : 4267)
 #endif /* _MSC_VER */
@@ -818,10 +823,14 @@ inline int moFileGetNumStrings() {
 }
 #endif
 
+MO_END_NAMESPACE
+
 #if defined(_MSC_VER)
 #pragma warning(default : 4251)
 #endif /* _MSC_VER */
 
-MO_END_NAMESPACE
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #endif /* __MOFILEREADER_SINGLE_INCLUDE_H_INCLUDED__ */

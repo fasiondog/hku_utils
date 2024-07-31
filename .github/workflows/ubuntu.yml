@@ -40,7 +40,7 @@ jobs:
 
     - name: config
       run: |
-        xmake f -c -k shared -y -vD
+        xmake f -c -k shared -y -vD --mo=y --http_client_zip=y --http_client_ssl=y
 
     - name: build
       run: |
