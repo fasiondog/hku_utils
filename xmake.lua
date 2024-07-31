@@ -81,6 +81,7 @@ if is_plat("windows") then
     add_defines("NOCRYPT", "NOGDI")
     add_cxflags("-EHsc", "/Zc:__cplusplus", "/utf-8")
     add_cxflags("-wd4819") -- template dll export warning
+    add_cxflags("-wd4068") -- unknown pragma
     add_defines("WIN32_LEAN_AND_MEAN")
     if is_mode("debug") then
         add_cxflags("-Gs", "-RTC1", "/bigobj")
