@@ -141,19 +141,16 @@ elseif has_config("sqlite") then
 
     if is_plat("linux") and linuxos.name() == "ubuntu" then
         add_requires("apt::libsqlite3-dev")
-        if has_config("mysql") then
-            add_requires("apt::libmysqlclient-dev")
-        end
     end
 end
 
 if has_config("mysql") then 
-    if is_plat("windows") then 
-        add_requires("mysql")
-    elseif is_plat("macosx") then 
+    if is_plat("macosx") then 
         add_requires("brew::mysql-client")
     elseif is_plat("linux") and linuxos.name() == "ubuntu" then
         add_requires("apt::libmysqlclient-dev")
+    else
+        add_requires("mysql")
     end
 end
 
