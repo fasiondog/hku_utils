@@ -140,15 +140,15 @@ elseif has_config("sqlite") then
     end
 
     if is_plat("linux") and linuxos.name() == "ubuntu" then
-        add_requires("apt::libsqlite3-dev")
+        add_requires("apt::libsqlite3-dev", {alias = "sqlite3"})
     end
 end
 
 if has_config("mysql") then 
     if is_plat("macosx") then 
-        add_requires("brew::mysql-client")
+        add_requires("brew::mysql-client", {alias = "mysql"})
     elseif is_plat("linux") and linuxos.name() == "ubuntu" then
-        add_requires("apt::libmysqlclient-dev")
+        add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
     else
         add_requires("mysql")
     end
@@ -200,13 +200,7 @@ target("hku_utils")
     if has_config("sqlcipher") then
         add_packages("sqlcipher")
     elseif has_config("sqlite") then
-        if is_plat("windows", "android", "cross") then
-            add_packages("sqlite3")
-        elseif is_plat("linux", "cross") then 
-            add_links("sqlite3")
-        elseif is_plat("macosx", "iphoneos") then 
-            add_links("sqlite3")
-        end    
+        add_packages("sqlite3")
         if is_plat("cross") then
             add_syslinks("dl")
         end
