@@ -9,6 +9,9 @@ set_warnings("all", "error")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 
+set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
+set_targetdir("$(buildir)/$(mode)/$(plat)/$(arch)/lib")
+
 option("mysql")
     set_default(false)
     set_showmenu(true)
@@ -47,8 +50,7 @@ option("stacktrace", {description = "Enable check/assert with stack trace info."
 option("datetime", {description = "Enable DateTime.", default = true})
 option("spend_time", {description = "Enable spent time.", default = true})
 
-option("log_name", {description = "set default log name.", default = "hikyuu"})
-option("log_level", {description = "set log level.", default = "info", values = {"trace", "debug", "info", "warn", "error", "fatal", "off"}})
+option("log_level", {description = "set log level.", default = 2, values = {1, 2, 3, 4, 5, 6}})
 option("async_log", {description = "Use async log.", default = false})
 
 option("leak_check", {description = "Enable leak check for test", default = false})
@@ -66,6 +68,13 @@ if has_config("leak_check") then
     -- set_policy("build.sanitizer.memory", true)
     -- set_policy("build.sanitizer.thread", true)
 end
+
+-- SPDLOG_ACTIVE_LEVEL 需要单独加
+local log_level = get_config("log_level")
+if log_level == nil then
+    log_level = 2
+end
+add_defines("SPDLOG_ACTIVE_LEVEL=" .. log_level)
 
 -- is release now
 if is_mode("release") then
@@ -161,8 +170,7 @@ if has_config("http_client") or has_config("node") then
     end
 end
 
-set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
-set_targetdir("$(buildir)/$(mode)/$(plat)/$(arch)/lib")
+
 
 target("hku_utils")
     set_kind("$(kind)")
@@ -185,24 +193,8 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_HTTP_CLIENT_ZIP", has_config("http_client_zip") and 1 or 0)
     set_configvar("HKU_ENABLE_NODE", has_config("node") and 1 or 0)
     
-    set_configvar("HKU_DEFAULT_LOG_NAME", get_config("log_name"))
     set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", has_config("async_log") and 1 or 0)
-    local level = get_config("log_level")
-    if level == "trace" then
-        set_configvar("HKU_LOG_ACTIVE_LEVEL", 0)
-    elseif level == "debug" then
-        set_configvar("HKU_LOG_ACTIVE_LEVEL", 1)
-    elseif level == "info" then
-        set_configvar("HKU_LOG_ACTIVE_LEVEL", 2)
-    elseif level == "warn" then
-        set_configvar("HKU_LOG_ACTIVE_LEVEL", 3)
-    elseif level == "error" then
-        set_configvar("HKU_LOG_ACTIVE_LEVEL", 4)
-    elseif level == "fatal" then
-        set_configvar("HKU_LOG_ACTIVE_LEVEL", 5)
-    else
-        set_configvar("HKU_LOG_ACTIVE_LEVEL", 6)
-    end
+    set_configvar("HKU_LOG_ACTIVE_LEVEL", get_config("log_level"))
 
     add_packages("fmt", "spdlog", "boost", "yas")
 

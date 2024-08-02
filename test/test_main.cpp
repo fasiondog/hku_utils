@@ -39,6 +39,8 @@ int main(int argc, char** argv) {
     // overrides
     context.setOption("no-breaks", true);  // don't break in the debugger when assertions fail
 
+    HKU_INFO("before init log");
+
     hku::initLogger();
 
     HKU_INFO("current utils version: {}", hku::utils::getVersion());
