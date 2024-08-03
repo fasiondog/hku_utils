@@ -64,8 +64,7 @@ task("copy_dependents")
             -- 拷贝依赖的库文件
             os.trycp(pkg:installdir() .. "/lib/*", libdir)
             if is_plat("windows") then
-                -- os.trycp(pkg:installdir() .. "/bin/*.dll", libdir)
-                os.trycp(pkg:installdir() .. "/lib/*.dll", destpath .. '/bin')
+                os.trycp(pkg:installdir() .. "/bin/*.dll", libdir)
             end
 
             :: continue ::
