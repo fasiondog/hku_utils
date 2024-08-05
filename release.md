@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.0.4 -
+
+屏蔽 HttpClient 接收对端 Connect close 时的打印
+
 ## 1.0.3 - 2024年8月5日
 
 fixed DBUpgrade 自动创建mysql module_version 表失败
