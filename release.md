@@ -1,8 +1,10 @@
 # 版本发布说明
 
-## 1.0.4 -
+## 1.0.4 - 2024年8月6日
 
-屏蔽 HttpClient 接收对端 Connect close 时的打印
+1. 屏蔽 HttpClient 接收对端 Connect close 时的打印
+2. HttpClient创建时增加参数直接指定超时时间
+3. NodeServer start 增加参数自行指定最大并发数，默认128
 
 ## 1.0.3 - 2024年8月5日
 
