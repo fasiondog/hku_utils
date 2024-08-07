@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.0.5 -
+
+fixed MySQLStatement::sub_getColumnAsBlob 未正确获取 blob 长度
+
 ## 1.0.4 - 2024年8月6日
 
 1. 屏蔽 HttpClient 接收对端 Connect close 时的打印
