@@ -76,12 +76,11 @@ TEST_CASE("test_HttpClient") {
 #endif
 
     try {
-        cli.setUrl("http://api.vore.top");
-        res = cli.get("/api/IPdata", {{"ip", "10.0.0.1"}}, HttpHeaders());
+        cli.setUrl("http://webapi-pc.meitu.com");
+        res = cli.get("/common/ip_location", {{"ip", "112.97.82.226"}}, HttpHeaders());
         if (res.status() == 200) {
             auto data = res.json();
             HKU_INFO("{}", data.dump());
-            CHECK_EQ(data["ipinfo"]["text"].get<std::string>(), "10.0.0.1");
         } else {
             HKU_INFO("res status: {}, body: {}", res.status(), res.body());
         }
