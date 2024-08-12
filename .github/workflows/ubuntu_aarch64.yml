@@ -19,7 +19,7 @@ jobs:
         kind: [static, shared]
 
     concurrency:
-        group: ${{ github.ref }}-${{ github.base_ref }}-${{ github.head_ref }}-Cross-Musl-${{ matrix.cross }}
+        group: ${{ github.ref }}-${{ github.base_ref }}-${{ github.head_ref }}-Cross-Musl-${{ matrix.cross }}-${{ matrix.kind }}
         cancel-in-progress: true
     
     steps:

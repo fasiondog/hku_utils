@@ -46,7 +46,7 @@ jobs:
 
       - name: config
         run: |
-          xmake f -c -k ${{ matrix.kind }} -y -vD --mo=y --http_client_zip=y --http_client_ssl=y
+          xmake f -c -k ${{ matrix.kind }} -y -vD --mo=y --mysql=y --http_client_zip=y --http_client_ssl=y
 
       - name: build
         run: |
