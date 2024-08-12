@@ -33,7 +33,7 @@ bool Parameter::support(const boost::any& value) {
     if (value.type() == typeid(int) || value.type() == typeid(bool) ||
         value.type() == typeid(int64_t) ||
 #if defined(HKU_SUPPORT_DATETIME)
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__clang__)
         std::string(value.type().name()) == std::string(typeid(Datetime).name()) ||
         std::string(value.type().name()) == std::string(typeid(TimeDelta).name()) ||
 #else
