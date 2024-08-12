@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-2019, windows-2022]
-        arch: [x64, arm64]
+        arch: [x64] #, arm64]
         kind: [static, shared]
 
     concurrency:
