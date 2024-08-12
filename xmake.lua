@@ -12,34 +12,7 @@ add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
 set_targetdir("$(buildir)/$(mode)/$(plat)/$(arch)/lib")
 
-option("mysql")
-    set_default(false)
-    set_showmenu(true)
-    set_description("Enable mysql kdata engine.")
-    if is_plat("macosx") then
-        if os.exists("/usr/local/opt/mysql-client/lib") then
-            add_includedirs("/usr/local/opt/mysql-client/include/mysql")
-            add_includedirs("/usr/local/opt/mysql-client/include")
-            add_linkdirs("/usr/local/opt/mysql-client/lib")
-            add_rpathdirs("/usr/local/opt/mysql-client/lib")
-        end
-        if os.exists("/usr/local/mysql/lib") then
-            add_linkdirs("/usr/local/mysql/lib")
-            add_rpathdirs("/usr/local/mysql/lib")
-        end
-        if not os.exists("/usr/local/include/mysql") then
-            if os.exists("/usr/local/mysql/include") then
-                os.run("ln -s /usr/local/mysql/include /usr/local/include/mysql")
-            else
-                print("Not Found MySQL include dir!")
-            end
-        end
-        add_links("mysqlclient")
-    elseif is_plat("windows") then
-        add_defines("NOMINMAX")
-    end        
-option_end()
-
+option("mysql", {description = "Enable sqlite driver.", default = false})
 option("sqlite", {description = "Enable sqlite driver.", default = true})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
 option("sql_trace", {description = "Print the executed SQL statement", default = false})
@@ -140,9 +113,7 @@ elseif has_config("sqlite") then
 end
 
 if has_config("mysql") then 
-    if is_plat("macosx") then 
-        add_requires("brew::mysql-client", {alias = "mysql"})
-    elseif is_plat("linux") and linuxos.name() == "ubuntu" then
+    if is_plat("linux") and linuxos.name() == "ubuntu" then
         add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
     else
         add_requires("mysql")
@@ -280,16 +251,6 @@ target("hku_utils")
         local x = target:get("languages")
         if x == nil then
             target:set("languages", "cxx17")
-        end
-
-        if is_plat("macosx") then
-            if not os.exists("/usr/local/include/mysql") then
-                if os.exists("/usr/local/mysql/include") then
-                    os.run("ln -s /usr/local/mysql/include /usr/local/include/mysql")
-                else
-                    print("Not Found MySQL include dir!")
-                end
-            end
         end
     end)
 
