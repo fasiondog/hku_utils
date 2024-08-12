@@ -101,6 +101,7 @@ if not is_plat("windows") then
     -- disable some compiler errors
     add_cxflags("-Wno-error=deprecated-declarations", "-fno-strict-aliasing")
     add_cxflags("-ftemplate-depth=1023", "-pthread")
+    add_cxxflags("-frtti") ---- gcc 只能用于编译 C++ 文件，否则保报错
     add_shflags("-pthread")
     add_ldflags("-pthread")
 end
@@ -160,8 +161,6 @@ if has_config("http_client") or has_config("node") then
         add_requires("gzip-hpp")
     end
 end
-
-
 
 target("hku_utils")
     set_kind("$(kind)")

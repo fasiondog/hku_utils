@@ -16,6 +16,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         cross: [aarch64-linux-musl]
+        kind: [static, shared]
 
     concurrency:
         group: ${{ github.ref }}-${{ github.base_ref }}-${{ github.head_ref }}-Cross-Musl-${{ matrix.cross }}
@@ -41,7 +42,7 @@ jobs:
 
     - uses: xmake-io/github-action-setup-xmake@v1
       with:
-        xmake-version: 2.9.2
+        xmake-version: 2.9.4
         actions-cache-folder: '.xmake-cache'
 
     - name: Installation musl
@@ -51,7 +52,7 @@ jobs:
 
     - name: configure
       run: |
-        xmake f -p cross -a aarch64 --sdk=`pwd`/${{ matrix.cross }}-cross -k shared -y -vD --mo=y --http_client_zip=y --http_client_ssl=y
+        xmake f -p cross -a aarch64 --sdk=`pwd`/${{ matrix.cross }}-cross -k ${{ matrix.kind }} -y -vD --mo=y --http_client_zip=y --http_client_ssl=y
 
     - name: build
       run: |

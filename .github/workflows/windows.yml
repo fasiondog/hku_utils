@@ -15,7 +15,8 @@ jobs:
     strategy:
       matrix:
         os: [windows-2019, windows-2022]
-        arch: [x64] #, arm64]
+        arch: [x64, arm64]
+        kind: [static, shared]
 
     concurrency:
         group: ${{ github.ref }}-${{ github.base_ref }}-${{ github.head_ref }}-Windows-${{ matrix.os }}-${{ matrix.arch }}
@@ -32,10 +33,14 @@ jobs:
     - name: configure
       shell: cmd
       run: |
-        xmake f -c -k shared -y -vD --mo=y --http_client_zip=y --http_client_ssl=y
+        xmake f -c -a ${{ matrix.arch }} -k ${{ matrix.kind }} -y -vD --mo=y --http_client_zip=y --http_client_ssl=y
 
     - name: build
       shell: cmd
       run: |
         xmake -b unit-test
+
+    - name: test
+      run: |
+        xmake r unit-test        
 
