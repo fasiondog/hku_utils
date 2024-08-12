@@ -44,6 +44,7 @@ jobs:
       with:
         xmake-version: 2.9.4
         actions-cache-folder: '.xmake-cache'
+        actions-cache-key: 'ubuntu-aarch64'
 
     - name: Installation musl
       run: |
