@@ -1,0 +1,40 @@
+name: macOS (x86_64)
+
+on:
+  pull_request:
+    branches:
+      - dev
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-12]
+        arch: [x86_64]
+        kind: [static, shared]
+
+    runs-on: ${{ matrix.os }}
+
+    concurrency:
+        group: ${{ github.ref }}-${{ github.base_ref }}-${{ github.head_ref }}-macOS-${{ matrix.arch }}-${{ matrix.kind }}
+        cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v1
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: 2.9.4
+          actions-cache-folder: '.xmake-cache'
+
+      - name: config
+        run: |
+          xmake f -c -k ${{ matrix.kind }} -y -vD --mo=y --http_client_zip=y --http_client_ssl=y
+
+      - name: build
+        run: |
+          xmake -b unit-test
+    
+      - name: test
+        run: |
+          xmake r unit-test
+  
