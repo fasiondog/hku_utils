@@ -132,10 +132,10 @@ if has_config("sqlcipher") then
     if is_plat("iphoneos") then
         add_requires("sqlcipher", {system=false})
     else 
-        add_requires("sqlcipher", {system = false, configs = {shared = true, SQLITE_THREADSAFE="2"}})
+        add_requires("sqlcipher", {system = false, configs = {shared = true, safe_mode="2"}})
     end
 elseif has_config("sqlite") then
-    add_requires("sqlite3", {system = false, configs = {shared = true, SQLITE_THREADSAFE="2"}})
+    add_requires("sqlite3", {system = false, configs = {shared = true, safe_mode="2"}})
 end
 
 if has_config("mysql") then 
