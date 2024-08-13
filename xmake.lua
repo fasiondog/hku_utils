@@ -120,7 +120,7 @@ if has_config("mysql") then
     end
     if is_plat("macosx") then
         if os.exists("/usr/local/opt/mysql-client/lib") then
-            add_includedirs("/usr/local/opt/mysql-client/include/mysql")
+            -- add_includedirs("/usr/local/opt/mysql-client/include/mysql")
             add_includedirs("/usr/local/opt/mysql-client/include")
             add_linkdirs("/usr/local/opt/mysql-client/lib")
             add_rpathdirs("/usr/local/opt/mysql-client/lib")
