@@ -113,12 +113,24 @@ elseif has_config("sqlite") then
 end
 
 if has_config("mysql") then 
-    add_requires("mysql")
-    -- if is_plat("linux") and linuxos.name() == "ubuntu" then
-    --     add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
-    -- else
-    --     add_requires("mysql")
-    -- end
+    if is_plat("linux") and linuxos.name() == "ubuntu" then
+        add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
+    else
+        add_requires("mysql")
+    end
+    if is_plat("macosx") then
+        if os.exists("/usr/local/opt/mysql-client/lib") then
+            add_includedirs("/usr/local/opt/mysql-client/include/mysql")
+            add_includedirs("/usr/local/opt/mysql-client/include")
+            add_linkdirs("/usr/local/opt/mysql-client/lib")
+            add_rpathdirs("/usr/local/opt/mysql-client/lib")
+        end
+        if os.exists("/usr/local/mysql/lib") then
+            add_linkdirs("/usr/local/mysql/lib")
+            add_rpathdirs("/usr/local/mysql/lib")
+        end
+        add_links("mysqlclient")
+    end
 end
 
 if has_config("http_client") or has_config("node") then
