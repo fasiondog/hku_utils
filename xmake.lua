@@ -113,11 +113,12 @@ elseif has_config("sqlite") then
 end
 
 if has_config("mysql") then 
-    if is_plat("linux") and linuxos.name() == "ubuntu" then
-        add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
-    else
-        add_requires("mysql")
-    end
+    add_requires("mysql")
+    -- if is_plat("linux") and linuxos.name() == "ubuntu" then
+    --     add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
+    -- else
+    --     add_requires("mysql")
+    -- end
 end
 
 if has_config("http_client") or has_config("node") then
