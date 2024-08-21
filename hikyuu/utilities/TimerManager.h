@@ -46,6 +46,7 @@ public:
 
     /**
      * 指定线程池方式构造，以便共享其他线程池
+     * @note 请自行保证 tg 的生命周期在 TimerManager 存活期间始终有效
      * @param tg 指定任务组线程池
      */
     explicit TimerManager(ThreadPool* tg)
