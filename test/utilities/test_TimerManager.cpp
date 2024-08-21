@@ -5,9 +5,9 @@
  *     Author: fasiondog
  */
 
-#if defined(HKU_SUPPORT_DATETIME)
+#include "../test_config.h"
 
-#include "doctest/doctest.h"
+#if defined(HKU_SUPPORT_DATETIME)
 #include <hikyuu/utilities/TimerManager.h>
 #include <hikyuu/utilities/Log.h>
 
