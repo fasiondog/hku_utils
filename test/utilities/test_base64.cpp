@@ -28,20 +28,12 @@ TEST_CASE("test_base64_encode") {
 }
 
 TEST_CASE("test_base64_decode") {
-    // C++17 string_view 无法正确处理 null_ptr
-    // auto x = std::string_view(nullptr);
-    // HKU_INFO("{}", x);
-
-    CHECK_THROWS(base64_decode(nullptr, 10));
-
     // 传入空字符串
-    CHECK_EQ(base64_decode(""), std::string());
+    CHECK_EQ(base64_decode(std::string("")), std::string());
 
-    CHECK_EQ(base64_decode("+"), std::string());
-
-    auto x = base64_decode("ABCDEFGHIJKLMNOPQRSTUVWXYZ 泉州");
-    // HKU_INFO("{}", x);
-    HKU_INFO("{}", base64_encode("ABCDEFGHIJKLMNOPQRSTUVWXYZ 泉州"));
+    // 传入非法 base64 字符串
+    CHECK_THROWS(base64_decode(std::string("+")));
+    CHECK_THROWS(base64_decode(std::string("ABCDEFGHIJKLMNOPQRSTUVWXYZ 泉州")));
 
     // 正常解码
     std::string src("ABCDEFGHIJKLMNOPQRSTUVWXYZ 泉州 0123456789+/ 泉州 abcdefghijklmnopqrstuvwxyz");

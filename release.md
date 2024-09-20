@@ -1,11 +1,15 @@
 # 版本发布说明
 
-## 1.0.5 -
+## 1.0.6 -
+
+
+## 1.0.5 - 2024年9月20日
 
 1. fixed MySQLStatement::sub_getColumnAsBlob 未正确获取 blob 长度
 2. fixed HttpClient 未正确处理含有多个值的 HttpParams
 3. 优化 TimerManager, 可以指定使用外部任务组
 4. Datetime 新增支持 "20240822 11:30:06.230" 的字符串方式构造
+5. 调整 base64 编解码接口
 
 ## 1.0.4 - 2024年8月6日
 
