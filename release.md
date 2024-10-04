@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.0.7 - 2024年10月4日
+
+1. 优化 DBConnect, transaction, commit 抛出异常
+
 ## 1.0.6 - 2024年9月28日
 
 1. fixed DBUpgrade 创建模块版本表失败
