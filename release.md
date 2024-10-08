@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.0.9 -
+
+fixed TABLE_NO_AUTOID_BIND6
+
 ## 1.0.8 - 2024年10月6日
 
 优化 TransAction，中间处理异常时，自动全部回滚
