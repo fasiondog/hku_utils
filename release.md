@@ -2,6 +2,7 @@
 
 ## 1.1.0 -
 
+fixed DBUpgrade 判断 sqlite 还是 mysql 示例
 
 ## 1.0.9 - 2024年10月20日
 
