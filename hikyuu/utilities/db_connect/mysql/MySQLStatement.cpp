@@ -67,14 +67,14 @@ MySQLStatement::~MySQLStatement() {
 
 bool MySQLStatement::_prepare() {
     m_stmt = mysql_stmt_init(m_db);
-    HKU_IF_RETURN(!m_stmt, false, "Failed mysql_stmt_init!");
+    HKU_ERROR_IF_RETURN(!m_stmt, false, "Failed mysql_stmt_init!");
 
-    int ret = mysql_stmt_prepare(m_stmt, sql_statement.c_str(), sql_statement.size());
+    int ret = mysql_stmt_prepare(m_stmt, m_sql_string.c_str(), m_sql_string.size());
     if (ret != 0) {
         std::string stmt_errorstr(mysql_stmt_error(m_stmt));
         mysql_stmt_close(m_stmt);
         m_stmt = nullptr;
-        HKU_ERROR("Failed prepare sql statement: {}! error msg: {}!", sql_statement, stmt_errorstr);
+        HKU_ERROR("Failed prepare sql statement: {}! error msg: {}!", m_sql_string, stmt_errorstr);
         return false;
     }
     return true;
