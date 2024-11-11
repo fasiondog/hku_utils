@@ -1,8 +1,9 @@
 # 版本发布说明
 
-## 1.1.0 -
+## 1.1.0 - 2024年11月12日
 
-fixed DBUpgrade 判断 sqlite 还是 mysql 示例
+1. fixed DBUpgrade 判断 sqlite 还是 mysql 示例
+2. MySQL Statement 准备失败时尝试重连
 
 ## 1.0.9 - 2024年10月20日
 
