@@ -32,6 +32,10 @@ target("unit-test")
         add_syslinks("pthread")
     end
 
+    if is_plat("macosx", "iphoneos") then
+        add_cxflags("-Wno-deprecated-declarations")
+    end
+
     if is_plat("windows") then
         add_cxflags("-wd4996", "-wd4251")
     end

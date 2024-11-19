@@ -187,10 +187,6 @@ target("hku_utils")
         add_rpathdirs("$ORIGIN")
     end
 
-    if is_plat("macosx") then
-        add_includedirs("/usr/local/include")
-    end
-
     if is_kind("shared") then 
         if is_plat("windows") then
             add_defines("HKU_UTILS_API=__declspec(dllexport)")
@@ -203,6 +199,7 @@ target("hku_utils")
     end
 
     if is_plat("macosx", "iphoneos") then
+        add_cxflags("-Wno-deprecated-declarations")
         add_links("iconv")
     end
 
