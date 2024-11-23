@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.1.1 -
+
+优化 MySQL Statement 准备失败时尝试重连
+
 ## 1.1.0 - 2024年11月12日
 
 1. fixed DBUpgrade 判断 sqlite 还是 mysql 示例
