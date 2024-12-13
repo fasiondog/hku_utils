@@ -213,7 +213,7 @@ target("hku_utils")
         add_cxflags("-wd4996", "-wd4251")
     end
 
-    add_headerfiles("$(projectdir)/(hikyuu/**.h)", "$(projectdir)/(hikyuu/**.hpp)")
+    add_headerfiles("$(projectdir)/(hikyuu/**.h)")
 
     add_files("hikyuu/utilities/*.cpp")
     add_files("hikyuu/utilities/thread/*.cpp")
