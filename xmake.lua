@@ -1,5 +1,5 @@
 -- config version
-set_version("1.1.0", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.1.2", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 set_warnings("all", "error")
@@ -83,8 +83,11 @@ end
 add_repositories("hikyuu-repo https://github.com/fasiondog/hikyuu_extern_libs.git")
 -- add_repositories("hikyuu-repo https://gitee.com/fasiondog/hikyuu_extern_libs.git
 
-add_requires("fmt", {configs = {header_only = true}})
+local fmt_version = "11.0.2"
+
+add_requires("fmt " .. fmt_version, {configs = {header_only = true}})
 add_requires("spdlog", {configs = {header_only = true, fmt_external = true}})
+add_requireconfs("spdlog.fmt", {override = true, version=fmt_version, configs = {header_only = true}})
 add_requires("yas")
 add_requires("boost", {
     system = false,

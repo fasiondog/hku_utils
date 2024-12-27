@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.1.2 - 
+
+改进 Null, 以便double/float同样可以使用 Null<>==value方式判断nan值，防止出错
+
 ## 1.1.1 - 2024年12月12日
 
 优化 MySQL Statement 准备失败时尝试重连
