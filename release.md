@@ -1,8 +1,9 @@
 # 版本发布说明
 
-## 1.1.2 - 
+## 1.1.2 -
 
-改进 Null, 以便double/float同样可以使用 Null<>==value方式判断nan值，防止出错
+1. 改进 Null, 以便double/float同样可以使用 Null<>==value方式判断nan值，防止出错
+2. clang下编译 Parameter 完善
 
 ## 1.1.1 - 2024年12月12日
 

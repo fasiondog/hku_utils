@@ -33,21 +33,11 @@ bool Parameter::support(const boost::any& value) {
     if (value.type() == typeid(int) || value.type() == typeid(bool) ||
         value.type() == typeid(int64_t) ||
 #if defined(HKU_SUPPORT_DATETIME)
-#if defined(__ANDROID__) || defined(__clang__)
-        std::string(value.type().name()) == std::string(typeid(Datetime).name()) ||
-        std::string(value.type().name()) == std::string(typeid(TimeDelta).name()) ||
-#else
-        value.type() == typeid(Datetime) || value.type() == typeid(TimeDelta) ||
+        strcmp(value.type().name(), typeid(Datetime).name()) == 0 ||
+        strcmp(value.type().name(), typeid(TimeDelta).name()) == 0 ||
 #endif
-#endif
-        value.type() == typeid(double) ||
-        value.type() == typeid(float)
-#if defined(__ANDROID__)
-        // android x86 64位 和 android 5 下 string 的 typeid 不正确，只能特殊处理
-        || std::string(value.type().name()) == std::string(typeid(std::string).name())) {
-#else
-        || value.type() == typeid(std::string)) {
-#endif
+        value.type() == typeid(double) || value.type() == typeid(float) ||
+        strcmp(value.type().name(), typeid(std::string).name()) == 0) {
         return true;
     }
     fmt::print("type name: {}\n", value.type().name());
@@ -68,18 +58,14 @@ std::string Parameter::type(const std::string& name) const {
     } else if (iter->second.type() == typeid(bool)) {
         return "bool";
 #if defined(HKU_SUPPORT_DATETIME)
-    } else if (iter->second.type() == typeid(Datetime)) {
+    } else if (strcmp(iter->second.type().name(), typeid(Datetime).name()) == 0) {
         return "Datetime";
-    } else if (iter->second.type() == typeid(TimeDelta)) {
+    } else if (strcmp(iter->second.type().name(), typeid(TimeDelta).name()) == 0) {
         return "TimeDelta";
 #endif
     } else if (iter->second.type() == typeid(double) || iter->second.type() == typeid(float)) {
         return "double";
-#if defined(__ANDROID__)
-    } else if (std::string(iter->second.type().name()) == std::string(typeid(std::string).name())) {
-#else
-    } else if (iter->second.type() == typeid(std::string)) {
-#endif
+    } else if (strcmp(iter->second.type().name(), typeid(std::string).name()) == 0) {
         return "string";
     }
 
@@ -110,14 +96,17 @@ std::string Parameter::toString() const {
         } else if (iter->second.type() == typeid(double)) {
             result = fmt::format("{}{}(double): {}, ", result, iter->first,
                                  boost::any_cast<double>(iter->second));
-#if defined(__ANDROID__)
-        } else if (std::string(iter->second.type().name()) ==
-                   std::string(typeid(std::string).name())) {
-#else
-        } else if (iter->second.type() == typeid(std::string)) {
-#endif
+        } else if (strcmp(iter->second.type().name(), typeid(std::string).name()) == 0) {
             result = fmt::format("{}{}(string): {}, ", result, iter->first,
                                  boost::any_cast<std::string>(iter->second));
+#if defined(HKU_SUPPORT_DATETIME)
+        } else if (strcmp(iter->second.type().name(), typeid(Datetime).name()) == 0) {
+            result = fmt::format("{}{}(Datetime): {}, ", result, iter->first,
+                                 boost::any_cast<Datetime>(iter->second));
+        } else if (strcmp(iter->second.type().name(), typeid(TimeDelta).name()) == 0) {
+            result = fmt::format("{}{}(TimeDelta): {}, ", result, iter->first,
+                                 boost::any_cast<TimeDelta>(iter->second));
+#endif
         } else {
             result = fmt::format("{} Unsupported({}), ", result, iter->second.type().name());
         }
@@ -139,14 +128,15 @@ std::string Parameter::toJson() const {
                 << "\": " << (boost::any_cast<bool>(iter->second) ? "true" : "false");
         } else if (iter->second.type() == typeid(double)) {
             buf << "\"" << iter->first << "\": " << boost::any_cast<double>(iter->second);
-#if defined(__ANDROID__)
-        } else if (std::string(iter->second.type().name()) ==
-                   std::string(typeid(std::string).name())) {
-#else
-        } else if (iter->second.type() == typeid(std::string)) {
-#endif
+        } else if (strcmp(iter->second.type().name(), typeid(std::string).name()) == 0) {
             buf << "\"" << iter->first << "\": \"" << boost::any_cast<std::string>(iter->second)
                 << "\"";
+#if defined(HKU_SUPPORT_DATETIME)
+        } else if (strcmp(iter->second.type().name(), typeid(Datetime).name()) == 0) {
+            buf << "\"" << iter->first << "\": " << boost::any_cast<Datetime>(iter->second);
+        } else if (strcmp(iter->second.type().name(), typeid(TimeDelta).name()) == 0) {
+            buf << "\"" << iter->first << "\": " << boost::any_cast<TimeDelta>(iter->second);
+#endif
         } else {
             continue;
         }
