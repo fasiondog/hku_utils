@@ -1,9 +1,10 @@
 # 版本发布说明
 
-## 1.1.2 -
+## 1.1.2 - 2025年1月3日
 
 1. 改进 Null, 以便double/float同样可以使用 Null<>==value方式判断nan值，防止出错
 2. clang下编译 Parameter 完善
+3. MySQLStatement::_prepare 仍有连接丢失情况，添加日志输出错误码，后续观察
 
 ## 1.1.1 - 2024年12月12日
 
