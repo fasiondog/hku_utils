@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.1.3 - 2025年1月4日
+
+MySQLStatement 重连优化
+
 ## 1.1.2 - 2025年1月3日
 
 1. 改进 Null, 以便double/float同样可以使用 Null<>==value方式判断nan值，防止出错
