@@ -65,7 +65,7 @@ MySQLStatement::~MySQLStatement() {
 
 bool MySQLStatement::_prepare(DBConnectBase* driver) noexcept {
     m_stmt = mysql_stmt_init(m_db);
-    HKU_ERROR_IF_RETURN(m_stmt, false, "Failed mysql_stmt_init!");
+    HKU_ERROR_IF_RETURN(!m_stmt, false, "Failed mysql_stmt_init!");
 
     int ret = mysql_stmt_prepare(m_stmt, m_sql_string.c_str(), m_sql_string.size());
     HKU_IF_RETURN(0 == ret, true);
