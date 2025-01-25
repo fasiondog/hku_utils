@@ -75,16 +75,16 @@ TEST_CASE("test_HttpClient") {
     HKU_INFO("{} {}", cli.url(), res.status());
 #endif
 
-    try {
-        cli.setUrl("http://webapi-pc.meitu.com");
-        res = cli.get("/common/ip_location", {{"ip", "112.97.82.226"}}, HttpHeaders());
-        if (res.status() == 200) {
-            auto data = res.json();
-            HKU_INFO("{}", data.dump());
-        } else {
-            HKU_INFO("res status: {}, body: {}", res.status(), res.body());
-        }
-    } catch (const std::exception& e) {
-        HKU_INFO(e.what());
-    }
+    // try {
+    //     cli.setUrl("http://webapi-pc.meitu.com");
+    //     res = cli.get("/common/ip_location", {{"ip", "112.97.82.226"}}, HttpHeaders());
+    //     if (res.status() == 200) {
+    //         auto data = res.json();
+    //         HKU_INFO("{}", data.dump());
+    //     } else {
+    //         HKU_INFO("res status: {}, body: {}", res.status(), res.body());
+    //     }
+    // } catch (const std::exception& e) {
+    //     HKU_INFO(e.what());
+    // }
 }

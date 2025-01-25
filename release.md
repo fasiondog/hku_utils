@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.1.4 -
+
+fixed parallelIndexRange
+
 ## 1.1.3 - 2025年1月4日
 
 MySQLStatement 重连优化
