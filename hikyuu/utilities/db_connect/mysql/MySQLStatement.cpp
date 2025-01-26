@@ -25,16 +25,14 @@ namespace hku {
 
 MySQLStatement::MySQLStatement(DBConnectBase* driver, const std::string& sql_statement)
 : SQLStatementBase(driver, sql_statement),
+  m_db(nullptr),
   m_stmt(nullptr),
   m_meta_result(nullptr),
   m_needs_reset(false),
   m_has_bind_result(false) {
     MySQLConnect* connect = dynamic_cast<MySQLConnect*>(driver);
-    if (!connect) {
-        HKU_ERROR("Failed create statement: {}! Failed dynamic_cast<MySQLConnect*>!",
-                  sql_statement);
-        return;
-    }
+    HKU_CHECK(connect, "Failed create statement: {}! Failed dynamic_cast<MySQLConnect*>!",
+              sql_statement);
 
     m_db = connect->getRawMYSQL();
     HKU_CHECK(_prepare(driver), "Failed prepare statement: {}!", sql_statement);
