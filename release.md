@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.1.6 - 2025年2月5日
+
+fixed parallelIndexRange
+
 ## 1.1.5 - 2025年1月30日
 
 fixed MySQL驱动重连优化

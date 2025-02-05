@@ -134,4 +134,57 @@ TEST_CASE("test_parallelIndexRange") {
     }
 }
 
+TEST_CASE("test_parallelIndexRange2") {
+    std::vector<std::pair<size_t, size_t>> expect{{0, 1}, {1, 2}};
+    auto result = parallelIndexRange(0, 2);
+    CHECK_EQ(result.size(), expect.size());
+    for (size_t i = 0, len = expect.size(); i < len; i++) {
+        CHECK_EQ(result[i].first, expect[i].first);
+        CHECK_EQ(result[i].second, expect[i].second);
+    }
+
+    size_t cpu_num = std::thread::hardware_concurrency();
+    if (cpu_num == 32) {
+        result = parallelIndexRange(0, 100);
+        expect = {{0, 3},   {3, 6},   {6, 9},   {9, 12},  {12, 15}, {15, 18}, {18, 21}, {21, 24},
+                  {24, 27}, {27, 30}, {30, 33}, {33, 36}, {36, 39}, {39, 42}, {42, 45}, {45, 48},
+                  {48, 51}, {51, 54}, {54, 57}, {57, 60}, {60, 63}, {63, 66}, {66, 69}, {69, 72},
+                  {72, 75}, {75, 78}, {78, 81}, {81, 84}, {84, 87}, {87, 90}, {90, 93}, {93, 96},
+                  {96, 97}, {97, 98}, {98, 99}, {99, 100}};
+        CHECK_EQ(result.size(), expect.size());
+        for (size_t i = 0, len = expect.size(); i < len; i++) {
+            CHECK_EQ(result[i].first, expect[i].first);
+            CHECK_EQ(result[i].second, expect[i].second);
+        }
+
+    } else if (cpu_num == 8) {
+        result = parallelIndexRange(0, 35);
+        expect = {{0, 4},   {4, 8},   {8, 12},  {12, 16}, {16, 20}, {20, 24},
+                  {24, 28}, {28, 32}, {32, 33}, {33, 34}, {34, 35}};
+        CHECK_EQ(result.size(), expect.size());
+        for (size_t i = 0, len = expect.size(); i < len; i++) {
+            CHECK_EQ(result[i].first, expect[i].first);
+            CHECK_EQ(result[i].second, expect[i].second);
+        }
+    }
+}
+
+TEST_CASE("test_parallel_for_index") {
+    std::vector<int> values(100);
+    for (size_t i = 0, len = values.size(); i < len; i++) {
+        values[i] = i;
+    }
+
+    auto result = parallel_for_index(0, values.size(), [](size_t i) { return i + 1; });
+
+    std::vector<int> expect(100);
+    for (size_t i = 0, len = expect.size(); i < len; i++) {
+        expect[i] = i + 1;
+    }
+    CHECK_EQ(result.size(), expect.size());
+    for (size_t i = 0, len = expect.size(); i < len; i++) {
+        CHECK_EQ(result[i], expect[i]);
+    }
+}
+
 /** @} */
