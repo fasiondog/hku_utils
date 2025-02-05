@@ -171,14 +171,14 @@ TEST_CASE("test_parallelIndexRange2") {
 
 TEST_CASE("test_parallel_for_index") {
     std::vector<int> values(100);
-    for (size_t i = 0, len = values.size(); i < len; i++) {
+    for (int i = 0, len = values.size(); i < len; i++) {
         values[i] = i;
     }
 
     auto result = parallel_for_index(0, values.size(), [](size_t i) { return i + 1; });
 
     std::vector<int> expect(100);
-    for (size_t i = 0, len = expect.size(); i < len; i++) {
+    for (int i = 0, len = expect.size(); i < len; i++) {
         expect[i] = i + 1;
     }
     CHECK_EQ(result.size(), expect.size());
