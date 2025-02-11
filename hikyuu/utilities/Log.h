@@ -400,13 +400,36 @@ protected:                    \
     HKU_FATAL_IF_RETURN(expr, ret, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
 
 #define CLS_ASSERT HKU_ASSERT
-#define CLS_CHECK(expr, ...) \
-    HKU_CHECK(expr, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
-#define CLS_CHECK_THROW(expr, except, ...) \
-    HKU_CHECK_THROW(expr, except, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
-#define CLS_THROW(...) HKU_THROW(fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
-#define CLS_THROW_EXCEPTION(except, ...) \
-    HKU_THROW_EXCEPTION(except, fmt::format("[{}] {}", ms_logger, fmt::format(__VA_ARGS__)))
+
+#define CLS_CHECK(expr, ...)                                                                  \
+    do {                                                                                      \
+        if (!(expr)) {                                                                        \
+            throw hku::exception(fmt::format("[{}] CLS_CHECK({}) {} [{}] ({}:{})", ms_logger, \
+                                             #expr, fmt::format(__VA_ARGS__), HKU_FUNCTION,   \
+                                             __FILE__, __LINE__));                            \
+        }                                                                                     \
+    } while (0)
+
+#define CLS_CHECK_THROW(expr, except, ...)                                                         \
+    do {                                                                                           \
+        if (!(expr)) {                                                                             \
+            throw except(fmt::format("[{}] CLS_CHECK({}) {} [{}] ({}:{})", ms_logger, #expr,       \
+                                     fmt::format(__VA_ARGS__), HKU_FUNCTION, __FILE__, __LINE__)); \
+        }                                                                                          \
+    } while (0)
+
+#define CLS_THROW(...)                                                                     \
+    do {                                                                                   \
+        throw hku::exception(fmt::format("[{}] EXCEPTION: {} [{}] ({}:{})", ms_logger,     \
+                                         fmt::format(__VA_ARGS__), HKU_FUNCTION, __FILE__, \
+                                         __LINE__));                                       \
+    } while (0)
+
+#define CLS_THROW_EXCEPTION(except, ...)                                                       \
+    do {                                                                                       \
+        throw except(fmt::format("[{}] EXCEPTION: {} [{}] ({}:{})", ms_logger,                 \
+                                 fmt::format(__VA_ARGS__), HKU_FUNCTION, __FILE__, __LINE__)); \
+    } while (0)
 
 /** @} */
 
