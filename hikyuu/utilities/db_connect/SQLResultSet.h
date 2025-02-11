@@ -179,7 +179,7 @@ private:
 };
 
 template <class TableT, size_t page_size>
-class SQLResultSetIterator : public std::iterator<std::forward_iterator_tag, TableT> {
+class SQLResultSetIterator {
 public:
     using ResultSet = SQLResultSet<TableT, page_size>;
 
