@@ -4,8 +4,8 @@ set_version("1.1.4", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每�
 -- set warning all as error
 set_warnings("all", "error")
 
--- set language: C99, c++ standard
--- set_languages("cxx17", "c99")
+-- 最低 c++ 17
+set_languages("c++17")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 
@@ -83,11 +83,9 @@ end
 add_repositories("hikyuu-repo https://github.com/fasiondog/hikyuu_extern_libs.git")
 -- add_repositories("hikyuu-repo https://gitee.com/fasiondog/hikyuu_extern_libs.git
 
-local fmt_version = "11.0.2"
-
-add_requires("fmt " .. fmt_version, {configs = {header_only = true}})
+add_requires("fmt", {configs = {header_only = true}})
 add_requires("spdlog", {configs = {header_only = true, fmt_external = true}})
-add_requireconfs("spdlog.fmt", {override = true, version=fmt_version, configs = {header_only = true}})
+add_requireconfs("spdlog.fmt", {override = true, configs = {header_only = true}})
 add_requires("yas")
 add_requires("boost", {
     system = false,

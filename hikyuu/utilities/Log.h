@@ -344,14 +344,18 @@ std::shared_ptr<spdlog::logger> HKU_UTILS_API getHikyuuLogger();
 
 /** 用于 catch (...) 中打印，减少编译后代码大小 */
 extern std::string g_unknown_error_msg;
-#define HKU_THROW_UNKNOWN HKU_THROW(g_unknown_error_msg);
+#define HKU_THROW_UNKNOWN HKU_THROW("{}", g_unknown_error_msg);
 #define HKU_TRACE_UNKNOWN HKU_TRACE(g_unknown_error_msg)
 #define HKU_DEBUG_UNKNOWN HKU_DEBUG(g_unknown_error_msg)
 #define HKU_INFO_UNKNOWN HKU_INFO(g_unknown_error_msg)
 #define HKU_ERROR_UNKNOWN HKU_ERROR(g_unknown_error_msg)
 #define HKU_FATAL_UNKNOWN HKU_FATAL(g_unknown_error_msg)
 
-#if CPP_STANDARD >= CPP_STANDARD_17
+#if CPP_STANDARD >= CPP_STANDARD_20
+#define CLASS_LOGGER_IMP(cls) \
+protected:                    \
+    static constexpr const char* ms_logger = #cls;
+#elif CPP_STANDARD >= CPP_STANDARD_17
 #define CLASS_LOGGER_IMP(cls) \
 protected:                    \
     inline static const char* ms_logger = #cls;
