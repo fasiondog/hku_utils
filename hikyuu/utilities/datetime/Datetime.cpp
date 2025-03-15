@@ -359,8 +359,9 @@ Datetime Datetime::today() {
 
 DatetimeList HKU_UTILS_API getDateRange(const Datetime &start, const Datetime &end) {
     DatetimeList result;
+    Datetime end_datetime = (end == Null<Datetime>()) ? Datetime::max() : end;
     bd::date start_day = start.date();
-    bd::date end_day = end.date();
+    bd::date end_day = end_datetime.date();
     bd::date_period dp(start_day, end_day);
     bd::day_iterator iter = dp.begin();
     for (; iter != dp.end(); ++iter) {

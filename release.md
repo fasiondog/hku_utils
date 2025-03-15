@@ -1,5 +1,10 @@
 # 版本发布说明
 
+## 1.1.8 - 
+
+1. Datetime/TimeDelta 增加 hash 支持
+2. getDateRange 在 end 日期为空时，取 Datetime::max
+
 ## 1.1.7 - 2025年2月11日
 
 稳定性增强，编译兼容C++20及编译告警与错误消除
