@@ -1,9 +1,10 @@
 # 版本发布说明
 
-## 1.1.8 - 
+## 1.1.8 - 2025年3月23日
 
 1. Datetime/TimeDelta 增加 hash 支持
 2. getDateRange 在 end 日期为空时，取 Datetime::max
+3. fixed xmake.lua 在 mysql 和 sqlite 选项都为 n 时，编译失败
 
 ## 1.1.7 - 2025年2月11日
 
