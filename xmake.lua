@@ -34,13 +34,6 @@ option("http_client_ssl", {description = "enable https support for http client",
 option("http_client_zip", {description = "enable http support gzip", default = false})
 option("node", {description = "enable node reqrep server/client", default = true})
 
-if has_config("leak_check") then
-    -- 需要 export LD_PRELOAD=libasan.so
-    set_policy("build.sanitizer.address", true)
-    set_policy("build.sanitizer.leak", true)
-    -- set_policy("build.sanitizer.memory", true)
-    -- set_policy("build.sanitizer.thread", true)
-end
 
 -- SPDLOG_ACTIVE_LEVEL 需要单独加
 local log_level = get_config("log_level")
@@ -137,6 +130,19 @@ end
 
 target("hku_utils")
     set_kind("$(kind)")
+
+    if get_config("leak_check") then
+        if is_plat("macosx") then
+            add_cxflags("-fsanitize=address")
+            add_ldflags("-fsanitize=address")
+        elseif is_plat("linux") then
+            -- 需要 export LD_PRELOAD=libasan.so
+            set_policy("build.sanitizer.address", true)
+            set_policy("build.sanitizer.leak", true)
+            -- set_policy("build.sanitizer.memory", true)
+            -- set_policy("build.sanitizer.thread", true)
+        end
+    end
 
     set_configdir("$(projectdir)/hikyuu/utilities")
     add_configfiles("$(projectdir)/version.h.in")

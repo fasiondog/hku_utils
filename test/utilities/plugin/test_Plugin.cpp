@@ -7,48 +7,11 @@
 
 #include "test_config.h"
 #include "hikyuu/utilities/os.h"
-#include "hikyuu/utilities/plugin/PluginLoader.h"
+#include "hikyuu/utilities/plugin/PluginClient.h"
 #include "../../plugin/TestPluginInterface.h"
 #include <cstdlib>
 
 using namespace hku;
-
-template <typename InterfaceT>
-class PluginClient : public InterfaceT {
-public:
-    PluginClient() = delete;
-    PluginClient(const std::string &path, const std::string &filename) {
-        m_loader = std::make_unique<PluginLoader>(path);
-        m_loader->load(filename);
-        m_impl = m_loader->instance<InterfaceT>();
-    }
-    virtual ~PluginClient() = default;
-
-    PluginClient(const PluginClient &) = delete;
-    PluginClient &operator=(const PluginClient &) = delete;
-
-    PluginClient(PluginClient &&rhs) : m_impl(rhs.m_impl), m_loader(std::move(rhs.m_loader)) {
-        rhs.m_impl = nullptr;
-    }
-
-    PluginClient &operator=(PluginClient &&rhs) {
-        if (this != &rhs) {
-            m_loader = std::move(rhs.m_loader);
-            m_impl = rhs.m_impl;
-            rhs.m_impl = nullptr;
-        }
-    }
-
-    InterfaceT *getPlugin() const {
-        return m_impl;
-    }
-
-protected:
-    InterfaceT *m_impl;
-
-protected:
-    std::unique_ptr<PluginLoader> m_loader;
-};
 
 class TestPluginClient : public PluginClient<TestPluginInterface> {
 public:
