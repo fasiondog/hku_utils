@@ -218,6 +218,7 @@ target("hku_utils")
 
     add_files("hikyuu/utilities/*.cpp")
     add_files("hikyuu/utilities/thread/*.cpp")
+    add_files("hikyuu/utilities/plugin/*.cpp")
 
     if has_config("sqlite") then
         add_files("hikyuu/utilities/db_connect/*.cpp")

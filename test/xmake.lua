@@ -1,10 +1,21 @@
 add_requires("doctest")
 add_requires("yas", {system = false})
 
+target("testplugin") 
+    set_kind("shared")
+    set_default(false)
+    add_deps("hku_utils")
+    add_packages("boost", "fmt", "spdlog")
+    add_includedirs("..")
+    add_files("plugin/*.cpp")
+target_end()
+
+
 target("unit-test")
     set_kind("binary")
     set_default(false)
 
+    add_deps("testplugin")
     add_packages("doctest", "spdlog")
 
     if get_config("mysql") then
@@ -40,9 +51,10 @@ target("unit-test")
         add_cxflags("-wd4996", "-wd4251")
     end
 
-    add_files("*.cpp")
+    add_files("test_main.cpp")
     add_files("utilities/*.cpp")
     add_files("utilities/thread/*.cpp")
+    add_files("utilities/plugin/*.cpp")
     
     if get_config("ini_parser") then
         add_files("utilities/ini_parser/*.cpp")
