@@ -1,5 +1,5 @@
 -- config version
-set_version("1.1.7", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.1.9", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 set_warnings("all", "error")
