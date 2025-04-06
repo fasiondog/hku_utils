@@ -1,10 +1,33 @@
 add_requires("doctest")
 add_requires("yas", {system = false})
 
+target("testplugin") 
+    set_kind("shared")
+    set_default(false)
+    add_deps("hku_utils")
+    add_packages("boost", "fmt", "spdlog")
+    add_includedirs("..")
+    add_files("plugin/*.cpp")
+target_end()
+
+
 target("unit-test")
     set_kind("binary")
     set_default(false)
 
+    if get_config("leak_check") then
+        if is_plat("macosx") then
+            set_policy("build.sanitizer.address", true)
+        elseif is_plat("linux") then
+            -- 需要 export LD_PRELOAD=libasan.so
+            set_policy("build.sanitizer.address", true)
+            set_policy("build.sanitizer.leak", true)
+            -- set_policy("build.sanitizer.memory", true)
+            -- set_policy("build.sanitizer.thread", true)
+        end
+    end
+
+    add_deps("testplugin")
     add_packages("doctest", "spdlog")
 
     if get_config("mysql") then
@@ -25,6 +48,8 @@ target("unit-test")
         add_packages("gzip-hpp")
     end
 
+
+
     add_includedirs("..", ".")
 
     if is_plat("macosx", "linux", "cross") then
@@ -40,9 +65,10 @@ target("unit-test")
         add_cxflags("-wd4996", "-wd4251")
     end
 
-    add_files("*.cpp")
+    add_files("test_main.cpp")
     add_files("utilities/*.cpp")
     add_files("utilities/thread/*.cpp")
+    add_files("utilities/plugin/*.cpp")
     
     if get_config("ini_parser") then
         add_files("utilities/ini_parser/*.cpp")

@@ -13,5 +13,8 @@
         <library>boost</library>
         <library>sqlite3</library>
     </libraries>
+    <suppressions>
+        <suppression>unusedFunction</suppression>
+    </suppressions>
     <project-name>cppcheck</project-name>
 </project>
