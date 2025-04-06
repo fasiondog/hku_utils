@@ -13,6 +13,10 @@ std::string TestPlugin::name() const {
     return "testplugin";
 }
 
+std::string TestPlugin::info() const noexcept {
+    return R"({"name":"unknown","version": 1.0,"description":"","author":"unknown"})";
+}
+
 }  // namespace hku
 
 HKU_PLUGIN_DEFINE(hku::TestPlugin)

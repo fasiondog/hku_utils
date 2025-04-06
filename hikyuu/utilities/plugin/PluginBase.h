@@ -20,8 +20,14 @@ public:
     PluginBase() = default;
     virtual ~PluginBase() = default;
 
-private:
-    std::string m_name;
+    /**
+     * @brief 返回插件信息
+     * @details
+     * 插件信息为json格式，包含name(string)、version(int)、description(string)、author(string)字段
+     * 如：{"name":"unknown","version": 1.0,"description":"","author":"unknown"}
+     * @return std::string
+     */
+    virtual std::string info() const noexcept = 0;
 };
 
 }  // namespace hku

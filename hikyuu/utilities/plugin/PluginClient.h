@@ -37,6 +37,10 @@ public:
         }
     }
 
+    std::string info() const noexcept override {
+        return m_impl->info();
+    }
+
     InterfaceT *getPlugin() const {
         return m_impl;
     }

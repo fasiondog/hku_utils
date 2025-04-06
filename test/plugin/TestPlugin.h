@@ -19,6 +19,7 @@ public:
     virtual ~TestPlugin() = default;
 
     virtual std::string name() const override;
+    virtual std::string info() const noexcept override;
 };
 
 }  // namespace hku

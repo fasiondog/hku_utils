@@ -30,4 +30,5 @@ TEST_CASE("test_plugin") {
     CHECK_EQ(plugin.name(), "testplugin");
     CHECK_THROWS(plugin1.name());
     HKU_INFO("{}", plugin.name());
+    HKU_INFO("{}", plugin.info());
 }
