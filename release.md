@@ -1,5 +1,10 @@
 # 版本发布说明
 
+## 1.2.0 -
+
+1. fixed HttpClient, 在相应状态不为200时，继续获取相应内容，以便可以接受 restful 详细错误信息
+2. 调整 Pluging 支持，改为纯 headonly
+
 ## 1.1.9 - 2025年4月7日
 
 1. fixed macosx xcode 升级导致线程池编译错误
