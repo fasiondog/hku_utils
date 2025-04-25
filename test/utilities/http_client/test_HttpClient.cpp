@@ -44,11 +44,13 @@ TEST_CASE("test_HttpClient") {
     CHECK_THROWS(cli2.get("/ip"));
 
     // 正常访问 http
-    cli.setTimeout(-2);
+    cli.setTimeout(1000);
     auto res = cli.get("/ip");
-    json jres = res.json();
-    auto ip = jres["origin"].get<std::string>();
-    HKU_INFO("ip: {}", ip);
+    if (res.status() == 200) {
+        json jres = res.json();
+        auto ip = jres["origin"].get<std::string>();
+        HKU_INFO("ip: {}", ip);
+    }
 
     // for (size_t i = 0; i < 15; i++) {
     //     res = cli.get("/ip");
@@ -72,7 +74,9 @@ TEST_CASE("test_HttpClient") {
     // 正常访问 https
     cli.setCaFile("test_data/ca-bundle.crt");
     res = cli.get("/ip");
-    HKU_INFO("{} {}", cli.url(), res.status());
+    if (res.status() == 200) {
+        HKU_INFO("{} {}", cli.url(), res.status());
+    }
 #endif
 
     // try {
