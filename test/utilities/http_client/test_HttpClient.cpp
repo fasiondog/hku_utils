@@ -44,7 +44,7 @@ TEST_CASE("test_HttpClient") {
     CHECK_THROWS(cli2.get("/ip"));
 
     // 正常访问 http
-    cli.setTimeout(1000);
+    cli.setTimeout(-2);
     auto res = cli.get("/ip");
     if (res.status() == 200) {
         json jres = res.json();
