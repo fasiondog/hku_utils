@@ -8,10 +8,7 @@
  */
 
 #include "doctest/doctest.h"
-#include <hikyuu/utilities/thread/StealThreadPool.h>
-#include <hikyuu/utilities/thread/ThreadPool.h>
-#include <hikyuu/utilities/thread/MQThreadPool.h>
-#include <hikyuu/utilities/thread/MQStealThreadPool.h>
+#include <hikyuu/utilities/thread/thread.h>
 #include <hikyuu/utilities/SpendTimer.h>
 #include <hikyuu/utilities/Log.h>
 
