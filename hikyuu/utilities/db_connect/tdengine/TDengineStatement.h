@@ -49,6 +49,15 @@ public:
     virtual void sub_getColumnAsBlob(int idx, std::string &item) override;
     virtual void sub_getColumnAsBlob(int idx, std::vector<char> &item) override;
 
+private:
+    void _prepare(DBConnectBase *driver);
+
+private:
+    TAOS *m_taos{nullptr};
+    TAOS_STMT *m_stmt{nullptr};
+
+    std::vector<TAOS_MULTI_BIND> m_param_bind;
+
     // private:
     //     void _prepare(DBConnectBase *driver);
     //     void _reset();

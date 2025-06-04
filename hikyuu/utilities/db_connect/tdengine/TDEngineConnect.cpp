@@ -69,4 +69,9 @@ int64_t TDengineConnect::exec(const std::string& sql_string) {
     return rows;
 }
 
+void TDengineConnect::reconnect() noexcept {
+    close();
+    connect();
+}
+
 }  // namespace hku

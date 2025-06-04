@@ -39,9 +39,11 @@ public:
     virtual void rollback() noexcept override {}
 
 public:
-    // MYSQL *getRawMYSQL() const noexcept {
-    //     return m_mysql;
-    // }
+    TAOS *getRawTAOS() const noexcept {
+        return m_taos;
+    }
+
+    void reconnect() noexcept;
 
 private:
     void connect();
