@@ -14,6 +14,7 @@ set_targetdir("$(buildir)/$(mode)/$(plat)/$(arch)/lib")
 
 option("mysql", {description = "Enable sqlite driver.", default = false})
 option("sqlite", {description = "Enable sqlite driver.", default = true})
+option("tdengine", {description = "Enable sqlite driver.", default = false})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
 option("sql_trace", {description = "Print the executed SQL statement", default = false})
 
@@ -232,6 +233,12 @@ target("hku_utils")
     if has_config("mysql") then
         add_files("hikyuu/utilities/db_connect/*.cpp")
         add_files("hikyuu/utilities/db_connect/mysql/*.cpp")
+    end
+
+    if has_config("tdengine") then
+        add_includedirs("/usr/local/include")
+        add_files("hikyuu/utilities/db_connect/*.cpp")
+        add_files("hikyuu/utilities/db_connect/tdengine/*.cpp")
     end
 
     if has_config("ini_parser") then
