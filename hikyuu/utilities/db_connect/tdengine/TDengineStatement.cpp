@@ -5,10 +5,13 @@
  *      Author: fasiondog
  */
 
+#include "TDEngineDll.h"
 #include "TDengineConnect.h"
 #include "TDengineStatement.h"
 
 namespace hku {
+
+char g_taos_is_null = 1;
 
 TDengineStatement::TDengineStatement(DBConnectBase *driver, const std::string &sql_statement)
 : SQLStatementBase(driver, sql_statement) {
@@ -17,47 +20,216 @@ TDengineStatement::TDengineStatement(DBConnectBase *driver, const std::string &s
               sql_statement);
 
     m_taos = connect->getRawTAOS();
-    _prepare(driver);
 
-    int param_count = 0;
-    int ret = taos_stmt_num_params(m_stmt, &param_count);
-    HKU_CHECK(ret == 0, "Failed taos_stmt_num_params! errcode: 0x{:x}, sql: {}", ret,
-              sql_statement);
-    if (param_count > 0) {
-        m_param_bind.resize(param_count);
-        memset(m_param_bind.data(), 0, param_count * sizeof(TAOS_MULTI_BIND));
-    }
+    auto sql = sql_statement;
+    to_lower(sql);
+
+    auto pos = sql.find("insert");
+    HKU_CHECK(pos == std::string::npos, "Not support insert statement: {}!", sql_statement);
+
+    pos = sql.find("update");
+    HKU_CHECK(pos == std::string::npos, "Not support update statement: {}!", sql_statement);
 }
 
 TDengineStatement::~TDengineStatement() {
-    taos_stmt_close(m_stmt);
+    if (m_query_result) {
+        TDEngineDll::taos_free_result(m_query_result);
+    }
 }
 
-void TDengineStatement::_prepare(DBConnectBase *driver) {
-    m_stmt = taos_stmt_init(m_taos);
-    HKU_CHECK(m_stmt, "Failed taos_stmt_init! SQL: {}", m_sql_string);
+void TDengineStatement::sub_exec() {
+    m_query_result = TDEngineDll::taos_query(m_taos, m_sql_string.c_str());
+    int code = TDEngineDll::taos_errno(m_query_result);
+    SQL_CHECK(m_query_result != nullptr && code == 0, TDEngineDll::taos_errno(m_query_result),
+              "Failed taos_query: {}", TDEngineDll::taos_errstr(m_query_result));
+}
 
-    int code = taos_stmt_prepare(m_stmt, m_sql_string.c_str(), 0);
-    HKU_IF_RETURN(code == 0, void());
+bool TDengineStatement::sub_moveNext() {
+    HKU_IF_RETURN(!m_query_result, false);
+    m_num_fields = TDEngineDll::taos_num_fields(m_query_result);
+    m_fields = TDEngineDll::taos_fetch_fields(m_query_result);
+    m_row = TDEngineDll::taos_fetch_row(m_query_result);
+    return m_row != nullptr;
+}
 
-    taos_stmt_close(m_stmt);
+int TDengineStatement::sub_getNumColumns() const {
+    return m_num_fields;
+}
 
-    // 尝试重连
-    TDengineConnect *connect = dynamic_cast<TDengineConnect *>(driver);
-    connect->reconnect();
+void TDengineStatement::sub_getColumnAsInt64(int idx, int64_t &item) {
+    HKU_CHECK(idx < m_num_fields, "idx out of range! idx: {}, total: {}", idx, m_num_fields);
 
-    m_stmt = taos_stmt_init(m_taos);
-    HKU_CHECK(m_stmt, "Failed taos_stmt_init! SQL: {}", m_sql_string);
+    if (m_row[idx] == NULL) {
+        item = 0;
+        return;
+    }
 
-    code = taos_stmt_prepare(m_stmt, m_sql_string.c_str(), 0);
-    HKU_IF_RETURN(code == 0, void());
+    try {
+        switch (m_fields[idx].type) {
+            case TSDB_DATA_TYPE_TIMESTAMP: {
+                int64_t tmp = *((int64_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_TINYINT: {
+                int8_t tmp = *((int8_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_SMALLINT: {
+                int16_t tmp = *((int16_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_INT: {
+                int32_t tmp = *((int32_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_BIGINT: {
+                int64_t tmp = *((int64_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_UTINYINT: {
+                uint8_t tmp = *((uint8_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_USMALLINT: {
+                uint16_t tmp = *((uint16_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_UINT: {
+                uint32_t tmp = *((uint32_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
+            case TSDB_DATA_TYPE_UBIGINT: {
+                uint64_t tmp = *((uint64_t *)m_row[idx]);
+                item = tmp;
+                break;
+            }
 
-    std::string stmt_errorstr(taos_stmt_errstr(m_stmt));
-    taos_stmt_close(m_stmt);
-    m_stmt = nullptr;
+            default:
+                HKU_THROW("Field type mismatch! idx: {}, type: {}", idx, m_fields[idx].type);
+        }
+    } catch (const hku::exception &) {
+        throw;
+    } catch (const std::exception &e) {
+        HKU_THROW("Failed get column idx: {}! {}", idx, e.what());
+    } catch (...) {
+        HKU_THROW("Failed get columon idx: {}! Unknown error!", idx);
+    }
+}
 
-    HKU_THROW("Failed prepare statement: {}! errcode: 0x{:x}, error msg: {}!", m_sql_string, code,
-              stmt_errorstr);
+void TDengineStatement::sub_getColumnAsDouble(int idx, double &item) {
+    HKU_CHECK(idx < m_num_fields, "idx out of range! idx: {}, total: {}", idx, m_num_fields);
+
+    if (m_row[idx] == NULL) {
+        item = 0.0;
+        return;
+    }
+
+    try {
+        if (m_fields[idx].type == TSDB_DATA_TYPE_DOUBLE) {
+            item = *((double *)m_row[idx]);
+        } else if (m_fields[idx].type == TSDB_DATA_TYPE_FLOAT) {
+            float tmp = *((float *)m_row[idx]);
+            item = tmp;
+        } else {
+            HKU_THROW("Field type mismatch! idx: {}", idx);
+        }
+
+    } catch (const hku::exception &) {
+        throw;
+    } catch (const std::exception &e) {
+        HKU_THROW("Failed get column idx: {}! {}", idx, e.what());
+    } catch (...) {
+        HKU_THROW("Failed get columon idx: {}! Unknown error!", idx);
+    }
+}
+
+void TDengineStatement::sub_getColumnAsDatetime(int idx, Datetime &item) {
+    HKU_CHECK(idx < m_num_fields, "idx out of range! idx: {}, total: {}", idx, m_num_fields);
+    if (m_row[idx] == NULL) {
+        item = Null<Datetime>();
+        return;
+    }
+
+    try {
+        if (m_fields[idx].type == TSDB_DATA_TYPE_TIMESTAMP) {
+            int64_t tmp = *((int64_t *)m_row[idx]);
+            item = Datetime::fromTimestamp(tmp);
+        } else {
+            HKU_THROW("Field type mismatch! idx: {}", idx);
+        }
+
+    } catch (const hku::exception &) {
+        throw;
+    } catch (const std::exception &e) {
+        HKU_THROW("Failed get column idx: {}! {}", idx, e.what());
+    } catch (...) {
+        HKU_THROW("Failed get columon idx: {}! Unknown error!", idx);
+    }
+}
+
+typedef uint16_t VarDataLenT;
+#define varDataLen(v) ((VarDataLenT *)(v))[0]
+#define VARSTR_HEADER_SIZE sizeof(VarDataLenT)
+
+void TDengineStatement::sub_getColumnAsText(int idx, std::string &item) {
+    HKU_CHECK(idx < m_num_fields, "idx out of range! idx: {}, total: {}", idx, m_num_fields);
+
+    if (m_row[idx] == NULL) {
+        item.clear();
+        return;
+    }
+
+    try {
+        int32_t charLen = varDataLen((char *)m_row[idx] - VARSTR_HEADER_SIZE);
+        char *p = (char *)m_row[idx];
+        std::ostringstream buf;
+        for (int32_t i = 0; i < charLen; i++) {
+            buf << p[i];
+        }
+        item = buf.str();
+
+    } catch (const hku::exception &) {
+        throw;
+    } catch (const std::exception &e) {
+        HKU_THROW("Failed get column idx: {}! {}", idx, e.what());
+    } catch (...) {
+        HKU_THROW("Failed get columon idx: {}! Unknown error!", idx);
+    }
+}
+
+void TDengineStatement::sub_getColumnAsBlob(int idx, std::string &item) {
+    sub_getColumnAsText(idx, item);
+}
+
+void TDengineStatement::sub_getColumnAsBlob(int idx, std::vector<char> &item) {
+    HKU_CHECK(idx < m_num_fields, "idx out of range! idx: {}, total: {}", idx, m_num_fields);
+
+    if (m_row[idx] == NULL) {
+        item.clear();
+        return;
+    }
+
+    try {
+        int32_t charLen = varDataLen((char *)m_row[idx] - VARSTR_HEADER_SIZE);
+        char *p = (char *)m_row[idx];
+        item.resize(charLen);
+        memcpy(item.data(), p, charLen);
+
+    } catch (const hku::exception &) {
+        throw;
+    } catch (const std::exception &e) {
+        HKU_THROW("Failed get column idx: {}! {}", idx, e.what());
+    } catch (...) {
+        HKU_THROW("Failed get columon idx: {}! Unknown error!", idx);
+    }
 }
 
 }  // namespace hku

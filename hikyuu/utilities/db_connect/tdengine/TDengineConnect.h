@@ -30,7 +30,9 @@ public:
 
     virtual int64_t exec(const std::string &sql_string) override;
     virtual SQLStatementPtr getStatement(const std::string &sql_statement) override;
-    virtual bool tableExist(const std::string &tablename) override;
+    virtual bool tableExist(const std::string &tablename) override {
+        return false;
+    }
 
     virtual void resetAutoIncrement(const std::string &tablename) override {}
 

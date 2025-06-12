@@ -17,6 +17,8 @@
 #include <hikyuu/utilities/version.h>
 #include <hikyuu/utilities/os.h>
 
+#include <dlfcn.h>
+
 int main(int argc, char** argv) {
 #if defined(_WIN32)
     // Windows 下设置控制台程序输出代码页为 UTF8
@@ -49,6 +51,8 @@ int main(int argc, char** argv) {
     OPEN_SPEND_TIME;
     hku::createDir("test_data/tmp");
 
+    auto m_handle = dlopen("/usr/local/lib/libtaos.dylib", RTLD_LAZY);
+
     int res = 0;
     {
         SPEND_TIME_MSG(total_test_run, "Total test time");
@@ -57,6 +61,8 @@ int main(int argc, char** argv) {
     }
 
     std::cout << std::endl;
+
+    dlclose(m_handle);
 
     if (context.shouldExit())  // important - query flags (and --exit) rely on the user doing this
         return res;            // propagate the result of the tests

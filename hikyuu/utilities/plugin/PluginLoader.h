@@ -9,9 +9,7 @@
 #ifndef HKU_UTILS_PLUGIN_LOADER_H_
 #define HKU_UTILS_PLUGIN_LOADER_H_
 
-#include <mutex>
 #include <string>
-#include <memory>
 #include "hikyuu/utilities/config.h"
 #include "hikyuu/utilities/osdef.h"
 #include "hikyuu/utilities/os.h"

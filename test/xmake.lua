@@ -79,10 +79,15 @@ target("unit-test")
     end
 
     if get_config("sqlite") then
-        add_files("utilities/db_connect/**.cpp")
+        add_files("utilities/db_connect/*.cpp")
         if is_plat("cross") then
             add_links("sqlite3")
         end
+    end
+
+    if get_config("tdengine") then
+        add_includedirs("/usr/local/include")
+        add_files("utilities/db_connect/tdengine/*.cpp")
     end
 
     if get_config("mo") then

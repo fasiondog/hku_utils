@@ -151,6 +151,7 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_MYSQL", has_config("mysql") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLITE", (has_config("sqlite") or has_config("sqlcipher")) and 1 or 0)
     set_configvar("HKU_ENABLE_SQLCIPHER", has_config("sqlcipher") and 1 or 0)
+    set_configvar("HKU_ENABLE_TDENGINE", has_config("tdengine") and 1 or 0)
     set_configvar("HKU_SQL_TRACE", has_config("sql_trace") and 1 or 0)
     set_configvar("HKU_SUPPORT_DATETIME", has_config("datetime") and 1 or 0)
     set_configvar("HKU_ENABLE_INI_PARSER", has_config("ini_parser") and 1 or 0)
@@ -237,6 +238,8 @@ target("hku_utils")
 
     if has_config("tdengine") then
         add_includedirs("/usr/local/include")
+        add_linkdirs("/usr/local/lib")
+        -- add_links("taos")
         add_files("hikyuu/utilities/db_connect/*.cpp")
         add_files("hikyuu/utilities/db_connect/tdengine/*.cpp")
     end
