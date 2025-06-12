@@ -16,6 +16,8 @@
 
 using namespace hku;
 
+#if 0
+
 TEST_CASE("test_tdengin") {
     Parameter param;
     param.set<std::string>("host", "192.168.5.4");
@@ -53,3 +55,5 @@ TEST_CASE("test_tdengin") {
     std::string info = TDEngineDll::taos_get_client_info();
     HKU_INFO(info);
 }
+
+#endif
