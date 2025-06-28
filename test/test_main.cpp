@@ -17,8 +17,6 @@
 #include <hikyuu/utilities/version.h>
 #include <hikyuu/utilities/os.h>
 
-#include <dlfcn.h>
-
 int main(int argc, char** argv) {
 #if defined(_WIN32)
     // Windows 下设置控制台程序输出代码页为 UTF8
