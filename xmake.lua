@@ -1,3 +1,5 @@
+set_xmakever("3.0.0")
+
 -- config version
 set_version("1.2.3", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
@@ -9,8 +11,8 @@ set_languages("c++17")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 
-set_objectdir("$(buildir)/$(mode)/$(plat)/$(arch)/.objs")
-set_targetdir("$(buildir)/$(mode)/$(plat)/$(arch)/lib")
+set_objectdir("$(builddir)/$(mode)/$(plat)/$(arch)/.objs")
+set_targetdir("$(builddir)/$(mode)/$(plat)/$(arch)/lib")
 
 option("mysql", {description = "Enable sqlite driver.", default = false})
 option("sqlite", {description = "Enable sqlite driver.", default = true})
@@ -270,7 +272,7 @@ target("hku_utils")
     end)
 
     after_build(function(target)
-        local destpath = get_config("buildir") .. "/" .. get_config("mode") .. "/" .. get_config("plat") .. "/" .. get_config("arch")
+        local destpath = get_config("builddir") .. "/" .. get_config("mode") .. "/" .. get_config("plat") .. "/" .. get_config("arch")
         print(destpath)
         import("core.project.task")
         task.run("copy_dependents", {}, target, destpath, true)

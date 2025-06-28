@@ -11,6 +11,7 @@
 #include <hikyuu/utilities/ResourcePool.h>
 #include <hikyuu/utilities/Null.h>
 #include <hikyuu/utilities/os.h>
+#include <hikyuu/utilities/SpendTimer.h>
 #include <hikyuu/utilities/db_connect/DBConnect.h>
 #include <hikyuu/utilities/db_connect/tdengine/TDEngineDll.h>
 
@@ -56,4 +57,48 @@ TEST_CASE("test_tdengin") {
     HKU_INFO(info);
 }
 
+#endif
+
+#if 0
+TEST_CASE("test_tdengin") {
+    Parameter param;
+    param.set<std::string>("host", "192.168.5.4");
+    param.set<int>("port", 6030);
+    param.set<std::string>("usr", "root");
+    param.set<std::string>("pwd", "taosdata");
+    // param.set<std::string>("db", "day_data");
+    auto con = std::make_shared<TDengineConnect>(param);
+    CHECK(con->ping());
+
+    {
+        SPEND_TIME(queryInt);
+        con->queryInt("select count(date) from min_data.kdata", 0);
+    }
+
+    {
+        SPEND_TIME(queryInt);
+        con->queryInt("select count(date) from day_data.kdata", 0);
+    }
+}
+
+TEST_CASE("test_mysql") {
+    Parameter param;
+    param.set<std::string>("host", "192.168.5.7");
+    param.set<int>("port", 30006);
+    param.set<std::string>("usr", "root");
+    param.set<std::string>("pwd", "W773brqCWM!17Yt_x06z");
+    // param.set<std::string>("db", "hku_data");
+    auto con = std::make_shared<MySQLConnect>(param);
+    CHECK(con->ping());
+
+    // {
+    //     SPEND_TIME(queryInt);
+    //     con->queryInt("select count(date) from test.meters", 0);
+    // }
+
+    {
+        SPEND_TIME(queryInt);
+        con->queryInt("select count(date) from sh_day.000001", 0);
+    }
+}
 #endif

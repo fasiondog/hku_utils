@@ -120,8 +120,8 @@ target("unit-test")
     before_run(function (target)
         -- 拷贝测试文件
         print("copying test_data ...")
-        os.rm("$(buildir)/$(mode)/$(plat)/$(arch)/lib/test_data")
-        os.cp("$(projectdir)/test_data", "$(buildir)/$(mode)/$(plat)/$(arch)/lib/")
+        os.rm("$(builddir)/$(mode)/$(plat)/$(arch)/lib/test_data")
+        os.cp("$(projectdir)/test_data", "$(builddir)/$(mode)/$(plat)/$(arch)/lib/")
 
         if is_mode("coverage") and (not is_plat("windows")) and not (linuxos.name() == "ubuntu" and linuxos.version():lt("20.0"))  then
             if not os.isfile("cover-init.info") then
