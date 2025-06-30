@@ -239,9 +239,6 @@ target("hku_utils")
     end
 
     if has_config("tdengine") then
-        add_includedirs("/usr/local/include")
-        add_linkdirs("/usr/local/lib")
-        -- add_links("taos")
         add_files("hikyuu/utilities/db_connect/*.cpp")
         add_files("hikyuu/utilities/db_connect/tdengine/*.cpp")
     end

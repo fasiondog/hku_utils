@@ -105,7 +105,7 @@ TDEngineDll::TDEngineDll() {
 
 TDEngineDll::~TDEngineDll() {
     if (m_taos_cleanup) {
-        fmt::print("[TDEngineDll] taos_cleanup\n");
+        // fmt::print("[TDEngineDll] taos_cleanup\n");
         instance().m_taos_cleanup();
     }
     m_loader.unload();

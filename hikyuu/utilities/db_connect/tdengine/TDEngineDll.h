@@ -10,7 +10,7 @@
 #define HKU_SRC_UTILITIES_DB_CONNECT_TDENGINE_TDEngineDll_H_
 
 #include <atomic>
-#include <taos.h>
+#include "taos.h"
 #include "hikyuu/utilities/DllLoader.h"
 
 namespace hku {

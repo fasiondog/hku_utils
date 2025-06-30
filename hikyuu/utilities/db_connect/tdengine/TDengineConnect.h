@@ -12,8 +12,6 @@
 #include "../DBConnectBase.h"
 #include "TDengineStatement.h"
 
-#include <taos.h>
-
 namespace hku {
 
 class HKU_UTILS_API TDengineConnect : public DBConnectBase {

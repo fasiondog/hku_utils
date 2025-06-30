@@ -14,8 +14,7 @@
 #include <boost/any.hpp>
 #include "../SQLStatementBase.h"
 #include "TaosMacro.h"
-
-#include <taos.h>
+#include "taos.h"
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API

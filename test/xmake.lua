@@ -86,7 +86,6 @@ target("unit-test")
     end
 
     if get_config("tdengine") then
-        add_includedirs("/usr/local/include")
         add_files("utilities/db_connect/tdengine/*.cpp")
     end
 
