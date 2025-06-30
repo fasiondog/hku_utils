@@ -24,15 +24,11 @@ public:
     TDengineConnect(const TDengineConnect &) = delete;
     TDengineConnect &operator=(const TDengineConnect &) = delete;
 
-    virtual bool ping() override {
-        return m_taos != nullptr;
-    }
+    virtual bool ping() override;
 
     virtual int64_t exec(const std::string &sql_string) override;
     virtual SQLStatementPtr getStatement(const std::string &sql_statement) override;
-    virtual bool tableExist(const std::string &tablename) override {
-        return false;
-    }
+    virtual bool tableExist(const std::string &tablename) override;
 
     virtual void resetAutoIncrement(const std::string &tablename) override {}
 
@@ -45,7 +41,7 @@ public:
         return m_taos;
     }
 
-    void reconnect() noexcept;
+    bool reconnect() noexcept;
 
 private:
     void connect();

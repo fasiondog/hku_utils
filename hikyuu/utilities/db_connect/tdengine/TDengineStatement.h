@@ -13,6 +13,7 @@
 #include <vector>
 #include <boost/any.hpp>
 #include "../SQLStatementBase.h"
+#include "TaosMacro.h"
 
 #include <taos.h>
 

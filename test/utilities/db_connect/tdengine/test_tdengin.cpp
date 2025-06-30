@@ -59,7 +59,7 @@ TEST_CASE("test_tdengin") {
 
 #endif
 
-#if 0
+#if 1
 TEST_CASE("test_tdengin") {
     Parameter param;
     param.set<std::string>("host", "192.168.5.4");
@@ -78,6 +78,34 @@ TEST_CASE("test_tdengin") {
     {
         SPEND_TIME(queryInt);
         con->queryInt("select count(date) from day_data.kdata", 0);
+    }
+
+    {
+        SPEND_TIME(queryInt);
+        CHECK(con->tableExist("min_data.sh000001"));
+    }
+
+    {
+        SPEND_TIME(query_kdata);
+        struct KDataView {
+            TAOS_BIND6(KDataView, day_data.sh000001, date, open, high, low, close, amount, volume)
+            int64_t date;
+            double open;
+            double high;
+            double low;
+            double close;
+            double amount;
+            double volume;
+        } krecord;
+
+        con->load(krecord, Field("date") == Datetime(20250625).timestampUTC());
+        HKU_INFO("open: {}", krecord.open);
+
+        std::vector<KDataView> ks;
+        con->batchLoad(ks, Field("date") >= Datetime(20250615).timestampUTC());
+        for (auto &k : ks) {
+            HKU_INFO("date: {}, open: {}", k.ts(), k.open);
+        }
     }
 }
 

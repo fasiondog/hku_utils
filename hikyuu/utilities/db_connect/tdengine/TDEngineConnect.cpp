@@ -66,8 +66,21 @@ int64_t TDengineConnect::exec(const std::string& sql_string) {
 #if HKU_SQL_TRACE
     HKU_DEBUG(sql_string);
 #endif
+    HKU_CHECK(m_taos || reconnect(), "Failed to connect to TDengine server! {}", sql_string);
+
     TAOS_RES* result = TDEngineDll::taos_query(m_taos, sql_string.c_str());
     int code = TDEngineDll::taos_errno(result);
+    if (code != 0) {
+        // 尝试检查连接状态，连接状态失败时尝试重连，重连失败抛出异常
+        if (!ping() && !reconnect()) {
+            HKU_THROW("Failed reconnect to TDengine server! {}", sql_string);
+        }
+
+        // 重连后重新执行
+        result = TDEngineDll::taos_query(m_taos, sql_string.c_str());
+        code = TDEngineDll::taos_errno(result);
+    }
+
     SQL_CHECK(code == 0, code, "SQL error: {}! ErrCode: 0x{:x}, ErrMessage: {}", sql_string, code,
               TDEngineDll::taos_errstr(result));
 
@@ -76,9 +89,36 @@ int64_t TDengineConnect::exec(const std::string& sql_string) {
     return rows;
 }
 
-void TDengineConnect::reconnect() noexcept {
-    close();
-    connect();
+bool TDengineConnect::reconnect() noexcept {
+    try {
+        close();
+        connect();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool TDengineConnect::ping() {
+    HKU_IF_RETURN(m_taos == nullptr, false);
+
+    TAOS_RES* res = TDEngineDll::taos_query(m_taos, "SELECT 1");
+    HKU_IF_RETURN(res == nullptr, false);
+
+    TDEngineDll::taos_free_result(res);
+    return true;
+}
+
+bool TDengineConnect::tableExist(const std::string& tablename) {
+    bool result = false;
+    try {
+        SQLStatementPtr st = getStatement(fmt::format("SELECT 1 FROM {} LIMIT 1;", tablename));
+        st->exec();
+        result = true;
+    } catch (...) {
+        result = false;
+    }
+    return result;
 }
 
 }  // namespace hku

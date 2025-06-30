@@ -41,7 +41,7 @@ void TDengineStatement::sub_exec() {
     m_query_result = TDEngineDll::taos_query(m_taos, m_sql_string.c_str());
     int code = TDEngineDll::taos_errno(m_query_result);
     SQL_CHECK(m_query_result != nullptr && code == 0, TDEngineDll::taos_errno(m_query_result),
-              "Failed taos_query: {}", TDEngineDll::taos_errstr(m_query_result));
+              "Failed taos_query: {}! {}", TDEngineDll::taos_errstr(m_query_result), m_sql_string);
 }
 
 bool TDengineStatement::sub_moveNext() {
