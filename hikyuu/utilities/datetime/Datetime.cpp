@@ -41,6 +41,7 @@ Datetime Datetime::fromHex(uint64_t time) {
 Datetime Datetime::fromTimestamp(int64_t timestamp) {
     return TimeDelta::fromTicks(timestamp) + Datetime(1970, 1, 1);
 }
+
 Datetime Datetime::fromTimestampUTC(int64_t timestamp) {
     return Datetime::fromTimestamp(timestamp) + UTCOffset();
 }
