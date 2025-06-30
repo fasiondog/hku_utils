@@ -89,7 +89,6 @@ TEST_CASE("test_tdengin") {
         SPEND_TIME(query_kdata);
         struct KDataView {
             TAOS_BIND6(KDataView, day_data.sh000001, date, open, high, low, close, amount, volume)
-            int64_t date;
             double open;
             double high;
             double low;
@@ -102,10 +101,34 @@ TEST_CASE("test_tdengin") {
         HKU_INFO("open: {}", krecord.open);
 
         std::vector<KDataView> ks;
-        con->batchLoad(ks, Field("date") >= Datetime(20250615).timestampUTC());
+        con->batchLoad(ks, Field("date") >= Datetime(20250613).timestampUTC());
         for (auto &k : ks) {
             HKU_INFO("date: {}, open: {}", k.ts(), k.open);
         }
+    }
+
+    {
+        SPEND_TIME(query_stock);
+        struct StockView {
+            TAOS_BIND7(StockView, hku_base.n_stock, stockid, market, code, name, type, valid,
+                       startdate, enddate)
+            std::string market;
+            std::string code;
+            std::string name;
+            int type;
+            int valid;
+            int64_t startdate;
+            int64_t enddate;
+        } stockRecord;
+
+        con->load(stockRecord, (Field("market") == "SH") & (Field("code") == "000001"));
+        HKU_INFO("name: {}", stockRecord.name);
+
+        // std::vector<StockView> ks;
+        // con->batchLoad(ks);
+        // for (auto &k : ks) {
+        //     HKU_INFO("{}{} {}", k.market, k.code, k.name);
+        // }
     }
 }
 
