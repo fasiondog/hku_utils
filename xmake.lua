@@ -1,7 +1,7 @@
 set_xmakever("3.0.0")
 
 -- config version
-set_version("1.2.4", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.2.5", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 set_warnings("all", "error")
@@ -16,7 +16,6 @@ set_targetdir("$(builddir)/$(mode)/$(plat)/$(arch)/lib")
 
 option("mysql", {description = "Enable sqlite driver.", default = false})
 option("sqlite", {description = "Enable sqlite driver.", default = true})
-option("tdengine", {description = "Enable sqlite driver.", default = false})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
 option("sql_trace", {description = "Print the executed SQL statement", default = false})
 
@@ -153,7 +152,6 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_MYSQL", has_config("mysql") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLITE", (has_config("sqlite") or has_config("sqlcipher")) and 1 or 0)
     set_configvar("HKU_ENABLE_SQLCIPHER", has_config("sqlcipher") and 1 or 0)
-    set_configvar("HKU_ENABLE_TDENGINE", has_config("tdengine") and 1 or 0)
     set_configvar("HKU_SQL_TRACE", has_config("sql_trace") and 1 or 0)
     set_configvar("HKU_SUPPORT_DATETIME", has_config("datetime") and 1 or 0)
     set_configvar("HKU_ENABLE_INI_PARSER", has_config("ini_parser") and 1 or 0)
@@ -236,14 +234,6 @@ target("hku_utils")
     if has_config("mysql") then
         add_files("hikyuu/utilities/db_connect/*.cpp")
         add_files("hikyuu/utilities/db_connect/mysql/*.cpp")
-    end
-
-    if has_config("tdengine") then
-        add_includedirs("/usr/local/include")
-        add_linkdirs("/usr/local/lib")
-        -- add_links("taos")
-        add_files("hikyuu/utilities/db_connect/*.cpp")
-        add_files("hikyuu/utilities/db_connect/tdengine/*.cpp")
     end
 
     if has_config("ini_parser") then

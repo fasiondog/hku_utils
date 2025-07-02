@@ -1,5 +1,10 @@
 # 版本发布说明
 
+## 1.2.5 - 2025年7月2日
+
+1. 暂时移除 TDengine（目前原生连接不稳定容易崩溃)
+2. Datetime 添加 timestampUTC 和 fromTimestampUTC 方法
+
 ## 1.2.4 - 2025年6月28日
 
 1. xmake最低版本限制 3.0.0
