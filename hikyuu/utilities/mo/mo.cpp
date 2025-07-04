@@ -48,7 +48,20 @@ std::string HKU_UTILS_API translate(const std::string &lang, const char *ctx, co
     return iter != g_mo_dict.end() ? g_mo_dict[lang].LookupWithContext(ctx, id) : std::string(id);
 }
 
-#if HKU_OS_OSX
+#if HKU_OS_LINUX
+std::string HKU_UTILS_API getSystemLanguage() {
+    std::string ret;
+    const char *langEnv = std::getenv("LANG");
+    HKU_IF_RETURN(langEnv == nullptr, ret);
+
+    std::string lang(langEnv);
+    auto ss = split(lang, '.');
+    ret = std::string(ss[0]);
+    to_lower(ret);
+    return ret;
+}
+
+#elif HKU_OS_OSX
 std::string HKU_UTILS_API getSystemLanguage() {
     CFLocaleRef currentLocale = CFLocaleCopyCurrent();
 
