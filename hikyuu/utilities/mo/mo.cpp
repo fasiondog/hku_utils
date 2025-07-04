@@ -48,7 +48,22 @@ std::string HKU_UTILS_API translate(const std::string &lang, const char *ctx, co
     return iter != g_mo_dict.end() ? g_mo_dict[lang].LookupWithContext(ctx, id) : std::string(id);
 }
 
-#if HKU_OS_LINUX
+#if HKU_OS_WINDOWS
+std::string HKU_UTILS_API getSystemLanguage() {
+    LCID lcid = GetUserDefaultUILanguage();
+    char lang[256];
+
+    std::string ret;
+    if (GetLocaleInfoA(lcid, LOCALE_SISO639LANGNAME, lang, sizeof(lang)) == 0) {
+        return ret;
+    }
+
+    ret = std::string(lang);
+    to_lower(ret);
+    return ret;
+}
+
+#elif HKU_OS_LINUX
 std::string HKU_UTILS_API getSystemLanguage() {
     std::string ret;
     const char *langEnv = std::getenv("LANG");
