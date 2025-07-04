@@ -107,5 +107,14 @@ std::string HKU_UTILS_API getSystemLanguage() {
 }
 #endif
 
+std::string HKU_UTILS_API _tr(const char *id) {
+    return g_ptr_mo_sys_moreader ? g_ptr_mo_sys_moreader->Lookup(id) : std::string(id);
+}
+
+std::string HKU_UTILS_API _ctr(const char *ctx, const char *id) {
+    return g_ptr_mo_sys_moreader ? g_ptr_mo_sys_moreader->LookupWithContext(ctx, id)
+                                 : std::string(id);
+}
+
 }  // namespace mo
 }  // namespace hku

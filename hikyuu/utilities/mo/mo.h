@@ -34,11 +34,31 @@ namespace mo {
  */
 void HKU_UTILS_API init(const std::string &path = "i8n");
 
+/**
+ * @brief 按指定语言获取翻译
+ * @param lang
+ * @param id
+ * @return std::string
+ */
 std::string HKU_UTILS_API translate(const std::string &lang, const char *id);
 
+/**
+ * @brief 按指定语言和上下文获取翻译
+ * @param lang
+ * @param ctx
+ * @param id
+ * @return std::string
+ */
 std::string HKU_UTILS_API translate(const std::string &lang, const char *ctx, const char *id);
 
+/** 获取系统语言 */
 std::string HKU_UTILS_API getSystemLanguage();
+
+/** 按系统语言获取翻译 */
+std::string HKU_UTILS_API _tr(const char *id);
+
+/** 按系统语言和上下文获取翻译 */
+std::string HKU_UTILS_API _ctr(const char *ctx, const char *id);
 
 }  // namespace mo
 }  // namespace hku
