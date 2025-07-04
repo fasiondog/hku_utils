@@ -245,6 +245,9 @@ target("hku_utils")
     end
 
     if has_config("mo") then
+        if is_plat("macosx") then
+            add_frameworks("CoreFoundation")
+        end
         add_files("hikyuu/utilities/mo/*.cpp")
     end
 

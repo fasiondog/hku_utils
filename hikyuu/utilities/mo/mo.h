@@ -26,23 +26,19 @@
 #endif
 
 namespace hku {
+namespace mo {
 
-class HKU_UTILS_API MOHelper {
-public:
-    static void init();
+/**
+ * @brief 初始化多语言支持
+ * @param path 翻译文件路径
+ */
+void HKU_UTILS_API init(const std::string &path = "i8n");
 
-    static std::string translate(const std::string &lang, const char *id) {
-        auto iter = ms_dict.find(lang);
-        return iter != ms_dict.end() ? ms_dict[lang].Lookup(id) : std::string(id);
-    }
+std::string HKU_UTILS_API translate(const std::string &lang, const char *id);
 
-    static std::string translate(const std::string &lang, const char *ctx, const char *id) {
-        auto iter = ms_dict.find(lang);
-        return iter != ms_dict.end() ? ms_dict[lang].LookupWithContext(ctx, id) : std::string(id);
-    }
+std::string HKU_UTILS_API translate(const std::string &lang, const char *ctx, const char *id);
 
-private:
-    static std::unordered_map<std::string, moFileLib::moFileReader> ms_dict;
-};
+std::string HKU_UTILS_API getSystemLanguage();
 
+}  // namespace mo
 }  // namespace hku

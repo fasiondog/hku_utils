@@ -12,5 +12,7 @@
 using namespace hku;
 
 TEST_CASE("test_mo") {
-    MOHelper::init();
+    mo::init();
+    auto sys_lang = mo::getSystemLanguage();
+    HKU_INFO("系统语言：{}", sys_lang);
 }
