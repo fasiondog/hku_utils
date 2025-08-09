@@ -90,10 +90,6 @@ target("unit-test")
         add_files("utilities/db_connect/tdengine/*.cpp")
     end
 
-    if get_config("mo") then
-        add_files("utilities/mo/**.cpp")
-    end
-
     if has_config("http_client") then
         add_files("utilities/http_client/**.cpp")
     end

@@ -30,7 +30,6 @@ option("async_log", {description = "Use async log.", default = false})
 
 option("leak_check", {description = "Enable leak check for test", default = false})
 option("ini_parser", {description = "Enable ini parser.", default = true})
-option("mo", {description = "International language support", default = false})
 option("http_client", {description = "use http client", default = true})
 option("http_client_ssl", {description = "enable https support for http client", default = false})
 option("http_client_zip", {description = "enable http support gzip", default = false})
@@ -157,7 +156,6 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_INI_PARSER", has_config("ini_parser") and 1 or 0)
     set_configvar("HKU_ENABLE_STACK_TRACE", has_config("stacktrace") and 1 or 0)
     set_configvar("HKU_CLOSE_SPEND_TIME", has_config("spend_time") and 0 or 1)
-    set_configvar("HKU_ENABLE_MO", has_config("mo") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT", has_config("http_client") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_SSL", has_config("http_client_ssl") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_ZIP", has_config("http_client_zip") and 1 or 0)
@@ -208,6 +206,7 @@ target("hku_utils")
 
     if is_plat("macosx", "iphoneos") then
         add_cxflags("-Wno-deprecated-declarations")
+        add_frameworks("CoreFoundation")
         add_links("iconv")
     end
 
@@ -242,13 +241,6 @@ target("hku_utils")
 
     if has_config("datetime") then
         add_files("hikyuu/utilities/datetime/*.cpp")
-    end
-
-    if has_config("mo") then
-        if is_plat("macosx") then
-            add_frameworks("CoreFoundation")
-        end
-        add_files("hikyuu/utilities/mo/*.cpp")
     end
 
     if has_config("http_client") then
