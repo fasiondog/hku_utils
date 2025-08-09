@@ -47,7 +47,7 @@ jobs:
     - name: configure
       shell: cmd
       run: |
-        xmake f -c -a ${{ matrix.arch }} -k ${{ matrix.kind }} -y -vD --mo=y --mysql=n --http_client_zip=y --http_client_ssl=n
+        xmake f -c -a ${{ matrix.arch }} -k ${{ matrix.kind }} -y -vD --mysql=n --http_client_zip=y --http_client_ssl=n
 
     - name: build
       shell: cmd
