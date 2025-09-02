@@ -46,6 +46,9 @@ int main(int argc, char** argv) {
     HKU_INFO("current utils version: {}", hku::utils::getVersion());
     HKU_INFO("current utils build version: {}", hku::utils::getVersionWithBuild());
 
+    HKU_INFO("total memory: {}", hku::utils::getMemoryMaxSize());
+    HKU_INFO("idle memory: {}", hku::utils::getMemoryIdleSize());
+
     OPEN_SPEND_TIME;
     hku::createDir("test_data/tmp");
 

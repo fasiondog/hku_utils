@@ -54,7 +54,7 @@ jobs:
       run: |
         xmake -b unit-test
 
-    # - name: test
-    #   run: |
-    #     xmake r unit-test        
+    - name: test
+      run: |
+        xmake r unit-test        
 
