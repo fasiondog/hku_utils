@@ -2,7 +2,9 @@
 
 ## 1.2.9 -
 
-移除非必要的 utf8_to_utf32 函数
+1. 移除非必要的 utf8_to_utf32 函数
+2. Datetime timestamp和timestampUTC 方法返回值改为uint64_t
+3. os 添加获取物理内存和空闲内存大小函数
 
 ## 1.2.8 - 2025年8月9日
 
