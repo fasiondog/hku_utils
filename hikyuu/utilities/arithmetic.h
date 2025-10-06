@@ -120,6 +120,11 @@ ValueT roundEx(ValueT number, int ndigits = 0) {
         return static_cast<ValueT>(std::ceil(number * factor - 0.5 - epsilon) / factor);
 }
 
+extern template double HKU_UTILS_API roundEx(double number, int ndigits);
+
+template <>
+float HKU_UTILS_API roundEx(float number, int ndigits);
+
 /**
  * 向上截取，如10.1截取后为11
  * @param number  待处理数据
@@ -193,6 +198,11 @@ ValueT roundDown(ValueT number, int ndigits = 0) {
 
     return number;
 }
+
+extern template double HKU_UTILS_API roundUp(double number, int ndigits);
+extern template float HKU_UTILS_API roundUp(float number, int ndigits);
+extern template double HKU_UTILS_API roundDown(double number, int ndigits);
+extern template float HKU_UTILS_API roundDown(float number, int ndigits);
 
 #if defined(_MSC_VER)
 #pragma warning(pop)
@@ -404,6 +414,51 @@ inline std::string byteToHexStrForPrint(const char *bytes, size_t in_len) {
 inline std::string byteToHexStrForPrint(const std::string &bytes) {
     return byteToHexStrForPrint(bytes.c_str(), bytes.size());
 }
+
+/** 判断 double 是否为整数 */
+bool HKU_UTILS_API isInteger(double num);
+
+/** 判断 float 是否为整数 */
+bool HKU_UTILS_API isInteger(float num);
+
+/**
+ * @brief 获取已排序的向量中指定分位数的值
+ * @param vec 已排序的数组
+ * @param quantile
+ * @return Indicator::value_t
+ */
+template <typename T>
+T get_quantile(const std::vector<T> &vec, double quantile) {
+    if (vec.empty()) {
+        return std::numeric_limits<T>::quiet_NaN();
+    }
+
+    if (quantile <= 0.0) {
+        return vec.front();
+    } else if (quantile >= 1.0) {
+        return vec.back();
+    }
+
+    T ret;
+    double qpos = vec.size() * quantile;
+    if (qpos <= 1.0) {
+        ret = vec[0];
+    } else if (isInteger(qpos)) {
+        size_t pos = static_cast<size_t>(qpos);
+        ret = (vec[pos - 1] + vec[pos]) / 2;
+    } else {
+        size_t pos = static_cast<size_t>(qpos);
+        T x = qpos - pos;
+        ret = vec[pos - 1] + x * (vec[pos] - vec[pos - 1]);
+    }
+    return ret;
+}
+
+extern template double HKU_UTILS_API get_quantile(const std::vector<double> &vec, double quantile);
+extern template float HKU_UTILS_API get_quantile(const std::vector<float> &vec, double quantile);
+
+HKU_UTILS_API std::ostream &operator<<(std::ostream &os, const std::vector<double> &p);
+HKU_UTILS_API std::ostream &operator<<(std::ostream &os, const std::vector<float> &p);
 
 /** @} */
 } /* namespace hku */
