@@ -5,6 +5,12 @@
 1. 移除非必要的 utf8_to_utf32 函数
 2. Datetime timestamp和timestampUTC 方法返回值改为uint64_t
 3. os 添加获取物理内存和空闲内存大小函数
+4. fix(datetime): 修复 UTC 偏移计算在非 Windows 平台的问题
+5. fix(MySQLStatement): 初始化MYSQL_TIME结构体(消除linux编译告警)
+6. feat(arithmetic): 实现浮点数四舍五入、整数判断及分位数计算功能
+7. feat(arithmetic):添加 get_quantile 模板函数，支持计算 vector 的指定分位数
+8. feat(arithmetic):重载 ostream 输出操作符，支持打印 vector 内容（省略中间元素以提高可读性）
+9. feat(arithmetic):新增 isInteger 函数用于判断 double 和 float 是否为整数，考虑了浮点数精度误差
 
 ## 1.2.8 - 2025年8月9日
 
