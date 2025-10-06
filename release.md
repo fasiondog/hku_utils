@@ -11,6 +11,7 @@
 7. feat(arithmetic):添加 get_quantile 模板函数，支持计算 vector 的指定分位数
 8. feat(arithmetic):重载 ostream 输出操作符，支持打印 vector 内容（省略中间元素以提高可读性）
 9. feat(arithmetic):新增 isInteger 函数用于判断 double 和 float 是否为整数，考虑了浮点数精度误差
+10. feat(PluginLoader): 增强插件加载失败时的错误信息提示
 
 ## 1.2.8 - 2025年8月9日
 
