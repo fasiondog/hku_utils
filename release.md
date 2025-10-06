@@ -1,6 +1,6 @@
 # 版本发布说明
 
-## 1.2.9 -
+## 1.2.9 - 2025年10月6日
 
 1. 移除非必要的 utf8_to_utf32 函数
 2. Datetime timestamp和timestampUTC 方法返回值改为uint64_t
