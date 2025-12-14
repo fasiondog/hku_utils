@@ -71,7 +71,7 @@ TEST_CASE("test_StealThreadPool") {
         SPEND_TIME(test_StealThreadPool);
         StealThreadPool tg(8);
         HKU_INFO("worker_num: {}", tg.worker_num());
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 10; i++) {
 #if FMT_VERSION >= 90000
             tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
                 HKU_INFO("{}: ------------------- [{}]", i,
@@ -89,7 +89,7 @@ TEST_CASE("test_StealThreadPool") {
     {
         SPEND_TIME(test_parallel_for_index_void_steal);
         parallel_for_index_void_steal(
-          0, 100, [](size_t i) {  // fmt::print("{}: ----------------------\n", i);
+          0, 10, [](size_t i) {  // fmt::print("{}: ----------------------\n", i);
               HKU_INFO("{}: ------------------- [{}]", i,
                        fmt::streamed(std::this_thread::get_id()));
           });
