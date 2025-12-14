@@ -1,5 +1,12 @@
 # 版本发布说明
 
+## 1.3.0 -
+
+1. feat(utilities): 优化插件管理器线程安全实现，将 PluginManager 中的互斥锁从 std::mutex 升级为 std::shared_mutex，并重构 getPlugin 方法以支持读写分离锁机制，高并发访问性能。同时完善异常处理逻辑，增强插件加载失败时的日志记录。
+2. feat(algorithm): 添加 cpu_num 参数以控制并行线程数
+3. feat(thread): 添加StealThreadPool线程池
+4. feat(thread): 添加基于StealThreadPool的并行执行函数
+
 ## 1.2.9 - 2025年10月6日
 
 1. 移除非必要的 utf8_to_utf32 函数
