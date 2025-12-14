@@ -14,7 +14,7 @@
 
 using namespace hku;
 
-#if 0
+#if 1
 
 /**
  * @defgroup test_hikyuu_ThreadPool test_hikyuu_ThreadPool
@@ -22,18 +22,22 @@ using namespace hku;
  * @{
  */
 
-/** @par 检测点 */
 TEST_CASE("test_ThreadPool") {
     {
         SPEND_TIME(test_ThreadPool);
-        ThreadPool tg(8, true, []() {
-            HKU_INFO("ThreadPool work thread({}) stop!", std::this_thread::get_id());
-        });
+        ThreadPool tg(8);
         HKU_INFO("worker_num: {}", tg.worker_num());
         for (int i = 0; i < 10; i++) {
+#if FMT_VERSION >= 90000
+            tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
+                HKU_INFO("{}: ------------------- [{}]", i,
+                         fmt::streamed(std::this_thread::get_id()));
+            });
+#else
             tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
                 HKU_INFO("{}: ------------------- [{}]", i, std::this_thread::get_id());
             });
+#endif
         }
         tg.join();
     }
@@ -43,14 +47,19 @@ TEST_CASE("test_ThreadPool") {
 TEST_CASE("test_MQThreadPool") {
     {
         SPEND_TIME(test_MQThreadPool);
-        MQThreadPool tg(8, true, []() {
-            HKU_INFO("MQThreadPool work thread({}) stop!", std::this_thread::get_id());
-        });
+        MQThreadPool tg(8);
         HKU_INFO("worker_num: {}", tg.worker_num());
         for (int i = 0; i < 10; i++) {
+#if FMT_VERSION >= 90000
+            tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
+                HKU_INFO("{}: ------------------- [{}]", i,
+                         fmt::streamed(std::this_thread::get_id()));
+            });
+#else
             tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
                 HKU_INFO("{}: ------------------- [{}]", i, std::this_thread::get_id());
             });
+#endif
         }
         tg.join();
     }
@@ -60,35 +69,49 @@ TEST_CASE("test_MQThreadPool") {
 TEST_CASE("test_StealThreadPool") {
     {
         SPEND_TIME(test_StealThreadPool);
-        StealThreadPool tg(8, true, []() {
-            HKU_INFO("StealThreadPool work thread({}) stop!", std::this_thread::get_id());
-        });
+        StealThreadPool tg(8);
         HKU_INFO("worker_num: {}", tg.worker_num());
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 100; i++) {
+#if FMT_VERSION >= 90000
+            tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
+                HKU_INFO("{}: ------------------- [{}]", i,
+                         fmt::streamed(std::this_thread::get_id()));
+            });
+#else
             tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
                 HKU_INFO("{}: ------------------- [{}]", i, std::this_thread::get_id());
             });
+#endif
         }
         tg.join();
+    }
+
+    {
+        SPEND_TIME(test_parallel_for_index_void_steal);
+        parallel_for_index_void_steal(
+          0, 100, [](size_t i) {  // fmt::print("{}: ----------------------\n", i);
+              HKU_INFO("{}: ------------------- [{}]", i,
+                       fmt::streamed(std::this_thread::get_id()));
+          });
     }
 }
 
-/** @par 检测点 */
-TEST_CASE("test_MQStealThreadPool") {
-    {
-        SPEND_TIME(test_MQStealThreadPool);
-        MQStealThreadPool tg(8, true, []() {
-            HKU_INFO("MQStealThreadPool work thread({}) stop!", std::this_thread::get_id());
-        });
-        HKU_INFO("worker_num: {}", tg.worker_num());
-        for (int i = 0; i < 10; i++) {
-            tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
-                HKU_INFO("{}: ------------------- [{}]", i, std::this_thread::get_id());
-            });
-        }
-        tg.join();
-    }
-}
+// /** @par 检测点 */
+// TEST_CASE("test_MQStealThreadPool") {
+//     {
+//         SPEND_TIME(test_MQStealThreadPool);
+//         MQStealThreadPool tg(8, true, []() {
+//             HKU_INFO("MQStealThreadPool work thread({}) stop!", std::this_thread::get_id());
+//         });
+//         HKU_INFO("worker_num: {}", tg.worker_num());
+//         for (int i = 0; i < 10; i++) {
+//             tg.submit([=]() {  // fmt::print("{}: ----------------------\n", i);
+//                 HKU_INFO("{}: ------------------- [{}]", i, std::this_thread::get_id());
+//             });
+//         }
+//         tg.join();
+//     }
+// }
 
 #endif
 
