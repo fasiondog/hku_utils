@@ -156,10 +156,7 @@ auto parallel_for_index_steal(size_t start, size_t end, FunctionType f, size_t c
     }
 
     for (auto& task : tasks) {
-        auto one = task.get();
-        for (auto&& value : one) {
-            ret.emplace_back(std::move(value));
-        }
+        ret.push_back(std::move(task.get()));
     }
 
     return ret;
