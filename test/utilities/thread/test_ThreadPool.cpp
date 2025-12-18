@@ -87,8 +87,8 @@ TEST_CASE("test_StealThreadPool") {
     }
 
     {
-        SPEND_TIME(test_parallel_for_index_void_steal);
-        parallel_for_index_void_steal(
+        SPEND_TIME(parallel_for_index_void_single);
+        parallel_for_index_void_single(
           0, 10, [](size_t i) {  // fmt::print("{}: ----------------------\n", i);
               HKU_INFO("{}: ------------------- [{}]", i,
                        fmt::streamed(std::this_thread::get_id()));
