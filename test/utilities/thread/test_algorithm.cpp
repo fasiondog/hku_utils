@@ -187,4 +187,24 @@ TEST_CASE("test_parallel_for_index") {
     }
 }
 
+TEST_CASE("test_parallel_for_index_single") {
+    std::vector<size_t> values(100);
+    for (size_t i = 0, len = values.size(); i < len; i++) {
+        values[i] = i;
+    }
+
+    auto result = parallel_for_index_single(0, values.size(), [](size_t i) { return i + 1; });
+    // auto result = parallel_for_index_single<std::function<size_t(size_t)>, MQStealThreadPool>(
+    //   0, values.size(), [](size_t i) { return i + 1; });
+
+    std::vector<size_t> expect(100);
+    for (size_t i = 0, len = expect.size(); i < len; i++) {
+        expect[i] = i + 1;
+    }
+    CHECK_EQ(result.size(), expect.size());
+    for (size_t i = 0, len = expect.size(); i < len; i++) {
+        CHECK_EQ(result[i], expect[i]);
+    }
+}
+
 /** @} */
