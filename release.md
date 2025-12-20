@@ -6,6 +6,7 @@
 2. feat(algorithm): 添加 cpu_num 参数以控制并行线程数
 3. feat(thread): 添加StealThreadPool, MQStealThreadPool线程池
 4. feat(thread): 添加parallel_for_index_single/parallel_for_index_void_single
+5. feat(plugin): 增强插件加载异常处理
 
 ## 1.2.9 - 2025年10月6日
 
