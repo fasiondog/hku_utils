@@ -1,12 +1,14 @@
 # 版本发布说明
 
-## 1.3.0 -
+## 1.3.0 - 2025年12月26日
 
 1. feat(utilities): 优化插件管理器线程安全实现，将 PluginManager 中的互斥锁从 std::mutex 升级为 std::shared_mutex，并重构 getPlugin 方法以支持读写分离锁机制，高并发访问性能。同时完善异常处理逻辑，增强插件加载失败时的日志记录。
 2. feat(algorithm): 添加 cpu_num 参数以控制并行线程数
 3. feat(thread): 添加StealThreadPool, MQStealThreadPool线程池
 4. feat(thread): 添加parallel_for_index_single/parallel_for_index_void_single
 5. feat(plugin): 增强插件加载异常处理
+6. 移除了 `g_unknown_error_msg` 全局变量，并直接在宏定义中使用字符串字面量
+7. feat(config): 增加多个编译配置宏定义开关
 
 ## 1.2.9 - 2025年10月6日
 
