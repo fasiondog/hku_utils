@@ -1,5 +1,10 @@
 # 版本发布说明
 
+## 1.3.1 - 2025年1月6日
+
+1. feat(datetime): 优化UTC时区偏移计算实现
+2. fix(http_client): 修复HttpClient资源管理和异常处理问题
+
 ## 1.3.0 - 2025年12月26日
 
 1. feat(utilities): 优化插件管理器线程安全实现，将 PluginManager 中的互斥锁从 std::mutex 升级为 std::shared_mutex，并重构 getPlugin 方法以支持读写分离锁机制，高并发访问性能。同时完善异常处理逻辑，增强插件加载失败时的日志记录。
