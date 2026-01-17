@@ -2,7 +2,8 @@
 
 ## 1.3.2 -
 
-1. feat(util): 新增omp_macro.h头文件，提供OpenMP并行计算相关的宏定义
+1. feat(omp): 新增omp_macro.h头文件，提供OpenMP并行计算相关的宏定义
+2. feat(thread): 优化全局偷取线程池，增加全局防嵌套并行方法
 
 ## 1.3.1 - 2025年1月6日
 
