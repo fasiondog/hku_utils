@@ -12,6 +12,7 @@
 #include <chrono>
 #include <vector>
 #include <atomic>
+#include <memory>
 
 using namespace hku;
 
