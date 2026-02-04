@@ -10,7 +10,6 @@ target("testplugin")
     add_files("plugin/*.cpp")
 target_end()
 
-
 target("unit-test")
     set_kind("binary")
     set_default(false)
@@ -70,6 +69,9 @@ target("unit-test")
     add_files("utilities/thread/*.cpp")
     add_files("utilities/plugin/*.cpp")
     
+    -- 添加DuckDB批量操作测试
+    add_files("utilities/db_connect/duckdb/simple_batch_test.cpp")
+    
     if get_config("ini_parser") then
         add_files("utilities/ini_parser/*.cpp")
     end
@@ -83,6 +85,11 @@ target("unit-test")
         if is_plat("cross") then
             add_links("sqlite3")
         end
+    end
+
+    if get_config("duckdb") then
+        add_files("utilities/db_connect/duckdb/*.cpp")
+        add_packages("duckdb")
     end
 
     if get_config("tdengine") then
