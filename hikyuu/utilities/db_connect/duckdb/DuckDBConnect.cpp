@@ -17,7 +17,7 @@ namespace hku {
 DuckDBConnect::DuckDBConnect(const Parameter& param) : DBConnectBase(param) {
     try {
         // 获取数据库文件名
-        m_dbname = getParam<std::string>("db");
+        m_dbname = tryGetParam<std::string>("db", ":memory:");
 
         // 获取访问模式参数
         std::string access_mode = tryGetParam<std::string>("access_mode", "READ_WRITE");
