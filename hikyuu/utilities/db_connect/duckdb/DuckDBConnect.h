@@ -71,68 +71,7 @@ public:
      */
     virtual void resetAutoIncrement(const std::string& tablename) override;
 
-    //-------------------------------------------------------------------------
-    // DuckDB特化的批量操作方法
-    //-------------------------------------------------------------------------
-
-    /**
-     * DuckDB优化的批量保存 - 根据数据量选择合适的策略
-     * @param container 支持迭代器的容器
-     * @param autotrans 是否自动管理事务
-     */
-    template <typename Container>
-    void optimizedBatchSave(Container& container, bool autotrans = true) {
-        optimizedBatchSaveImpl(container.begin(), container.end(), autotrans);
-    }
-
-    /**
-     * DuckDB优化的批量更新 - 根据数据量选择合适的策略
-     * @param container 支持迭代器的容器
-     * @param autotrans 是否自动管理事务
-     */
-    template <typename Container>
-    void optimizedBatchUpdate(Container& container, bool autotrans = true) {
-        optimizedBatchUpdateImpl(container.begin(), container.end(), autotrans);
-    }
-
-    /**
-     * DuckDB优化的批量加载 - 利用列式特性提高性能
-     * @param container 支持push_back的容器
-     * @param where 查询条件
-     */
-    template <typename Container>
-    void optimizedBatchLoad(Container& container, const std::string& where = "");
-
-    /**
-     * DuckDB优化的批量加载 - 利用列式特性提高性能
-     * @param container 支持push_back的容器
-     * @param cond 查询条件
-     */
-    template <typename Container>
-    void optimizedBatchLoad(Container& container, const DBCondition& cond);
-
-    /**
-     * DuckDB优化的批量加载 - 利用列式特性提高性能
-     * @param container 支持push_back的容器
-     * @param sql 查询语句
-     */
-    template <typename Container>
-    void optimizedBatchLoadView(Container& container, const std::string& sql);
-
 private:
-    // 私有辅助方法
-    template <typename Iterator>
-    void optimizedBatchSaveImpl(Iterator first, Iterator last, bool autotrans);
-
-    template <typename Iterator>
-    void optimizedBatchUpdateImpl(Iterator first, Iterator last, bool autotrans);
-
-    template <typename Container>
-    void performBulkInsert(const Container& items);
-
-    template <typename Container>
-    void performBulkUpdate(const Container& items);
-
     void close();
 
 private:
