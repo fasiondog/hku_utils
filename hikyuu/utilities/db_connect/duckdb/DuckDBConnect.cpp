@@ -99,7 +99,7 @@ int64_t DuckDBConnect::exec(const std::string& sql_string) {
 
     // 对于INSERT/UPDATE/DELETE语句，获取影响的行数
     idx_t affected_rows = 0;
-    if (duckdb_column_count(&result) == 0) {
+    if (duckdb_row_count(&result) == 0) {
         // 这是一个修改语句，尝试获取影响行数
         // DuckDB C API没有直接的rows_changed函数，需要通过其他方式获取
         affected_rows = 1;  // 简化处理

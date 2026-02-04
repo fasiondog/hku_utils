@@ -35,13 +35,10 @@ public:
      * string access_mode - 访问模式："READ_WRITE"(默认) 或 "READ_ONLY"
      * </pre>
      */
-    explicit DuckDBConnect(const Parameter &param);
+    explicit DuckDBConnect(const Parameter& param);
 
     /** 析构函数 */
     virtual ~DuckDBConnect() override;
-
-    /** 获取底层连接对象，仅供内部工具函数使用 */
-    duckdb_connection getConnection() const { return m_connection; }
 
     /** 如果数据库连接有效，返回true */
     virtual bool ping() override;
@@ -55,26 +52,29 @@ public:
     /** 回滚事务 */
     virtual void rollback() noexcept override;
 
-    /** 执行无返回结果的 SQL */
-    virtual int64_t exec(const std::string &sql_string) override;
+    /**
+     * 执行无返回结果的 SQL
+     * @note duckdb 无法返回 INSERT/UPDATE/DELETE 语句的受影响函数，这里成功返回1
+     */
+    virtual int64_t exec(const std::string& sql_string) override;
 
     /** 获取 SQLStatement */
-    virtual SQLStatementPtr getStatement(const std::string &sql_statement) override;
+    virtual SQLStatementPtr getStatement(const std::string& sql_statement) override;
 
     /** 判断表是否存在 */
-    virtual bool tableExist(const std::string &tablename) override;
+    virtual bool tableExist(const std::string& tablename) override;
 
     /**
      * 重置含自增 id 的表中的 id 从 1开始
      * @param tablename 待重置id的表名
      * @exception 表中仍旧含有数据时，抛出异常
      */
-    virtual void resetAutoIncrement(const std::string &tablename) override;
+    virtual void resetAutoIncrement(const std::string& tablename) override;
 
     //-------------------------------------------------------------------------
     // DuckDB特化的批量操作方法
     //-------------------------------------------------------------------------
-    
+
     /**
      * DuckDB优化的批量保存 - 根据数据量选择合适的策略
      * @param container 支持迭代器的容器
@@ -84,7 +84,7 @@ public:
     void optimizedBatchSave(Container& container, bool autotrans = true) {
         optimizedBatchSaveImpl(container.begin(), container.end(), autotrans);
     }
-    
+
     /**
      * DuckDB优化的批量更新 - 根据数据量选择合适的策略
      * @param container 支持迭代器的容器
@@ -94,7 +94,7 @@ public:
     void optimizedBatchUpdate(Container& container, bool autotrans = true) {
         optimizedBatchUpdateImpl(container.begin(), container.end(), autotrans);
     }
-    
+
     /**
      * DuckDB优化的批量加载 - 利用列式特性提高性能
      * @param container 支持push_back的容器
@@ -102,7 +102,7 @@ public:
      */
     template <typename Container>
     void optimizedBatchLoad(Container& container, const std::string& where = "");
-    
+
     /**
      * DuckDB优化的批量加载 - 利用列式特性提高性能
      * @param container 支持push_back的容器
@@ -110,7 +110,7 @@ public:
      */
     template <typename Container>
     void optimizedBatchLoad(Container& container, const DBCondition& cond);
-    
+
     /**
      * DuckDB优化的批量加载 - 利用列式特性提高性能
      * @param container 支持push_back的容器
@@ -123,13 +123,13 @@ private:
     // 私有辅助方法
     template <typename Iterator>
     void optimizedBatchSaveImpl(Iterator first, Iterator last, bool autotrans);
-    
+
     template <typename Iterator>
     void optimizedBatchUpdateImpl(Iterator first, Iterator last, bool autotrans);
-    
+
     template <typename Container>
     void performBulkInsert(const Container& items);
-    
+
     template <typename Container>
     void performBulkUpdate(const Container& items);
 
@@ -137,9 +137,9 @@ private:
 
 private:
     friend class DuckDBStatement;
-    std::string m_dbname;           // 数据库文件名
-    duckdb_database m_db;           // 数据库句柄
-    duckdb_connection m_connection; // 连接句柄
+    std::string m_dbname;            // 数据库文件名
+    duckdb_database m_db;            // 数据库句柄
+    duckdb_connection m_connection;  // 连接句柄
 };
 
 typedef std::shared_ptr<DuckDBConnect> DuckDBConnectPtr;
