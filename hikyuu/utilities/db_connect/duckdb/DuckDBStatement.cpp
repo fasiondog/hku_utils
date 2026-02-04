@@ -30,12 +30,35 @@ DuckDBStatement::~DuckDBStatement() {
 }
 
 void DuckDBStatement::_prepare() {
-    duckdb_state state = duckdb_prepare(m_connection, m_sql_string.c_str(), &m_stmt);
+    std::string sql = _prepareInsertWithReturning(m_sql_string);
+    duckdb_state state = duckdb_prepare(m_connection, sql.c_str(), &m_stmt);
     if (state != DuckDBSuccess) {
-        const char* error_msg = duckdb_prepare_error(m_stmt);
+        const char *error_msg = duckdb_prepare_error(m_stmt);
         std::string msg = error_msg ? std::string(error_msg) : "Unknown error";
-        SQL_THROW(-1, "Failed prepare sql statement: {}! error msg: {}", m_sql_string, msg);
+        SQL_THROW(-1, "Failed prepare sql statement: {}! error msg: {}", sql, msg);
     }
+}
+
+std::string DuckDBStatement::_prepareInsertWithReturning(const std::string &sql) {
+    std::string upper_sql = sql;
+    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(), ::toupper);
+
+    size_t insert_pos = upper_sql.find("INSERT");
+    if (insert_pos == std::string::npos) {
+        return sql;
+    }
+
+    size_t returning_pos = upper_sql.find("RETURNING");
+    if (returning_pos != std::string::npos) {
+        return sql;
+    }
+
+    size_t rowid_pos = upper_sql.find("ROWID");
+    if (rowid_pos != std::string::npos) {
+        return sql;
+    }
+
+    return sql + " RETURNING id";
 }
 
 void DuckDBStatement::_reset() {
@@ -48,14 +71,14 @@ void DuckDBStatement::_reset() {
 
 void DuckDBStatement::sub_exec() {
     _reset();
-    
+
     duckdb_state state = duckdb_execute_prepared(m_stmt, &m_result);
     if (state != DuckDBSuccess) {
-        const char* error_msg = duckdb_result_error(&m_result);
+        const char *error_msg = duckdb_result_error(&m_result);
         std::string msg = error_msg ? std::string(error_msg) : "Unknown error";
         SQL_THROW(-1, "Failed execute sql statement: {}! error msg: {}", m_sql_string, msg);
     }
-    
+
     m_has_result = true;
     m_row_count = duckdb_row_count(&m_result);
     m_current_row = 0;
@@ -65,7 +88,7 @@ bool DuckDBStatement::sub_moveNext() {
     if (!m_has_result || m_current_row >= m_row_count) {
         return false;
     }
-    
+
     m_current_row++;
     return m_current_row <= m_row_count;
 }
@@ -74,7 +97,7 @@ int DuckDBStatement::sub_getNumColumns() const {
     if (!m_has_result) {
         return 0;
     }
-    return static_cast<int>(duckdb_column_count(const_cast<duckdb_result*>(&m_result)));
+    return static_cast<int>(duckdb_column_count(const_cast<duckdb_result *>(&m_result)));
 }
 
 void DuckDBStatement::sub_bindNull(int idx) {
@@ -121,16 +144,16 @@ void DuckDBStatement::sub_bindDouble(int idx, double item) {
 }
 
 void DuckDBStatement::sub_bindBlob(int idx, const std::string &item) {
-    duckdb_state state = duckdb_bind_blob(m_stmt, static_cast<idx_t>(idx + 1), 
-                                         item.data(), static_cast<idx_t>(item.size()));
+    duckdb_state state = duckdb_bind_blob(m_stmt, static_cast<idx_t>(idx + 1), item.data(),
+                                          static_cast<idx_t>(item.size()));
     if (state != DuckDBSuccess) {
         SQL_THROW(-1, "Failed to bind blob at index {}", idx);
     }
 }
 
 void DuckDBStatement::sub_bindBlob(int idx, const std::vector<char> &item) {
-    duckdb_state state = duckdb_bind_blob(m_stmt, static_cast<idx_t>(idx + 1), 
-                                         item.data(), static_cast<idx_t>(item.size()));
+    duckdb_state state = duckdb_bind_blob(m_stmt, static_cast<idx_t>(idx + 1), item.data(),
+                                          static_cast<idx_t>(item.size()));
     if (state != DuckDBSuccess) {
         SQL_THROW(-1, "Failed to bind blob at index {}", idx);
     }
@@ -140,12 +163,12 @@ void DuckDBStatement::sub_getColumnAsInt64(int idx, int64_t &item) {
     if (!m_has_result || m_current_row == 0 || m_current_row > m_row_count) {
         SQL_THROW(-1, "No valid result or invalid row position");
     }
-    
+
     if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
         item = 0;
         return;
     }
-    
+
     item = duckdb_value_int64(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
 }
 
@@ -153,12 +176,12 @@ void DuckDBStatement::sub_getColumnAsDouble(int idx, double &item) {
     if (!m_has_result || m_current_row == 0 || m_current_row > m_row_count) {
         SQL_THROW(-1, "No valid result or invalid row position");
     }
-    
+
     if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
         item = 0.0;
         return;
     }
-    
+
     item = duckdb_value_double(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
 }
 
@@ -172,13 +195,13 @@ void DuckDBStatement::sub_getColumnAsText(int idx, std::string &item) {
     if (!m_has_result || m_current_row == 0 || m_current_row > m_row_count) {
         SQL_THROW(-1, "No valid result or invalid row position");
     }
-    
+
     if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
         item = "";
         return;
     }
-    
-    char* value = duckdb_value_varchar(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
+
+    char *value = duckdb_value_varchar(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
     if (value) {
         item = std::string(value);
         free(value);
@@ -191,14 +214,14 @@ void DuckDBStatement::sub_getColumnAsBlob(int idx, std::string &item) {
     if (!m_has_result || m_current_row == 0 || m_current_row > m_row_count) {
         throw null_blob_exception();
     }
-    
+
     if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
         throw null_blob_exception();
     }
-    
+
     duckdb_blob blob = duckdb_value_blob(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
     if (blob.data && blob.size > 0) {
-        item = std::string(static_cast<char*>(blob.data), blob.size);
+        item = std::string(static_cast<char *>(blob.data), blob.size);
         free(blob.data);
     } else {
         throw null_blob_exception();
@@ -212,8 +235,27 @@ void DuckDBStatement::sub_getColumnAsBlob(int idx, std::vector<char> &item) {
 }
 
 uint64_t DuckDBStatement::sub_getLastRowid() {
-    // DuckDB C API没有直接获取last insert rowid的函数
-    // 可以通过查询系统表或其他方式获取
+    if (!m_has_result || m_row_count == 0) {
+        return 0;
+    }
+
+    int col_count = duckdb_column_count(&m_result);
+    for (int i = 0; i < col_count; ++i) {
+        const char *col_name = duckdb_column_name(&m_result, i);
+        if (col_name) {
+            std::string col_name_str(col_name);
+            std::transform(col_name_str.begin(), col_name_str.end(), col_name_str.begin(),
+                           ::toupper);
+
+            if (col_name_str == "ID" || col_name_str == "\"ID\"") {
+                if (duckdb_value_is_null(&m_result, i, 0)) {
+                    return 0;
+                }
+                return duckdb_value_int64(&m_result, i, 0);
+            }
+        }
+    }
+
     return 0;
 }
 

@@ -68,10 +68,7 @@ target("unit-test")
     add_files("utilities/*.cpp")
     add_files("utilities/thread/*.cpp")
     add_files("utilities/plugin/*.cpp")
-    
-    -- 添加DuckDB批量操作测试
-    add_files("utilities/db_connect/duckdb/simple_batch_test.cpp")
-    
+        
     if get_config("ini_parser") then
         add_files("utilities/ini_parser/*.cpp")
     end

@@ -9,7 +9,10 @@
 
 #include "../../../test_config.h"
 #include "hikyuu/utilities/db_connect/duckdb/DuckDBConnect.h"
+#include <hikyuu/utilities/db_connect/DBConnect.h>
 #include "hikyuu/utilities/os.h"
+#include "hikyuu/utilities/datetime/Datetime.h"
+#include "hikyuu/utilities/db_connect/TableMacro.h"
 #include <iostream>
 #include <chrono>
 
@@ -174,11 +177,23 @@ TEST_CASE("test_DuckDBConnect_comprehensive") {
     CHECK(driver->tableExist("comprehensive_test"));
     CHECK_FALSE(driver->tableExist("non_existent_table"));
 
-    // 测试数据插入
-    driver->exec(
-      "INSERT INTO comprehensive_test (id, name, score, created) VALUES (1, 'Alice', 95.5, NOW())");
-    driver->exec(
-      "INSERT INTO comprehensive_test (id, name, score, created) VALUES (2, 'Bob', 87.2, NOW())");
+    // 测试数据插入 - 使用预编译语句插入Datetime
+    SQLStatementPtr insert_stmt = driver->getStatement(
+      "INSERT INTO comprehensive_test (id, name, score, created) VALUES (?, ?, ?, ?)");
+    REQUIRE(insert_stmt);
+
+    Datetime now = Datetime::now();
+    insert_stmt->bind(0, 1);
+    insert_stmt->bind(1, std::string("Alice"));
+    insert_stmt->bind(2, 95.5);
+    insert_stmt->bind(3, now);
+    insert_stmt->exec();
+
+    insert_stmt->bind(0, 2);
+    insert_stmt->bind(1, std::string("Bob"));
+    insert_stmt->bind(2, 87.2);
+    insert_stmt->bind(3, now);
+    insert_stmt->exec();
 
     // 测试数据查询
     auto count = driver->queryNumber<int64_t>("SELECT COUNT(*) FROM comprehensive_test");
@@ -274,6 +289,7 @@ TEST_CASE("test_DuckDBStatement_advanced") {
 
 TEST_CASE("test_DuckDBConnect_with_different_configs") {
     // 测试只读模式
+    removeFile("test_readonly.duckdb");
     Parameter readonly_param;
     readonly_param.set<std::string>("db", "test_readonly.duckdb");
     readonly_param.set<std::string>("access_mode", "READ_ONLY");
@@ -549,6 +565,203 @@ TEST_CASE("test_DuckDB_parameter_handling") {
     }
 
     std::cout << "Parameter handling test completed successfully!" << std::endl;
+}
+
+TEST_CASE("test_DuckDB_Datetime") {
+    Parameter param;
+    param.set<std::string>("db", "test_datetime.duckdb");
+
+    DuckDBConnectPtr driver = std::make_shared<DuckDBConnect>(param);
+    REQUIRE(driver);
+
+    // 先删除可能存在的表
+    driver->exec("DROP TABLE IF EXISTS datetime_test");
+
+    // 创建测试表，包含TIMESTAMP类型的字段
+    driver->exec(
+      "CREATE TABLE datetime_test (id INTEGER PRIMARY KEY, name VARCHAR(50), "
+      "created_at TIMESTAMP, "
+      "updated_at TIMESTAMP)");
+
+    driver->exec("PRAGMA table_info('datetime_test')");
+
+    // 测试Datetime插入 - 使用预编译语句
+    SQLStatementPtr stmt = driver->getStatement(
+      "INSERT INTO datetime_test (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)");
+    REQUIRE(stmt);
+
+    // 创建几个Datetime对象
+    Datetime dt1 = Datetime(2024, 1, 1, 12, 30, 45);
+    Datetime dt2 = Datetime(2024, 6, 15, 8, 15, 30);
+    Datetime dt3 = Datetime::now();
+
+    // 插入数据
+    stmt->bind(0, 1);
+    stmt->bind(1, std::string("Test 1"));
+    stmt->bind(2, dt1);
+    stmt->bind(3, dt2);
+    CHECK_NOTHROW(stmt->exec());
+
+    stmt->bind(0, 2);
+    stmt->bind(1, std::string("Test 2"));
+    stmt->bind(2, dt2);
+    stmt->bind(3, dt3);
+    CHECK_NOTHROW(stmt->exec());
+
+    // 验证插入的数据数量
+    auto count = driver->queryNumber<int64_t>("SELECT COUNT(*) FROM datetime_test");
+    CHECK(count == 2);
+
+    // 测试Datetime查询
+    SQLStatementPtr select_stmt = driver->getStatement(
+      "SELECT id, name, created_at, updated_at FROM datetime_test ORDER BY id");
+    REQUIRE(select_stmt);
+    CHECK_NOTHROW(select_stmt->exec());
+
+    // 验证第一条记录
+    CHECK(select_stmt->moveNext());
+    int64_t id1;
+    std::string name1;
+    Datetime created_at1, updated_at1;
+    select_stmt->getColumn(0, id1);
+    select_stmt->getColumn(1, name1);
+    select_stmt->getColumn(2, created_at1);
+    select_stmt->getColumn(3, updated_at1);
+
+    CHECK(id1 == 1);
+    CHECK(name1 == "Test 1");
+    CHECK(created_at1.year() == 2024);
+    CHECK(created_at1.month() == 1);
+    CHECK(created_at1.day() == 1);
+    CHECK(created_at1.hour() == 12);
+    CHECK(created_at1.minute() == 30);
+    CHECK(created_at1.second() == 45);
+
+    CHECK(updated_at1.year() == 2024);
+    CHECK(updated_at1.month() == 6);
+    CHECK(updated_at1.day() == 15);
+
+    // 验证第二条记录
+    CHECK(select_stmt->moveNext());
+    int64_t id2;
+    std::string name2;
+    Datetime created_at2, updated_at2;
+    select_stmt->getColumn(0, id2);
+    select_stmt->getColumn(1, name2);
+    select_stmt->getColumn(2, created_at2);
+    select_stmt->getColumn(3, updated_at2);
+
+    CHECK(id2 == 2);
+    CHECK(name2 == "Test 2");
+    CHECK(created_at2.year() == 2024);
+    CHECK(created_at2.month() == 6);
+    CHECK(created_at2.day() == 15);
+
+    // 测试Datetime的批量操作
+    // struct DateTimeTestData {
+    //     TABLE_BIND3(DateTimeTestData, datetime_test, name, created_at, updated_at)
+    //     std::string name;
+    //     Datetime created_at;
+    //     Datetime updated_at;
+    // };
+    struct DateTimeTestData {
+        std::string name;
+        Datetime created_at;
+        Datetime updated_at;
+
+        uint64_t m_id = 0;
+        bool valid() const {
+            return m_id != 0;
+        }
+        uint64_t id() const {
+            return m_id;
+        }
+        void id(uint64_t id) {
+            m_id = id;
+        }
+        uint64_t rowid() const {
+            return m_id;
+        }
+        void rowid(uint64_t id) {
+            m_id = id;
+        }
+
+        static std::string getTableName() {
+            return "datetime_test";
+        }
+        static const char* getInsertSQL() {
+            return "INSERT INTO datetime_test (id, name, created_at, updated_at) VALUES (?, ?, "
+                   "?,?)";
+        }
+        static const char* getUpdateSQL() {
+            return "UPDATE datetime_test SET name=?, created_at=?, updated_at=? WHERE id=?";
+        }
+        static const char* getSelectSQL() {
+            return "SELECT id, name, created_at, updated_at FROM datetime_test";
+        }
+
+        void save(const SQLStatementPtr& st) const {
+            st->bind(0, static_cast<int64_t>(m_id));
+            st->bind(1, name);
+            st->bind(2, created_at);
+            st->bind(3, updated_at);
+        }
+
+        void update(const SQLStatementPtr& st) const {
+            st->bind(0, name);
+            st->bind(1, created_at);
+            st->bind(2, updated_at);
+            st->bind(3, static_cast<int64_t>(m_id));
+        }
+
+        void load(const SQLStatementPtr& st) {
+            st->getColumn(0, m_id);
+            st->getColumn(1, name);
+            st->getColumn(2, created_at);
+            st->getColumn(3, updated_at);
+        }
+    };
+
+    // 创建批量测试数据
+    std::vector<DateTimeTestData> batch_data;
+    for (int i = 0; i < 10; ++i) {
+        DateTimeTestData item;
+        item.id(i + 10);
+        item.name = fmt::format("Batch Item {}", i);
+        item.created_at = Datetime(2024, 1, 1 + i, i * 2, i * 3, i * 4);
+        item.updated_at = Datetime::now();
+        batch_data.push_back(item);
+    }
+
+    // 执行批量插入
+    CHECK_NOTHROW(driver->batchSave(batch_data, true));
+
+    // 验证批量插入的数据
+    auto total_count = driver->queryNumber<int64_t>("SELECT COUNT(*) FROM datetime_test");
+    CHECK(total_count == 12);
+
+    // 使用batchLoad读出并验证批量插入的数据
+    std::vector<DateTimeTestData> loaded_data;
+    driver->batchLoad(loaded_data, "id >= 10 ORDER BY id");
+
+    CHECK(loaded_data.size() == 10);
+    for (int i = 0; i < 10; ++i) {
+        CHECK(loaded_data[i].id() == i + 10);
+        CHECK(loaded_data[i].name == fmt::format("Batch Item {}", i));
+        CHECK(loaded_data[i].created_at.year() == 2024);
+        CHECK(loaded_data[i].created_at.month() == 1);
+        CHECK(loaded_data[i].created_at.day() == 1 + i);
+        CHECK(loaded_data[i].created_at.hour() == i * 2);
+        CHECK(loaded_data[i].created_at.minute() == i * 3);
+        CHECK(loaded_data[i].created_at.second() == i * 4);
+    }
+
+    // 测试Datetime的比较查询
+    auto count_after_date = driver->queryNumber<int64_t>(
+      "SELECT COUNT(*) FROM datetime_test WHERE created_at > '2024-01-05 00:00:00'");
+    CHECK(count_after_date > 0);
+
+    std::cout << "Datetime test completed successfully!" << std::endl;
 }
 
 /** @} */
