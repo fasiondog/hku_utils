@@ -117,7 +117,7 @@ if has_config("mysql") then
     end
 end
 
-if has_config("duckdb") then 
+if get_config("duckdb") then 
     add_requires("duckdb", {system = false, configs = {shared = true}})
 end
 
