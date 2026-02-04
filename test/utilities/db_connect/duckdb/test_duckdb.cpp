@@ -658,69 +658,69 @@ TEST_CASE("test_DuckDB_Datetime") {
     CHECK(created_at2.day() == 15);
 
     // 测试Datetime的批量操作
-    // struct DateTimeTestData {
-    //     TABLE_BIND3(DateTimeTestData, datetime_test, name, created_at, updated_at)
-    //     std::string name;
-    //     Datetime created_at;
-    //     Datetime updated_at;
-    // };
     struct DateTimeTestData {
+        COL_TABLE_BIND3(DateTimeTestData, datetime_test, name, created_at, updated_at)
         std::string name;
         Datetime created_at;
         Datetime updated_at;
-
-        uint64_t m_id = 0;
-        bool valid() const {
-            return m_id != 0;
-        }
-        uint64_t id() const {
-            return m_id;
-        }
-        void id(uint64_t id) {
-            m_id = id;
-        }
-        uint64_t rowid() const {
-            return m_id;
-        }
-        void rowid(uint64_t id) {
-            m_id = id;
-        }
-
-        static std::string getTableName() {
-            return "datetime_test";
-        }
-        static const char* getInsertSQL() {
-            return "INSERT INTO datetime_test (id, name, created_at, updated_at) VALUES (?, ?, "
-                   "?,?)";
-        }
-        static const char* getUpdateSQL() {
-            return "UPDATE datetime_test SET name=?, created_at=?, updated_at=? WHERE id=?";
-        }
-        static const char* getSelectSQL() {
-            return "SELECT id, name, created_at, updated_at FROM datetime_test";
-        }
-
-        void save(const SQLStatementPtr& st) const {
-            st->bind(0, static_cast<int64_t>(m_id));
-            st->bind(1, name);
-            st->bind(2, created_at);
-            st->bind(3, updated_at);
-        }
-
-        void update(const SQLStatementPtr& st) const {
-            st->bind(0, name);
-            st->bind(1, created_at);
-            st->bind(2, updated_at);
-            st->bind(3, static_cast<int64_t>(m_id));
-        }
-
-        void load(const SQLStatementPtr& st) {
-            st->getColumn(0, m_id);
-            st->getColumn(1, name);
-            st->getColumn(2, created_at);
-            st->getColumn(3, updated_at);
-        }
     };
+    // struct DateTimeTestData {
+    //     std::string name;
+    //     Datetime created_at;
+    //     Datetime updated_at;
+
+    //     uint64_t m_id = 0;
+    //     bool valid() const {
+    //         return m_id != 0;
+    //     }
+    //     uint64_t id() const {
+    //         return m_id;
+    //     }
+    //     void id(uint64_t id) {
+    //         m_id = id;
+    //     }
+    //     uint64_t rowid() const {
+    //         return m_id;
+    //     }
+    //     void rowid(uint64_t id) {
+    //         m_id = id;
+    //     }
+
+    //     static std::string getTableName() {
+    //         return "datetime_test";
+    //     }
+    //     static const char* getInsertSQL() {
+    //         return "INSERT INTO datetime_test (id, name, created_at, updated_at) VALUES (?, ?, "
+    //                "?,?)";
+    //     }
+    //     static const char* getUpdateSQL() {
+    //         return "UPDATE datetime_test SET name=?, created_at=?, updated_at=? WHERE id=?";
+    //     }
+    //     static const char* getSelectSQL() {
+    //         return "SELECT id, name, created_at, updated_at FROM datetime_test";
+    //     }
+
+    //     void save(const SQLStatementPtr& st) const {
+    //         st->bind(0, static_cast<int64_t>(m_id));
+    //         st->bind(1, name);
+    //         st->bind(2, created_at);
+    //         st->bind(3, updated_at);
+    //     }
+
+    //     void update(const SQLStatementPtr& st) const {
+    //         st->bind(0, name);
+    //         st->bind(1, created_at);
+    //         st->bind(2, updated_at);
+    //         st->bind(3, static_cast<int64_t>(m_id));
+    //     }
+
+    //     void load(const SQLStatementPtr& st) {
+    //         st->getColumn(0, m_id);
+    //         st->getColumn(1, name);
+    //         st->getColumn(2, created_at);
+    //         st->getColumn(3, updated_at);
+    //     }
+    // };
 
     // 创建批量测试数据
     std::vector<DateTimeTestData> batch_data;
