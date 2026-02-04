@@ -34,7 +34,7 @@ TEST_CASE("test_DuckDBConnect_simple") {
     REQUIRE(driver);
 
     // 测试ping功能
-    CHECK(driver->ping());
+    CHECK_UNARY(driver->ping());
 
     // 先删除可能存在的表
     CHECK_NOTHROW(driver->exec("DROP TABLE IF EXISTS simple_test"));
