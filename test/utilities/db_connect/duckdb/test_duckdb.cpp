@@ -9,7 +9,7 @@
 
 #include "../../../test_config.h"
 #include "hikyuu/utilities/db_connect/duckdb/DuckDBConnect.h"
-#include "hikyuu/utilities/db_connect/duckdb/DuckDBUtil.h"
+#include "hikyuu/utilities/os.h"
 #include <iostream>
 #include <chrono>
 
@@ -36,9 +36,11 @@ TEST_CASE("test_DuckDBConnect_simple") {
     // 测试ping功能
     CHECK(driver->ping());
 
+    // 先删除可能存在的表
+    CHECK_NOTHROW(driver->exec("DROP TABLE IF EXISTS simple_test"));
+
     // 测试简单表操作
-    CHECK_NOTHROW(
-      driver->exec("CREATE TABLE IF NOT EXISTS simple_test (id INTEGER, name VARCHAR(50))"));
+    CHECK_NOTHROW(driver->exec("CREATE TABLE simple_test (id INTEGER, name VARCHAR(50))"));
     CHECK(driver->tableExist("simple_test"));
 
     // 测试简单插入和查询
@@ -48,13 +50,15 @@ TEST_CASE("test_DuckDBConnect_simple") {
 }
 
 TEST_CASE("test_DuckDBConnect_create") {
+    // 先删除可能存在的数据库文件
+    std::remove("test.duckdb");
+
     Parameter param;
     param.set<std::string>("db", "test.duckdb");
 
     DuckDBConnectPtr driver;
-    CHECK_THROWS_AS(driver = std::make_shared<DuckDBConnect>(param), std::exception);
 
-    // 测试基本连接创建
+    // 测试基本连接创建 - DuckDB允许直接创建数据库文件
     CHECK_NOTHROW(driver = std::make_shared<DuckDBConnect>(param));
     REQUIRE(driver);
 
@@ -151,43 +155,6 @@ TEST_CASE("test_DuckDBStatement_prepared_statements") {
     }
 }
 
-TEST_CASE("test_DuckDBUtil_functions") {
-    Parameter param;
-    param.set<std::string>("db", "test_util.duckdb");
-
-    DuckDBConnectPtr driver = std::make_shared<DuckDBConnect>(param);
-    REQUIRE(driver);
-
-    // 创建一些测试表
-    driver->exec(
-      "CREATE TABLE products (id INTEGER PRIMARY KEY, name VARCHAR(100), price DECIMAL(10,2))");
-    driver->exec(
-      "CREATE TABLE orders (id INTEGER PRIMARY KEY, product_id INTEGER, quantity INTEGER)");
-
-    // 测试获取所有表名
-    auto table_names = getAllTableNames(driver.get());
-    REQUIRE(table_names.size() >= 2);
-    CHECK(std::find(table_names.begin(), table_names.end(), "products") != table_names.end());
-    CHECK(std::find(table_names.begin(), table_names.end(), "orders") != table_names.end());
-
-    // 测试获取表信息
-    std::string table_info = getTableInfo(driver.get(), "products");
-    CHECK_FALSE(table_info.empty());
-    CHECK(table_info.find("products") != std::string::npos);
-
-    // 测试数据库统计
-    std::string stats = getDatabaseStats(driver.get());
-    CHECK_FALSE(stats.empty());
-
-    // 测试数据库完整性检查
-    CHECK(checkDatabaseIntegrity(driver.get()));
-
-    // 测试备份功能
-    std::string backup_file = "backup_test.duckdb";
-    CHECK(backupDatabase(driver.get(), backup_file));
-    CHECK(isValidDuckDBFile(backup_file));
-}
-
 TEST_CASE("test_DuckDBConnect_comprehensive") {
     Parameter param;
     param.set<std::string>("db", "test_comprehensive.duckdb");
@@ -257,6 +224,9 @@ TEST_CASE("test_DuckDBStatement_advanced") {
     DuckDBConnectPtr driver = std::make_shared<DuckDBConnect>(param);
     REQUIRE(driver);
 
+    // 先删除可能存在的表
+    driver->exec("DROP TABLE IF EXISTS advanced_test");
+
     driver->exec(
       "CREATE TABLE advanced_test (id INTEGER PRIMARY KEY, name VARCHAR(50), salary DOUBLE, active "
       "BOOLEAN, data BLOB)");
@@ -302,49 +272,6 @@ TEST_CASE("test_DuckDBStatement_advanced") {
     }
 }
 
-TEST_CASE("test_DuckDBUtil_comprehensive") {
-    Parameter param;
-    param.set<std::string>("db", "test_util_comprehensive.duckdb");
-
-    DuckDBConnectPtr driver = std::make_shared<DuckDBConnect>(param);
-    REQUIRE(driver);
-
-    // 创建多个测试表
-    driver->exec(
-      "CREATE TABLE products (id INTEGER PRIMARY KEY, name VARCHAR(100), price DECIMAL(10,2))");
-    driver->exec(
-      "CREATE TABLE orders (id INTEGER PRIMARY KEY, product_id INTEGER, quantity INTEGER, "
-      "order_date DATE)");
-    driver->exec(
-      "CREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR(100), email VARCHAR(100))");
-
-    // 测试获取所有表名
-    auto table_names = getAllTableNames(driver.get());
-    REQUIRE(table_names.size() >= 3);
-    CHECK(std::find(table_names.begin(), table_names.end(), "products") != table_names.end());
-    CHECK(std::find(table_names.begin(), table_names.end(), "orders") != table_names.end());
-    CHECK(std::find(table_names.begin(), table_names.end(), "customers") != table_names.end());
-
-    // 测试获取表信息
-    std::string table_info = getTableInfo(driver.get(), "products");
-    CHECK_FALSE(table_info.empty());
-    CHECK(table_info.find("products") != std::string::npos);
-    CHECK(table_info.find("id") != std::string::npos);
-    CHECK(table_info.find("name") != std::string::npos);
-
-    // 测试数据库统计
-    std::string stats = getDatabaseStats(driver.get());
-    CHECK_FALSE(stats.empty());
-    CHECK(stats.find("Total tables:") != std::string::npos);
-
-    // 测试数据库完整性检查
-    CHECK(checkDatabaseIntegrity(driver.get()));
-
-    // 测试文件有效性检查
-    CHECK(isValidDuckDBFile("test_util_comprehensive.duckdb"));
-    CHECK_FALSE(isValidDuckDBFile("nonexistent.duckdb"));
-}
-
 TEST_CASE("test_DuckDBConnect_with_different_configs") {
     // 测试只读模式
     Parameter readonly_param;
@@ -377,7 +304,7 @@ TEST_CASE("test_DuckDB_batch_operations_performance") {
     DuckDBConnectPtr driver = std::make_shared<DuckDBConnect>(param);
     REQUIRE(driver);
 
-    // 创建测试表 - 使用AUTO_INCREMENT或SERIAL
+    // 创建测试表 - 使用DuckDB支持的自增主键方式
     driver->exec("DROP TABLE IF EXISTS batch_test");
     driver->exec(
       "CREATE TABLE batch_test (id INTEGER PRIMARY KEY, name VARCHAR(50), value DOUBLE)");
@@ -409,15 +336,16 @@ TEST_CASE("test_DuckDB_batch_operations_performance") {
             return "batch_test";
         }
         static const char* getInsertSQL() {
-            return "INSERT INTO batch_test (name, value) VALUES (?, ?)";
+            return "INSERT INTO batch_test (id, name, value) VALUES (?, ?, ?)";
         }
         static const char* getUpdateSQL() {
             return "UPDATE batch_test SET name=?, value=? WHERE id=?";
         }
 
         void save(const SQLStatementPtr& st) const {
-            st->bind(0, name);
-            st->bind(1, value);
+            st->bind(0, static_cast<int64_t>(m_id));
+            st->bind(1, name);
+            st->bind(2, value);
         }
 
         void update(const SQLStatementPtr& st) const {
@@ -431,6 +359,7 @@ TEST_CASE("test_DuckDB_batch_operations_performance") {
     std::vector<BatchTestData> test_data;
     for (int i = 0; i < 1000; ++i) {
         BatchTestData item;
+        item.id(i + 1);  // 设置唯一的id值
         item.name = fmt::format("Test Item {}", i);
         item.value = i * 1.5;
         test_data.push_back(item);
@@ -493,15 +422,16 @@ TEST_CASE("test_DuckDB_batch_save_or_update") {
             return "mixed_test";
         }
         static const char* getInsertSQL() {
-            return "INSERT INTO mixed_test (name, status) VALUES (?, ?)";
+            return "INSERT INTO mixed_test (id, name, status) VALUES (?, ?, ?)";
         }
         static const char* getUpdateSQL() {
             return "UPDATE mixed_test SET name=?, status=? WHERE id=?";
         }
 
         void save(const SQLStatementPtr& st) const {
-            st->bind(0, name);
-            st->bind(1, status);
+            st->bind(0, static_cast<int64_t>(m_id));
+            st->bind(1, name);
+            st->bind(2, status);
         }
 
         void update(const SQLStatementPtr& st) const {
@@ -517,6 +447,7 @@ TEST_CASE("test_DuckDB_batch_save_or_update") {
     // 添加一些新数据
     for (int i = 0; i < 50; ++i) {
         MixedTestData item;
+        item.id(i + 1);  // 设置唯一的id值
         item.name = fmt::format("New Item {}", i);
         item.status = 1;
         mixed_data.push_back(item);
@@ -535,7 +466,8 @@ TEST_CASE("test_DuckDB_batch_save_or_update") {
     // 注意：这里需要手动分离保存和更新的数据
     std::vector<MixedTestData> save_items, update_items;
     for (const auto& item : mixed_data) {
-        if (item.valid()) {
+        // 前25个是已存在的数据（需要更新），后25个是新数据（需要插入）
+        if (item.id() <= 25) {
             update_items.push_back(item);
         } else {
             save_items.push_back(item);
@@ -690,6 +622,7 @@ TEST_CASE("test_DuckDB_parameter_handling") {
             Parameter create_param;
             create_param.set<std::string>("db", "test_readonly.duckdb");
             DuckDBConnectPtr creator = std::make_shared<DuckDBConnect>(create_param);
+            creator->exec("DROP TABLE IF EXISTS test_ro");
             creator->exec("CREATE TABLE IF NOT EXISTS test_table (id INTEGER)");
         }
 

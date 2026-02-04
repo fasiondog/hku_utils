@@ -94,6 +94,30 @@ public:
     void optimizedBatchUpdate(Container& container, bool autotrans = true) {
         optimizedBatchUpdateImpl(container.begin(), container.end(), autotrans);
     }
+    
+    /**
+     * DuckDB优化的批量加载 - 利用列式特性提高性能
+     * @param container 支持push_back的容器
+     * @param where 查询条件
+     */
+    template <typename Container>
+    void optimizedBatchLoad(Container& container, const std::string& where = "");
+    
+    /**
+     * DuckDB优化的批量加载 - 利用列式特性提高性能
+     * @param container 支持push_back的容器
+     * @param cond 查询条件
+     */
+    template <typename Container>
+    void optimizedBatchLoad(Container& container, const DBCondition& cond);
+    
+    /**
+     * DuckDB优化的批量加载 - 利用列式特性提高性能
+     * @param container 支持push_back的容器
+     * @param sql 查询语句
+     */
+    template <typename Container>
+    void optimizedBatchLoadView(Container& container, const std::string& sql);
 
 private:
     // 私有辅助方法
