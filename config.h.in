@@ -26,6 +26,11 @@ ${define HKU_ENABLE_SQLITE}
 #ifndef HKU_ENABLE_SQLCIPHER
 ${define HKU_ENABLE_SQLCIPHER}
 #endif
+
+#ifndef HKU_ENABLE_DUCKDB
+${define HKU_ENABLE_DUCKDB}
+#endif
+
 #ifndef HKU_SQL_TRACE
 ${define HKU_SQL_TRACE}
 #endif

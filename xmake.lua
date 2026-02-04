@@ -16,6 +16,7 @@ set_targetdir("$(builddir)/$(mode)/$(plat)/$(arch)/lib")
 
 option("mysql", {description = "Enable sqlite driver.", default = false})
 option("sqlite", {description = "Enable sqlite driver.", default = true})
+option("duckdb", {description = "Enable duckdb driver.", default = false})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
 option("sql_trace", {description = "Print the executed SQL statement", default = false})
 
@@ -116,6 +117,10 @@ if has_config("mysql") then
     end
 end
 
+if get_config("duckdb") then 
+    add_requires("duckdb", {system = false, configs = {shared = true}})
+end
+
 if has_config("http_client") or has_config("node") then
     add_requires("nlohmann_json")
     if is_kind("shared") then
@@ -150,6 +155,7 @@ target("hku_utils")
 
     set_configvar("HKU_ENABLE_MYSQL", has_config("mysql") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLITE", (has_config("sqlite") or has_config("sqlcipher")) and 1 or 0)
+    set_configvar("HKU_ENABLE_DUCKDB", has_config("duckdb") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLCIPHER", has_config("sqlcipher") and 1 or 0)
     set_configvar("HKU_SQL_TRACE", has_config("sql_trace") and 1 or 0)
     set_configvar("HKU_SUPPORT_DATETIME", has_config("datetime") and 1 or 0)
@@ -179,6 +185,12 @@ target("hku_utils")
 
     if has_config("mysql") then
         add_packages("mysql")
+    end
+
+    if has_config("duckdb") then
+        add_packages("duckdb")
+        add_files("hikyuu/utilities/db_connect/*.cpp")
+        add_files("hikyuu/utilities/db_connect/duckdb/*.cpp")
     end
 
     if has_config("http_client") or has_config("node") then
