@@ -16,7 +16,7 @@ set_targetdir("$(builddir)/$(mode)/$(plat)/$(arch)/lib")
 
 option("mysql", {description = "Enable sqlite driver.", default = false})
 option("sqlite", {description = "Enable sqlite driver.", default = true})
-option("duckdb", {description = "Enable duckdb driver.", default = true})
+option("duckdb", {description = "Enable duckdb driver.", default = false})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
 option("sql_trace", {description = "Print the executed SQL statement", default = false})
 
