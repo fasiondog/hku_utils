@@ -7,8 +7,6 @@
 
 #include "doctest/doctest.h"
 #include <hikyuu/utilities/thread/thread.h>
-#if CPP_STANDARD >= CPP_STANDARD_20
-
 #include <hikyuu/utilities/cppdef.h>
 #include <hikyuu/utilities/thread/ThreadPool.h>
 #include <hikyuu/utilities/SpendTimer.h>
@@ -16,6 +14,8 @@
 #include <thread>
 
 using namespace hku;
+
+#if CPP_STANDARD >= CPP_STANDARD_20
 
 TEST_CASE("test_co_dispatch_basic") {
     ThreadPool pool(4);
@@ -398,7 +398,7 @@ TEST_CASE("test_concurrent_dispatch_tasks_in_coroutine") {
 /** @par 检测点 */
 TEST_CASE("test_parallelIndexRange") {
     /** @arg start=0, end=0 */
-    std::vector<hku::range_t> ranges = parallelIndexRange(0, 0);
+    std::vector<range_t> ranges = parallelIndexRange(0, 0);
     CHECK_UNARY(ranges.empty());
 
     /** @arg start=2, end=2 */
