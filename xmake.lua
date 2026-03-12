@@ -1,13 +1,13 @@
 set_xmakever("3.0.0")
 
 -- config version
-set_version("1.3.1", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.3.3", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 -- set_warnings("all", "error")
 
--- 最低 c++ 17
-set_languages("c++17")
+-- 最低 c++ 17, 协程最低C++20
+set_languages("c++20")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 

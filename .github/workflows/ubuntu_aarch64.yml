@@ -57,4 +57,4 @@ jobs:
 
     - name: build
       run: |
-        xmake -b unit-test
+        xmake -bvD unit-test
