@@ -20,6 +20,12 @@
 #include "GlobalMQStealThreadPool.h"
 #include "GlobalThreadPool.h"
 
+#if CPP_STANDARD >= CPP_STANDARD_20
+#include <boost/asio.hpp>
+#include <type_traits>
+#include <exception>
+#endif
+
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API
 #endif
@@ -433,5 +439,131 @@ auto global_parallel_for_index_single(size_t start, size_t end, FunctionType f,
 
     return ret;
 }
+
+#if CPP_STANDARD >= CPP_STANDARD_20
+//----------------------------------------------------------------
+// 协程
+//----------------------------------------------------------------
+namespace asio = boost::asio;
+
+template <typename T>
+struct FutureAwaiter {
+    std::future<T> fut;
+
+    bool await_ready() const noexcept {
+        return fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+    }
+
+    void await_suspend(std::coroutine_handle<> h) {
+        // 启动后台线程等待 future 就绪
+        std::thread([this, h]() mutable {
+            fut.wait();
+            h.resume();
+        }).detach();
+    }
+
+    T await_resume() {
+        return fut.get();  // 可能抛出异常
+    }
+};
+
+struct VoidEvent {
+    std::atomic<bool> done{false};
+    std::exception_ptr ex{nullptr};
+    std::coroutine_handle<> handle;
+
+    void signal() {
+        // 内存序：release 确保之前的写操作对读取者可见
+        done.store(true, std::memory_order_release);
+
+        // 尝试恢复协程
+        // 注意：这里存在竞态条件（见下方 await_suspend 说明）
+        if (handle) {
+            handle.resume();
+        }
+    }
+};
+
+struct VoidAwaiter {
+    std::shared_ptr<VoidEvent> event;
+
+    VoidAwaiter() : event(std::make_shared<VoidEvent>()) {}
+    explicit VoidAwaiter(std::shared_ptr<VoidEvent> e) : event(std::move(e)) {}
+
+    bool await_ready() const noexcept {
+        return event->done.load(std::memory_order_acquire);
+    }
+
+    void await_suspend(std::coroutine_handle<> h) {
+        event->handle = h;
+
+        // 双重检查防止竞态条件
+        // 场景：任务在设置 handle 之前就已经完成了 (signal 被调用)
+        // 如果 signal 发现 handle 为空，它就不会 resume。
+        // 所以这里设置完 handle 后，必须再次检查 done 标志。
+        if (event->done.load(std::memory_order_acquire)) {
+            h.resume();
+        }
+    }
+
+    void await_resume() {
+        if (event->ex) {
+            std::rethrow_exception(event->ex);
+        }
+        // 无返回值，直接返回
+    }
+};
+
+// --- 分支 A: 有返回值 (T != void) ---
+template <typename Executor, typename Func>
+auto co_dispatch_impl(Executor exec, Func&& func, std::true_type)
+  -> asio::awaitable<typename std::invoke_result_t<Func>> {
+    using R = typename std::invoke_result_t<Func>;
+
+    auto p = std::make_shared<std::promise<R>>();
+    auto f = p->get_future();
+
+    exec.execute([p, func = std::forward<Func>(func)]() mutable {
+        try {
+            if constexpr (!std::is_void_v<R>) {
+                p->set_value(func());
+            }
+        } catch (...) {
+            p->set_exception(std::current_exception());
+        }
+    });
+
+    co_return co_await FutureAwaiter<R>{std::move(f)};
+}
+
+// --- 分支 B: 无返回值 (T == void) [轻量级等待] ---
+template <typename Executor, typename Func>
+auto co_dispatch_impl(Executor exec, Func&& func, std::false_type) -> asio::awaitable<void> {
+    auto event = std::make_shared<VoidEvent>();
+
+    exec.execute([event, func = std::forward<Func>(func)]() mutable {
+        try {
+            func();  // 执行任务
+        } catch (...) {
+            event->ex = std::current_exception();  // 捕获异常
+        }
+        event->signal();  // 通知完成
+    });
+
+    co_return co_await VoidAwaiter{event};
+}
+
+// --- 主函数 ---
+template <typename Executor, typename Func>
+auto co_dispatch(Executor exec, Func&& func)
+  -> asio::awaitable<typename std::invoke_result_t<Func>> {
+    using R = typename std::invoke_result_t<Func>;
+    // std::bool_constant<!std::is_void_v<R>>{}
+    // 如果 R 是 void -> false_type -> 走轻量级路径
+    // 如果 R 是 int  -> true_type  -> 走 Future 路径
+    return co_dispatch_impl(exec, std::forward<Func>(func),
+                            std::bool_constant<!std::is_void_v<R>>{});
+}
+#endif  // CPP_STANDARD >= CPP_STANDARD_20
 
 }  // namespace hku

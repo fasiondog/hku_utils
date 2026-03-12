@@ -282,6 +282,19 @@ public:
         m_threads.clear();
     }
 
+    struct ExecutorWrapper {
+        GlobalStealThreadPool* pool;
+        template <typename Function>
+        void execute(Function f) {
+            pool->submit(std::move(f));
+        }
+    };
+
+    /** 协程执行器 */
+    ExecutorWrapper executor() {
+        return ExecutorWrapper{this};
+    }
+
 public:
     bool run_available_task_once() {
         HKU_IF_RETURN(m_done.load(std::memory_order_acquire) || m_thread_need_stop.isSet(), false);
