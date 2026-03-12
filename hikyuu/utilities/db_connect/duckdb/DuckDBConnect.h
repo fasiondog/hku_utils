@@ -10,9 +10,9 @@
 #ifndef HIKYUU_DB_CONNECT_DUCKDB_DUCKDBCONNECT_H
 #define HIKYUU_DB_CONNECT_DUCKDB_DUCKDBCONNECT_H
 
-#include <duckdb.h>
 #include "../DBConnectBase.h"
 #include "DuckDBStatement.h"
+#include <duckdb.h>
 
 namespace hku {
 

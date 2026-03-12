@@ -33,6 +33,10 @@ target("unit-test")
         add_packages("mysql")
     end
 
+    if get_config("duckdb") then
+        add_packages("duckdb")
+    end    
+
     add_deps("hku_utils")
     add_packages("fmt", "yas", "boost")
     if get_config("sqlite") then 
@@ -46,8 +50,6 @@ target("unit-test")
     if has_config("http_client_zip") then
         add_packages("gzip-hpp")
     end
-
-
 
     add_includedirs("..", ".")
 
@@ -86,7 +88,6 @@ target("unit-test")
 
     if get_config("duckdb") then
         add_files("utilities/db_connect/duckdb/*.cpp")
-        add_packages("duckdb")
     end
 
     if get_config("tdengine") then
