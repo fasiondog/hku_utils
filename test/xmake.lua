@@ -10,7 +10,6 @@ target("testplugin")
     add_files("plugin/*.cpp")
 target_end()
 
-
 target("unit-test")
     set_kind("binary")
     set_default(false)
@@ -34,6 +33,10 @@ target("unit-test")
         add_packages("mysql")
     end
 
+    if get_config("duckdb") then
+        add_packages("duckdb")
+    end    
+
     add_deps("hku_utils")
     add_packages("fmt", "yas", "boost")
     if get_config("sqlite") then 
@@ -47,8 +50,6 @@ target("unit-test")
     if has_config("http_client_zip") then
         add_packages("gzip-hpp")
     end
-
-
 
     add_includedirs("..", ".")
 
@@ -69,7 +70,7 @@ target("unit-test")
     add_files("utilities/*.cpp")
     add_files("utilities/thread/*.cpp")
     add_files("utilities/plugin/*.cpp")
-    
+        
     if get_config("ini_parser") then
         add_files("utilities/ini_parser/*.cpp")
     end
@@ -83,6 +84,10 @@ target("unit-test")
         if is_plat("cross") then
             add_links("sqlite3")
         end
+    end
+
+    if get_config("duckdb") then
+        add_files("utilities/db_connect/duckdb/*.cpp")
     end
 
     if get_config("tdengine") then

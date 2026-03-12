@@ -26,14 +26,14 @@ class SQLResultSet;
  * @ingroup DBConnect
  */
 class HKU_UTILS_API DBConnectBase : public std::enable_shared_from_this<DBConnectBase> {
-    PARAMETER_SUPPORT  // NOSONAR
+PARAMETER_SUPPORT  // NOSONAR
 
-      public :
-      /**
-       * 构造函数
-       * @param param 数据库连接参数
-       */
-      explicit DBConnectBase(const Parameter &param);
+  public :
+  /**
+   * 构造函数
+   * @param param 数据库连接参数
+   */
+  explicit DBConnectBase(const Parameter &param);
     virtual ~DBConnectBase() = default;
 
     //-------------------------------------------------------------------------
