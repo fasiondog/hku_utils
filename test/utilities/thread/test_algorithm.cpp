@@ -24,31 +24,17 @@ static asio::awaitable<void> test_co_run_basic_helper(ThreadPool& pool) {
     // 测试有返回值的情况
     int result = co_await co_run(pool.executor(), []() -> int { return 42; });
     CHECK_EQ(result, 42);
+    
+    // 测试 void 返回类型
+    bool executed = false;
+    co_await co_run(pool.executor(), [&]() { executed = true; });
+    CHECK_UNARY(executed);
 }
 
 TEST_CASE("test_co_run_basic") {
     ThreadPool pool(4);
     asio::io_context ctx;
     asio::co_spawn(ctx, test_co_run_basic_helper(pool), asio::detached);
-    ctx.run();
-}
-
-/**
- * @brief 辅助协程函数：测试 co_run void 返回
- */
-static asio::awaitable<void> test_co_run_void_helper(ThreadPool& pool) {
-    std::atomic<bool> executed{false};
-
-    co_await co_run(pool.executor(),
-                    [&executed]() { executed.store(true, std::memory_order_relaxed); });
-
-    CHECK_UNARY(executed.load());
-}
-
-TEST_CASE("test_co_run_void") {
-    ThreadPool pool(4);
-    asio::io_context ctx;
-    asio::co_spawn(ctx, test_co_run_void_helper(pool), asio::detached);
     ctx.run();
 }
 
@@ -75,23 +61,30 @@ TEST_CASE("test_co_run_delayed_wait") {
     ctx.run();
 }
 
-
 /**
- * @brief 辅助协程函数：测试 co_run 的异常处理
+ * @brief 辅助协程函数：测试 co_run 的异常处理（通过 error_code）
  */
 static asio::awaitable<void> test_co_run_exception_helper(ThreadPool& pool) {
-    boost::system::error_code ec;
-    
+    // co_run 会将异常转换为 error_code
+    // 当 error_code 非空时，Asio 会抛出 boost::system::system_error
     try {
-        // co_run 会将异常转换为 error_code
-        int result = co_await co_run(pool.executor(), [&ec]() -> int {
-            throw std::runtime_error("Test exception");
+        int result = co_await co_run(pool.executor(), []() -> int {
+            throw std::runtime_error("Test exception from co_run");
             return 0;  // 不会执行到这里
         });
-        CHECK_FALSE("Should have error code");
+        CHECK_FALSE("Should have thrown system_error");
     } catch (const boost::system::system_error& e) {
-        // co_run 通过 error_code 传递错误
+        // co_run 通过 error_code 传递错误，Asio 框架会将其转换为 system_error
         CHECK_NE(e.code().value(), 0);
+        HKU_INFO("Caught expected system_error: {}", e.what());
+    }
+
+    // 测试正常情况（没有异常）
+    try {
+        int result = co_await co_run(pool.executor(), []() -> int { return 42; });
+        CHECK_EQ(result, 42);
+    } catch (...) {
+        CHECK_FALSE("Should not throw for successful operation");
     }
 }
 

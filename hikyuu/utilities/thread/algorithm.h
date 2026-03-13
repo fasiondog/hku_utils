@@ -684,19 +684,51 @@ inline auto await_future<void>(std::shared_ptr<std::future<void>> fut_ptr)
     fut_ptr->get();  // 可能抛出异常
 }
 
+/**
+ * @brief 在指定 executor 上异步执行函数，异常会转换为 boost::system::error_code
+ * 
+ * 此函数将异常转换为 error_code 传递错误状态，适用于不希望异常中断协程执行的场景。
+ * 当发生异常时，Boost.Asio 框架会自动将非空的 error_code 转换为 boost::system::system_error 抛出。
+ * 
+ * ## 使用示例
+ * @code
+ *   // 正常情况
+ *   try {
+ *       int result = co_await co_run(pool.executor(), []() -> int { return 42; });
+ *       HKU_INFO("Result: {}", result);
+ *   } catch (const std::exception& e) {
+ *       HKU_ERROR("Error: {}", e.what());
+ *   }
+ *   
+ *   // 异常情况 - 会被转换为 system_error
+ *   try {
+ *       int result = co_await co_run(pool.executor(), []() -> int {
+ *           throw std::runtime_error("Error");
+ *           return 0;
+ *       });
+ *   } catch (const boost::system::system_error& e) {
+ *       HKU_ERROR("Error code: {}", e.code().message());
+ *   }
+ * @endcode
+ * 
+ * @param exec 执行器
+ * @param func 要执行的函数
+ * @return boost::asio::awaitable<T> 异步操作的结果（错误时抛出 boost::system::system_error）
+ */
 template <typename Executor, typename Func>
-auto co_run(Executor exec, Func&& func) -> boost::asio::awaitable<typename std::invoke_result_t<Func>> {
+auto co_run(Executor exec, Func&& func)
+  -> boost::asio::awaitable<typename std::invoke_result_t<Func>> {
     using ResultType = typename std::invoke_result_t<Func>;
-    
+
     if constexpr (std::is_void_v<ResultType>) {
         // void 返回类型的特化版本
         return boost::asio::async_initiate<decltype(boost::asio::use_awaitable),
                                            void(boost::system::error_code)>(
           [exec, func = std::forward<Func>(func)](auto&& handler) mutable {
               auto io_exec = boost::asio::get_associated_executor(handler);
-              
-              exec.execute([func = std::move(func), handler = std::forward<decltype(handler)>(handler),
-                            io_exec]() mutable {
+
+              exec.execute([func = std::move(func),
+                            handler = std::forward<decltype(handler)>(handler), io_exec]() mutable {
                   boost::system::error_code ec;
 
                   try {
@@ -704,12 +736,12 @@ auto co_run(Executor exec, Func&& func) -> boost::asio::awaitable<typename std::
                   } catch (const std::exception& e) {
                       ec = boost::system::errc::make_error_code(boost::system::errc::io_error);
                   } catch (...) {
-                      ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
+                      ec =
+                        boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
                   }
 
-                  boost::asio::post(io_exec, [handler = std::move(handler), ec]() mutable {
-                      handler(ec);
-                  });
+                  boost::asio::post(io_exec,
+                                    [handler = std::move(handler), ec]() mutable { handler(ec); });
               });
           },
           boost::asio::use_awaitable);
@@ -719,9 +751,9 @@ auto co_run(Executor exec, Func&& func) -> boost::asio::awaitable<typename std::
                                            void(boost::system::error_code, ResultType)>(
           [exec, func = std::forward<Func>(func)](auto&& handler) mutable {
               auto io_exec = boost::asio::get_associated_executor(handler);
-              
-              exec.execute([func = std::move(func), handler = std::forward<decltype(handler)>(handler),
-                            io_exec]() mutable {
+
+              exec.execute([func = std::move(func),
+                            handler = std::forward<decltype(handler)>(handler), io_exec]() mutable {
                   ResultType result{};
                   boost::system::error_code ec;
 
@@ -730,10 +762,12 @@ auto co_run(Executor exec, Func&& func) -> boost::asio::awaitable<typename std::
                   } catch (const std::exception& e) {
                       ec = boost::system::errc::make_error_code(boost::system::errc::io_error);
                   } catch (...) {
-                      ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
+                      ec =
+                        boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
                   }
 
-                  boost::asio::post(io_exec, [handler = std::move(handler), ec, result = std::move(result)]() mutable {
+                  boost::asio::post(io_exec, [handler = std::move(handler), ec,
+                                              result = std::move(result)]() mutable {
                       handler(ec, std::move(result));
                   });
               });
