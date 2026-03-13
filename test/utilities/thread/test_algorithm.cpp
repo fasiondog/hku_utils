@@ -39,6 +39,27 @@ TEST_CASE("test_co_run_basic") {
 }
 
 /**
+ * @brief 辅助协程函数：测试 co_run_ec 基本功能（error_code 模式）
+ */
+static asio::awaitable<void> test_co_run_ec_basic_helper(ThreadPool& pool) {
+    // 测试有返回值的情况
+    int result = co_await co_run_ec(pool.executor(), []() -> int { return 42; });
+    CHECK_EQ(result, 42);
+    
+    // 测试 void 返回类型
+    bool executed = false;
+    co_await co_run_ec(pool.executor(), [&]() { executed = true; });
+    CHECK_UNARY(executed);
+}
+
+TEST_CASE("test_co_run_ec_basic") {
+    ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_basic_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
  * @brief 辅助协程函数：测试延迟执行
  */
 static asio::awaitable<void> test_co_run_delayed_helper(ThreadPool& pool) {
@@ -58,6 +79,29 @@ TEST_CASE("test_co_run_delayed_wait") {
     ThreadPool pool(4);
     asio::io_context ctx;
     asio::co_spawn(ctx, test_co_run_delayed_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run_ec 的延迟执行
+ */
+static asio::awaitable<void> test_co_run_ec_delayed_helper(ThreadPool& pool) {
+    std::atomic<bool> started{false};
+
+    int result = co_await co_run_ec(pool.executor(), [&started]() -> int {
+        started.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return 42;
+    });
+
+    CHECK_UNARY(started.load());
+    CHECK_EQ(result, 42);
+}
+
+TEST_CASE("test_co_run_ec_delayed_wait") {
+    ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_delayed_helper(pool), asio::detached);
     ctx.run();
 }
 
@@ -96,13 +140,124 @@ TEST_CASE("test_co_run_exception") {
 }
 
 /**
- * @brief 辅助协程函数：测试 co_run 的 lambda 捕获
+ * @brief 辅助协程函数：测试 co_run_ec 的异常处理（通过 error_code）
  */
-static asio::awaitable<void> test_co_run_lambda_capture_helper(ThreadPool& pool) {
+static asio::awaitable<void> test_co_run_ec_exception_helper(ThreadPool& pool) {
+    // co_run_ec 会将异常转换为 error_code
+    // 当 error_code 非空时，Asio 会抛出 boost::system::system_error
+    try {
+        int result = co_await co_run_ec(pool.executor(), []() -> int {
+            throw std::runtime_error("Test exception from co_run_ec");
+            return 0;  // 不会执行到这里
+        });
+        CHECK_FALSE("Should have thrown system_error");
+    } catch (const boost::system::system_error& e) {
+        // co_run_ec 通过 error_code 传递错误，Asio 框架会将其转换为 system_error
+        CHECK_NE(e.code().value(), 0);
+        HKU_INFO("Caught expected system_error: {}", e.what());
+    }
+
+    // 测试正常情况（没有异常）
+    try {
+        int result = co_await co_run_ec(pool.executor(), []() -> int { return 42; });
+        CHECK_EQ(result, 42);
+    } catch (...) {
+        CHECK_FALSE("Should not throw for successful operation");
+    }
+}
+
+TEST_CASE("test_co_run_ec_exception") {
+    ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_exception_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run 的异常穿透（非 void 类型）
+ */
+static asio::awaitable<void> test_co_run_non_void_helper(ThreadPool& pool) {
+    // 测试异常情况 - 应该能够捕获原始异常类型
+    bool exception_caught = false;
+    
+    try {
+        int result = co_await co_run(pool.executor(), []() -> int {
+            throw std::runtime_error("Test exception from co_run");
+            return 0;
+        });
+        CHECK_FALSE("Should have thrown exception");
+    } catch (const std::runtime_error& e) {
+        exception_caught = true;
+        HKU_INFO("Caught runtime_error: {}", e.what());
+        CHECK_EQ(std::string(e.what()), "Test exception from co_run");
+    } catch (...) {
+        HKU_ERROR("Caught unexpected exception type");
+    }
+    
+    CHECK(exception_caught);
+    
+    // 测试正常情况（没有异常）
+    try {
+        int result = co_await co_run(pool.executor(), []() -> int { return 42; });
+        CHECK_EQ(result, 42);
+        HKU_INFO("Normal case passed, result: {}", result);
+    } catch (...) {
+        CHECK_FALSE("Should not throw for successful operation");
+    }
+}
+
+TEST_CASE("test_co_run_non_void") {
+    ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_non_void_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run 的异常穿透（void 类型）
+ */
+static asio::awaitable<void> test_co_run_void_helper(ThreadPool& pool) {
+    bool exception_caught = false;
+    
+    try {
+        co_await co_run(pool.executor(), []() {
+            throw std::logic_error("Void function exception from co_run");
+        });
+        CHECK_FALSE("Should have thrown exception");
+    } catch (const std::logic_error& e) {
+        exception_caught = true;
+        HKU_INFO("Caught logic_error: {}", e.what());
+        CHECK_EQ(std::string(e.what()), "Void function exception from co_run");
+    } catch (...) {
+        HKU_ERROR("Caught unexpected exception type");
+    }
+    
+    CHECK(exception_caught);
+    
+    // 测试正常情况（没有异常）
+    bool executed = false;
+    co_await co_run(pool.executor(), [&executed]() {
+        executed = true;
+    });
+    CHECK_UNARY(executed);
+    HKU_INFO("Normal void case passed");
+}
+
+TEST_CASE("test_co_run_void") {
+    ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_void_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run_ec 的 lambda 捕获
+ */
+static asio::awaitable<void> test_co_run_ec_lambda_capture_helper(ThreadPool& pool) {
     int value1 = 100;
     std::string value2 = "hello";
 
-    auto result = co_await co_run(pool.executor(), [value1, value2 = std::move(value2)]() {
+    auto result = co_await co_run_ec(pool.executor(), [value1, value2 = std::move(value2)]() {
         return std::make_pair(value1, value2);
     });
 
@@ -110,11 +265,11 @@ static asio::awaitable<void> test_co_run_lambda_capture_helper(ThreadPool& pool)
     CHECK_EQ(result.second, "hello");
 }
 
-TEST_CASE("test_co_run_lambda_capture") {
+TEST_CASE("test_co_run_ec_lambda_capture") {
     ThreadPool pool(4);
 
     asio::io_context ctx;
-    asio::co_spawn(ctx, test_co_run_lambda_capture_helper(pool), asio::detached);
+    asio::co_spawn(ctx, test_co_run_ec_lambda_capture_helper(pool), asio::detached);
     ctx.run();
 }
 
@@ -135,6 +290,26 @@ TEST_CASE("test_co_run_string_return") {
 
     asio::io_context ctx;
     asio::co_spawn(ctx, test_co_run_string_return_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run_ec 返回字符串
+ */
+static asio::awaitable<void> test_co_run_ec_string_return_helper(ThreadPool& pool) {
+    std::string expected = "Hello, co_run_ec!";
+
+    auto result =
+      co_await co_run_ec(pool.executor(), [expected]() -> std::string { return expected; });
+
+    CHECK_EQ(result, expected);
+}
+
+TEST_CASE("test_co_run_ec_string_return") {
+    ThreadPool pool(4);
+
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_string_return_helper(pool), asio::detached);
     ctx.run();
 }
 
@@ -165,6 +340,32 @@ TEST_CASE("test_co_run_complex_type") {
 }
 
 /**
+ * @brief 辅助协程函数：测试 co_run_ec 返回复杂类型
+ */
+static asio::awaitable<void> test_co_run_ec_complex_type_helper(ThreadPool& pool) {
+    struct TestData {
+        int value;
+        std::string text;
+        double number;
+    };
+
+    auto result =
+      co_await co_run_ec(pool.executor(), []() -> TestData { return TestData{42, "test", 3.14}; });
+
+    CHECK_EQ(result.value, 42);
+    CHECK_EQ(result.text, "test");
+    CHECK_EQ(result.number, 3.14);
+}
+
+TEST_CASE("test_co_run_ec_complex_type") {
+    ThreadPool pool(4);
+
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_complex_type_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
  * @brief 辅助协程函数：测试 co_run 返回仅移动类型
  */
 static asio::awaitable<void> test_co_run_move_only_type_helper(ThreadPool& pool) {
@@ -180,6 +381,25 @@ TEST_CASE("test_co_run_move_only_type") {
 
     asio::io_context ctx;
     asio::co_spawn(ctx, test_co_run_move_only_type_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run_ec 返回仅移动类型
+ */
+static asio::awaitable<void> test_co_run_ec_move_only_type_helper(ThreadPool& pool) {
+    auto result = co_await co_run_ec(
+      pool.executor(), []() -> std::unique_ptr<int> { return std::make_unique<int>(100); });
+
+    CHECK_NE(result, nullptr);
+    CHECK_EQ(*result, 100);
+}
+
+TEST_CASE("test_co_run_ec_move_only_type") {
+    ThreadPool pool(4);
+
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_move_only_type_helper(pool), asio::detached);
     ctx.run();
 }
 
@@ -205,6 +425,31 @@ TEST_CASE("test_co_run_multiple_executors") {
 
     asio::io_context ctx;
     asio::co_spawn(ctx, test_co_run_multiple_executors_helper(pool1, pool2), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run_ec 使用多个执行器
+ */
+static asio::awaitable<void> test_co_run_ec_multiple_executors_helper(ThreadPool& pool1,
+                                                                   ThreadPool& pool2) {
+    std::atomic<int> counter{0};
+
+    co_await co_run_ec(pool1.executor(),
+                    [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
+
+    co_await co_run_ec(pool2.executor(),
+                    [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
+
+    CHECK_EQ(counter.load(), 2);
+}
+
+TEST_CASE("test_co_run_ec_multiple_executors") {
+    ThreadPool pool1(2);
+    ThreadPool pool2(2);
+
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_multiple_executors_helper(pool1, pool2), asio::detached);
     ctx.run();
 }
 
