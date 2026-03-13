@@ -17,254 +17,228 @@ using namespace hku;
 
 #if CPP_STANDARD >= CPP_STANDARD_20
 
-TEST_CASE("test_co_dispatch_basic") {
-    ThreadPool pool(4);
-
+/**
+ * @brief 辅助协程函数：测试 co_run 基本功能
+ */
+static asio::awaitable<void> test_co_run_basic_helper(ThreadPool& pool) {
     // 测试有返回值的情况
-    auto task = co_dispatch(pool.executor(), []() -> int { return 42; });
-
-    CHECK_EQ(task.wait(), 42);
+    int result = co_await co_run(pool.executor(), []() -> int { return 42; });
+    CHECK_EQ(result, 42);
 }
 
-TEST_CASE("test_co_dispatch_void") {
+TEST_CASE("test_co_run_basic") {
     ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_basic_helper(pool), asio::detached);
+    ctx.run();
+}
 
+/**
+ * @brief 辅助协程函数：测试 co_run void 返回
+ */
+static asio::awaitable<void> test_co_run_void_helper(ThreadPool& pool) {
     std::atomic<bool> executed{false};
 
-    auto task = co_dispatch(pool.executor(),
-                            [&executed]() { executed.store(true, std::memory_order_relaxed); });
+    co_await co_run(pool.executor(),
+                    [&executed]() { executed.store(true, std::memory_order_relaxed); });
 
-    task.wait();  // 等待完成
     CHECK_UNARY(executed.load());
 }
 
-TEST_CASE("test_co_dispatch_delayed_wait") {
+TEST_CASE("test_co_run_void") {
     ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_void_helper(pool), asio::detached);
+    ctx.run();
+}
 
+/**
+ * @brief 辅助协程函数：测试延迟执行
+ */
+static asio::awaitable<void> test_co_run_delayed_helper(ThreadPool& pool) {
     std::atomic<bool> started{false};
 
-    auto task = co_dispatch(pool.executor(), [&started]() -> int {
+    int result = co_await co_run(pool.executor(), [&started]() -> int {
         started.store(true, std::memory_order_release);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         return 42;
     });
 
-    // 等待任务开始执行
-    while (!started.load(std::memory_order_acquire)) {
-        std::this_thread::yield();
+    CHECK_UNARY(started.load());
+    CHECK_EQ(result, 42);
+}
+
+TEST_CASE("test_co_run_delayed_wait") {
+    ThreadPool pool(4);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_delayed_helper(pool), asio::detached);
+    ctx.run();
+}
+
+
+/**
+ * @brief 辅助协程函数：测试 co_run 的异常处理
+ */
+static asio::awaitable<void> test_co_run_exception_helper(ThreadPool& pool) {
+    boost::system::error_code ec;
+    
+    try {
+        // co_run 会将异常转换为 error_code
+        int result = co_await co_run(pool.executor(), [&ec]() -> int {
+            throw std::runtime_error("Test exception");
+            return 0;  // 不会执行到这里
+        });
+        CHECK_FALSE("Should have error code");
+    } catch (const boost::system::system_error& e) {
+        // co_run 通过 error_code 传递错误
+        CHECK_NE(e.code().value(), 0);
     }
-
-    // 做其他事情...
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-
-    // 需要结果时再等待
-    CHECK_EQ(task.wait(), 42);
 }
 
-TEST_CASE("test_co_dispatch_fire_and_forget") {
+TEST_CASE("test_co_run_exception") {
     ThreadPool pool(4);
-
-    std::atomic<int> counter{0};
-
-    // fire-and-forget: 不等待结果，直接销毁 task
-    for (int i = 0; i < 10; ++i) {
-        co_dispatch(pool.executor(),
-                    [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
-        // task 被立即销毁，不等待任务完成
-    }
-
-    // 等待所有任务完成
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    CHECK_EQ(counter.load(), 10);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_exception_helper(pool), asio::detached);
+    ctx.run();
 }
 
-TEST_CASE("test_co_dispatch_exception") {
-    ThreadPool pool(4);
-
-    auto task =
-      co_dispatch(pool.executor(), []() -> int { throw std::runtime_error("Test exception"); });
-
-    CHECK_THROWS_AS(task.wait(), std::runtime_error);
-}
-
-TEST_CASE("test_co_dispatch_lambda_capture") {
-    ThreadPool pool(4);
-
+/**
+ * @brief 辅助协程函数：测试 co_run 的 lambda 捕获
+ */
+static asio::awaitable<void> test_co_run_lambda_capture_helper(ThreadPool& pool) {
     int value1 = 100;
     std::string value2 = "hello";
 
-    auto task = co_dispatch(pool.executor(),
-                            [value1, value2 = std::move(value2)]() -> std::pair<int, std::string> {
-                                return {value1, value2};
-                            });
+    auto result = co_await co_run(pool.executor(), [value1, value2 = std::move(value2)]() {
+        return std::make_pair(value1, value2);
+    });
 
-    auto result = task.wait();
     CHECK_EQ(result.first, 100);
     CHECK_EQ(result.second, "hello");
 }
 
-TEST_CASE("test_co_dispatch_string_return") {
+TEST_CASE("test_co_run_lambda_capture") {
     ThreadPool pool(4);
 
-    std::string expected = "Hello, co_dispatch!";
-
-    auto task = co_dispatch(pool.executor(), [expected]() -> std::string { return expected; });
-
-    CHECK_EQ(task.wait(), expected);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_lambda_capture_helper(pool), asio::detached);
+    ctx.run();
 }
 
-TEST_CASE("test_co_dispatch_complex_type") {
+/**
+ * @brief 辅助协程函数：测试 co_run 返回字符串
+ */
+static asio::awaitable<void> test_co_run_string_return_helper(ThreadPool& pool) {
+    std::string expected = "Hello, co_run!";
+
+    auto result =
+      co_await co_run(pool.executor(), [expected]() -> std::string { return expected; });
+
+    CHECK_EQ(result, expected);
+}
+
+TEST_CASE("test_co_run_string_return") {
     ThreadPool pool(4);
 
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_string_return_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run 返回复杂类型
+ */
+static asio::awaitable<void> test_co_run_complex_type_helper(ThreadPool& pool) {
     struct TestData {
         int value;
         std::string text;
         double number;
     };
 
-    auto task =
-      co_dispatch(pool.executor(), []() -> TestData { return TestData{42, "test", 3.14}; });
+    auto result =
+      co_await co_run(pool.executor(), []() -> TestData { return TestData{42, "test", 3.14}; });
 
-    auto result = task.wait();
     CHECK_EQ(result.value, 42);
     CHECK_EQ(result.text, "test");
     CHECK_EQ(result.number, 3.14);
 }
 
-TEST_CASE("test_co_dispatch_move_only_type") {
+TEST_CASE("test_co_run_complex_type") {
     ThreadPool pool(4);
 
-    auto task = co_dispatch(pool.executor(),
-                            []() -> std::unique_ptr<int> { return std::make_unique<int>(100); });
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_complex_type_helper(pool), asio::detached);
+    ctx.run();
+}
 
-    auto result = task.wait();
+/**
+ * @brief 辅助协程函数：测试 co_run 返回仅移动类型
+ */
+static asio::awaitable<void> test_co_run_move_only_type_helper(ThreadPool& pool) {
+    auto result = co_await co_run(
+      pool.executor(), []() -> std::unique_ptr<int> { return std::make_unique<int>(100); });
+
     CHECK_NE(result, nullptr);
     CHECK_EQ(*result, 100);
 }
 
-TEST_CASE("test_co_dispatch_multiple_executors") {
-    ThreadPool pool1(2);
-    ThreadPool pool2(2);
+TEST_CASE("test_co_run_move_only_type") {
+    ThreadPool pool(4);
 
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_move_only_type_helper(pool), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run 使用多个执行器
+ */
+static asio::awaitable<void> test_co_run_multiple_executors_helper(ThreadPool& pool1,
+                                                                   ThreadPool& pool2) {
     std::atomic<int> counter{0};
 
-    auto t1 = co_dispatch(pool1.executor(),
-                          [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
+    co_await co_run(pool1.executor(),
+                    [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
 
-    auto t2 = co_dispatch(pool2.executor(),
-                          [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
-
-    t1.wait();
-    t2.wait();
+    co_await co_run(pool2.executor(),
+                    [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
 
     CHECK_EQ(counter.load(), 2);
 }
 
-TEST_CASE("test_co_dispatch_stress_test") {
-    ThreadPool pool(8);
+TEST_CASE("test_co_run_multiple_executors") {
+    ThreadPool pool1(2);
+    ThreadPool pool2(2);
 
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_multiple_executors_helper(pool1, pool2), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run 压力测试
+ */
+static asio::awaitable<void> test_co_run_stress_test_helper(ThreadPool& pool) {
     const int num_tasks = 100;
-    std::vector<dispatch_task<int>> tasks;
+    std::vector<int> results;
+    results.reserve(num_tasks);
 
     for (int i = 0; i < num_tasks; ++i) {
-        tasks.push_back(co_dispatch(pool.executor(), [i]() -> int { return i * 2; }));
+        auto result = co_await co_run(pool.executor(), [i]() -> int { return i * 2; });
+        results.push_back(result);
     }
 
     for (int i = 0; i < num_tasks; ++i) {
-        CHECK_EQ(tasks[i].wait(), i * 2);
+        CHECK_EQ(results[i], i * 2);
     }
 }
 
-TEST_CASE("test_co_dispatch_no_wait_basic") {
-    ThreadPool pool(4);
-
-    std::atomic<int> counter{0};
-
-    // 提交任务但不等待
-    co_dispatch_no_wait(pool.executor(),
-                        [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
-
-    // 等待任务完成
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    CHECK_EQ(counter.load(), 1);
-}
-
-TEST_CASE("test_co_dispatch_no_wait_void") {
-    ThreadPool pool(4);
-
-    std::atomic<bool> executed{false};
-
-    co_dispatch_no_wait(pool.executor(),
-                        [&executed]() { executed.store(true, std::memory_order_relaxed); });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    CHECK_UNARY(executed.load());
-}
-
-TEST_CASE("test_co_dispatch_no_wait_with_exception") {
-    ThreadPool pool(4);
-
-    // 异常应该被忽略，不会导致程序崩溃
-    co_dispatch_no_wait(pool.executor(), []() { throw std::runtime_error("Ignored exception"); });
-
-    // 等待一下确保任务已执行
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    // 如果能到达这里，说明异常被正确忽略
-    CHECK(true);
-}
-
-TEST_CASE("test_co_dispatch_no_wait_lambda_capture") {
-    ThreadPool pool(4);
-
-    int value1 = 100;
-    std::string value2 = "hello";
-    std::atomic<bool> executed{false};
-
-    co_dispatch_no_wait(pool.executor(), [value1, value2 = std::move(value2), &executed]() {
-        CHECK_EQ(value1, 100);
-        CHECK_EQ(value2, "hello");
-        executed.store(true, std::memory_order_relaxed);
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    CHECK_UNARY(executed.load());
-}
-
-TEST_CASE("test_co_dispatch_no_wait_performance") {
+TEST_CASE("test_co_run_stress_test") {
     ThreadPool pool(8);
 
-    const int num_tasks = 1000;
-    std::atomic<int> counter{0};
-
-    // 测试 fire-and-forget 模式的性能
-    for (int i = 0; i < num_tasks; ++i) {
-        co_dispatch_no_wait(pool.executor(),
-                            [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
-    }
-
-    // 等待所有任务完成
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    CHECK_EQ(counter.load(), num_tasks);
-}
-
-TEST_CASE("test_co_dispatch_no_wait_multiple_executors") {
-    ThreadPool pool1(2);
-    ThreadPool pool2(2);
-
-    std::atomic<int> counter{0};
-
-    co_dispatch_no_wait(pool1.executor(),
-                        [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
-
-    co_dispatch_no_wait(pool2.executor(),
-                        [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    CHECK_EQ(counter.load(), 2);
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_stress_test_helper(pool), asio::detached);
+    ctx.run();
 }
 
 // ============================================================================
@@ -295,55 +269,26 @@ TEST_CASE("test_await_future_in_coroutine") {
 }
 
 /**
- * @brief 辅助协程函数：测试 co_dispatch 在协程中使用 await_future 等待
- */
-static asio::awaitable<void> test_co_dispatch_in_coro_helper() {
-    ThreadPool pool(4);
-
-    // 提交任务并获取 dispatch_task
-    auto task = co_dispatch(pool.executor(), []() -> int {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        return 100;
-    });
-
-    // 在协程中通过 await_future 异步等待（推荐方式）
-    int result = co_await await_future(std::move(task.fut));
-    CHECK_EQ(result, 100);
-}
-
-TEST_CASE("test_co_dispatch_in_coroutine") {
-    asio::io_context ctx;
-    asio::co_spawn(ctx, test_co_dispatch_in_coro_helper(), asio::detached);
-    ctx.run();
-}
-
-/**
  * @brief 辅助协程函数：测试混合使用异步模式
  */
 static asio::awaitable<void> test_mixed_async_in_coro_helper() {
     ThreadPool pool(4);
 
-    // 1. 使用 co_dispatch 提交需要等待的任务
-    auto task = co_dispatch(pool.executor(), []() -> int { return 10; });
+    // 1. 使用 co_run 提交需要等待的任务（直接 co_await）
+    int result = co_await co_run(pool.executor(), []() -> int { return 10; });
 
-    // 2. 使用 co_dispatch_no_wait 提交后台任务
+    // 2. 使用另一个 co_run 模拟后台任务，不等待
     std::atomic<bool> background_done{false};
-    co_dispatch_no_wait(pool.executor(), [&background_done]() {
+    auto background_fut = pool.submit([&background_done]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         background_done.store(true, std::memory_order_relaxed);
     });
 
-    // 3. 在协程中通过 await_future 等待 co_dispatch 的结果
-    int result = co_await await_future(std::move(task.fut));
+    // 3. 验证 co_run 的结果
     CHECK_EQ(result, 10);
 
-    // 4. 等待后台任务完成（使用 timer 轮询）
-    auto exec = co_await asio::this_coro::executor;
-    asio::steady_timer timer(exec);
-    while (!background_done.load()) {
-        timer.expires_after(std::chrono::microseconds(100));
-        co_await timer.async_wait(asio::use_awaitable);
-    }
+    // 4. 等待后台任务完成（使用 await_future 异步等待）
+    co_await await_future(std::move(background_fut));
     CHECK_UNARY(background_done.load());
 }
 
@@ -359,19 +304,13 @@ TEST_CASE("test_mixed_async_patterns_in_coroutine") {
 static asio::awaitable<void> test_concurrent_tasks_in_coro_helper() {
     ThreadPool pool(8);
 
-    // 并发提交多个任务
-    std::vector<dispatch_task<int>> tasks;
+    // 并发提交多个任务，直接获取结果
+    std::vector<int> results(5);
     for (int i = 0; i < 5; ++i) {
-        tasks.push_back(co_dispatch(pool.executor(), [i]() -> int {
+        results[i] = co_await co_run(pool.executor(), [i]() -> int {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             return i * i;
-        }));
-    }
-
-    // 并发等待所有结果 - 使用 await_future
-    std::vector<int> results;
-    for (auto& task : tasks) {
-        results.push_back(co_await await_future(std::move(task.fut)));
+        });
     }
 
     // 验证结果
@@ -381,9 +320,64 @@ static asio::awaitable<void> test_concurrent_tasks_in_coro_helper() {
     }
 }
 
-TEST_CASE("test_concurrent_dispatch_tasks_in_coroutine") {
+TEST_CASE("test_concurrent_co_run_tasks_in_coroutine") {
     asio::io_context ctx;
     asio::co_spawn(ctx, test_concurrent_tasks_in_coro_helper(), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试 co_run 在协程中的基本使用
+ */
+static asio::awaitable<void> test_co_run_in_coro_helper() {
+    ThreadPool pool(4);
+
+    // 在协程中直接使用 co_await co_run
+    int result = co_await co_run(pool.executor(), []() -> int {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return 100;
+    });
+
+    CHECK_EQ(result, 100);
+}
+
+TEST_CASE("test_co_run_in_coroutine") {
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_in_coro_helper(), asio::detached);
+    ctx.run();
+}
+
+/**
+ * @brief 辅助协程函数：测试并发执行多个 co_run 任务
+ */
+static asio::awaitable<void> test_concurrent_co_run_helper() {
+    ThreadPool pool(8);
+
+    // 并发执行多个 co_run 任务
+    std::vector<asio::awaitable<int>> run_tasks;
+    for (int i = 0; i < 5; ++i) {
+        run_tasks.push_back(co_run(pool.executor(), [i]() -> int {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            return i * i;
+        }));
+    }
+
+    // 并发等待所有结果
+    std::vector<int> results;
+    for (auto& task : run_tasks) {
+        results.push_back(co_await std::move(task));
+    }
+
+    // 验证结果
+    CHECK_EQ(results.size(), 5u);
+    for (int i = 0; i < 5; ++i) {
+        CHECK_EQ(results[i], i * i);
+    }
+}
+
+TEST_CASE("test_concurrent_co_run_in_coroutine") {
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_concurrent_co_run_helper(), asio::detached);
     ctx.run();
 }
 
