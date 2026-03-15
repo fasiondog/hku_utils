@@ -595,13 +595,17 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         // 填充响应对象
         response.m_status = res.result_int();
         response.m_reason = std::string(res.reason());
-        response.m_body = std::move(res.body());
+
 #if HKU_ENABLE_HTTP_CLIENT_ZIP
-        if (res["Content-Encoding"] == "gzip") {
-            response.m_body = gzip::decompress(res.body(), res.body().size());
+        // 正确获取 Content-Encoding 头部
+        auto encoding_it = res.find("Content-Encoding");
+        if (encoding_it != res.end() && encoding_it->value() == "gzip") {
+            response.m_body = gzip::decompress(res.body().data(), res.body().size());
         } else {
             response.m_body = std::move(res.body());
         }
+#else
+        response.m_body = std::move(res.body());
 #endif
 
         for (auto it = res.begin(); it != res.end(); ++it) {
