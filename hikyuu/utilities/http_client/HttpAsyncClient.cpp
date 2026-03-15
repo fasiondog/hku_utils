@@ -11,6 +11,9 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+#include <boost/asio/ssl.hpp>
+#endif
 #include "hikyuu/utilities/Log.h"
 #include "hikyuu/utilities/os.h"
 
@@ -24,99 +27,84 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+namespace ssl = net::ssl;
+#endif
 
 namespace hku {
 
 struct HttpAsyncClient::Impl {
     net::io_context& ctx;
     std::chrono::milliseconds timeout;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    ssl::context ssl_ctx;  // SSL 上下文
     
     Impl(net::io_context& io_ctx, std::chrono::milliseconds ms)
+    : ctx(io_ctx), timeout(ms), ssl_ctx(ssl::context::tls_client) {
+        // 配置 SSL 上下文
+        ssl_ctx.set_default_verify_paths();
+        ssl_ctx.set_options(ssl::context::default_workarounds |
+                           ssl::context::no_sslv2 |
+                           ssl::context::no_sslv3 |
+                           ssl::context::no_tlsv1 |
+                           ssl::context::no_tlsv1_1);
+        // 使用 OpenSSL 原生 API 设置最低 TLS 版本
+        SSL_CTX_set_min_proto_version(ssl_ctx.native_handle(), TLS1_2_VERSION);
+    }
+#else
+    Impl(net::io_context& io_ctx, std::chrono::milliseconds ms)
     : ctx(io_ctx), timeout(ms) {}
+#endif
 };
 
 // URL 解析辅助函数
 static std::tuple<std::string, std::string, unsigned short> parseUrl(const std::string& url) {
-    std::string host, port_str, path;
-    unsigned short port = 80;
+    std::string host, base_path;
+    // 根据协议设置默认端口
+    unsigned short port = (url.find("https://") == 0) ? 443 : 80;
     
-    size_t scheme_end = url.find("://");
-    std::string scheme;
-    if (scheme_end != std::string::npos) {
-        scheme = url.substr(0, scheme_end);
-        if (scheme == "https") {
-            port = 443;
-        }
-    } else {
-        scheme_end = 0;
+    size_t pos = url.find("://");
+    if (pos == std::string::npos) {
+        HKU_THROW("Invalid URL: {}", url);
     }
-    
-    size_t host_start = scheme_end + 3;
-    size_t path_start = url.find('/', host_start);
-    
-    std::string authority;
-    if (path_start != std::string::npos) {
-        authority = url.substr(host_start, path_start - host_start);
-        path = url.substr(path_start);
-    } else {
-        authority = url.substr(host_start);
-        path = "/";
+    host = url.substr(pos + 3);
+    pos = host.find('/');
+    if (pos != std::string::npos) {
+        base_path = host.substr(pos);
+        host = host.substr(0, pos);
     }
-    
-    size_t port_pos = authority.find(':');
-    if (port_pos != std::string::npos) {
-        host = authority.substr(0, port_pos);
-        port_str = authority.substr(port_pos + 1);
-        port = static_cast<unsigned short>(std::stoi(port_str));
-    } else {
-        host = authority;
+    pos = host.find(':');
+    if (pos != std::string::npos) {
+        port = std::stoi(host.substr(pos + 1));
+        host = host.substr(0, pos);
     }
-    
-    return {host, path, port};
+    return {host, base_path, port};
 }
 
-HttpAsyncClient::HttpAsyncClient()
-: m_ctx(nullptr), m_own_ctx(std::make_unique<boost::asio::io_context>()) {
-    m_ctx = m_own_ctx.get();
-}
+HttpAsyncClient::HttpAsyncClient() = default;
 
 HttpAsyncClient::HttpAsyncClient(const std::string& url, std::chrono::milliseconds timeout)
-: m_url(url), m_timeout(timeout), m_own_ctx(std::make_unique<boost::asio::io_context>()) {
-    m_ctx = m_own_ctx.get();
-}
+: m_url(url), m_timeout(timeout) {}
 
 HttpAsyncClient::HttpAsyncClient(boost::asio::io_context& ctx, const std::string& url, std::chrono::milliseconds timeout)
-: m_url(url), m_timeout(timeout), m_ctx(&ctx), m_own_ctx(nullptr) {
-}
+: m_url(url), m_timeout(timeout), m_ctx(&ctx), m_impl(std::make_unique<Impl>(ctx, timeout)) {}
 
 HttpAsyncClient::~HttpAsyncClient() = default;
 
 HttpAsyncClient::HttpAsyncClient(HttpAsyncClient&& rhs) noexcept
-: m_impl(std::move(rhs.m_impl)),
-  m_url(std::move(rhs.m_url)),
+: m_url(std::move(rhs.m_url)),
   m_timeout(rhs.m_timeout),
-  m_default_headers(std::move(rhs.m_default_headers)),
   m_ctx(rhs.m_ctx),
-  m_own_ctx(std::move(rhs.m_own_ctx)) {
-    // 如果 rhs 使用的是内部 io_context，需要更新指针
-    if (m_own_ctx) {
-        m_ctx = m_own_ctx.get();
-    }
-}
+  m_impl(std::move(rhs.m_impl)),
+  m_default_headers(std::move(rhs.m_default_headers)) {}
 
 HttpAsyncClient& HttpAsyncClient::operator=(HttpAsyncClient&& rhs) noexcept {
     if (this != &rhs) {
-        m_impl = std::move(rhs.m_impl);
         m_url = std::move(rhs.m_url);
         m_timeout = rhs.m_timeout;
-        m_default_headers = std::move(rhs.m_default_headers);
         m_ctx = rhs.m_ctx;
-        m_own_ctx = std::move(rhs.m_own_ctx);
-        
-        // 如果使用的是内部 io_context，需要更新指针
-        if (m_own_ctx) {
-            m_ctx = m_own_ctx.get();
-        }
+        m_impl = std::move(rhs.m_impl);
+        m_default_headers = std::move(rhs.m_default_headers);
     }
     return *this;
 }
@@ -131,9 +119,27 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
     const std::string& content_type) {
     
     HKU_CHECK(!m_url.empty(), "Invalid url: {}", m_url);
-    HKU_CHECK(m_ctx != nullptr, "io_context is null");
+    
+    // 如果没有设置 io_context，从当前协程的 execution context 获取
+    auto exec = co_await boost::asio::this_coro::executor;
+    if (m_ctx == nullptr) {
+        // 尝试从 executor 获取 io_context
+        m_ctx = &static_cast<boost::asio::io_context&>(exec.context());
+        HKU_CHECK(m_ctx != nullptr, "Cannot get io_context from execution context");
+        m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
+    }
     
     auto [host, base_path, port] = parseUrl(m_url);
+    
+    // 判断是否为 HTTPS
+    bool is_https = (m_url.find("https://") == 0);
+    
+#if !HKU_ENABLE_HTTP_CLIENT_SSL
+    // 未启用 SSL 时，不支持 HTTPS
+    if (is_https) {
+        HKU_THROW("HTTPS is not supported. Please enable SSL support with --http_client_ssl=y");
+    }
+#endif
     
     // 构建完整的 URI
     std::ostringstream uri_stream;
@@ -156,117 +162,100 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
     
     // 存储解析结果
     tcp::resolver::results_type resolver_results;
+    std::vector<tcp::endpoint> dns_endpoints;  // 用于 macOS 原生 DNS 解析
     
     HttpResponseAsync response;
     
     try {
-        // 创建 socket
-        tcp::socket socket{*m_ctx};
-        
-        // 创建 resolver
-        tcp::resolver resolver{*m_ctx};
+        // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
+        struct SocketVariant {
+            std::optional<tcp::socket> plain;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            std::optional<ssl::stream<tcp::socket>> ssl;
+            
+            void close(boost::system::error_code& ec) {
+                if (plain) {
+                    plain->close(ec);
+                    plain.reset();
+                }
+                if (ssl) {
+                    ssl->lowest_layer().close(ec);
+                    ssl.reset();
+                }
+            }
+            
+            bool is_ssl() const { return ssl.has_value(); }
+            
+            tcp::socket& socket() {
+                if (ssl) {
+                    return ssl->next_layer();
+                } else if (plain) {
+                    return *plain;
+                }
+                HKU_THROW("Socket not initialized");
+            }
+#else
+            void close(boost::system::error_code& ec) {
+                if (plain) {
+                    plain->close(ec);
+                    plain.reset();
+                }
+            }
+            
+            bool is_ssl() const { return false; }
+            
+            tcp::socket& socket() {
+                if (plain) {
+                    return *plain;
+                }
+                HKU_THROW("Socket not initialized");
+            }
+#endif
+        } socket_variant;
         
         // DNS 解析（带超时）
 #ifdef __APPLE__
-        // macOS 下使用原生 getaddrinfo API，避免 async_resolve 卡住的问题
-        {
-            HKU_INFO("Starting DNS resolve for {}:{}", host, port);
-            
-            struct ResolveTask {
-                std::string host, port_str;
-                std::vector<tcp::endpoint> endpoints;
-                boost::system::error_code ec;
-                bool done = false;
+            // macOS 下使用原生 getaddrinfo API，避免 async_resolve 卡住的问题
+            {
+                HKU_INFO("Starting DNS resolve for {}:{} (https={})", host, port, is_https);
                 
-                ResolveTask(const std::string& h, const std::string& p)
-                    : host(h), port_str(p) {}
-                    
-                void run() {
-                    try {
-                        HKU_INFO("Executing native DNS resolve for {}", host);
-                        
-                        struct addrinfo hints, *res = nullptr;
-                        memset(&hints, 0, sizeof(hints));
-                        hints.ai_family = AF_UNSPEC;  // 允许 IPv4 或 IPv6
-                        hints.ai_socktype = SOCK_STREAM;
-                        
-                        int ret = getaddrinfo(host.c_str(), port_str.c_str(), &hints, &res);
-                        
-                        if (ret != 0) {
-                            HKU_ERROR("getaddrinfo failed: {}", gai_strerror(ret));
-                            ec = boost::asio::error::host_not_found;
-                            return;
-                        }
-                        
-                        // 将结果转换为 boost::asio 的 endpoint
-                        std::vector<tcp::endpoint> endpoints;
-                        for (struct addrinfo* ai = res; ai != nullptr; ai = ai->ai_next) {
-                            if (ai->ai_family == AF_INET) {
-                                auto* sin = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
-                                tcp::endpoint ep(tcp::v4(), ntohs(sin->sin_port));
-                                endpoints.push_back(ep);
-                            } else if (ai->ai_family == AF_INET6) {
-                                auto* sin6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
-                                unsigned char* bytes = sin6->sin6_addr.s6_addr;
-                                boost::asio::ip::address_v6::bytes_type ep_bytes;
-                                std::copy(bytes, bytes + 16, ep_bytes.begin());
-                                tcp::endpoint ep(boost::asio::ip::address_v6(ep_bytes), 
-                                               ntohs(sin6->sin6_port));
-                                endpoints.push_back(ep);
-                            }
-                        }
-                        
-                        freeaddrinfo(res);
-                        
-                        HKU_INFO("Native DNS resolve success, found {} endpoints", endpoints.size());
-                        
-                    } catch (const std::exception& e) {
-                        HKU_ERROR("Native DNS resolve exception: {}", e.what());
-                        ec = boost::asio::error::fault;
+                struct addrinfo hints, *res = nullptr;
+                memset(&hints, 0, sizeof(hints));
+                hints.ai_family = AF_UNSPEC;
+                hints.ai_socktype = SOCK_STREAM;
+                
+                int ret = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res);
+                
+                if (ret != 0) {
+                    HKU_ERROR("getaddrinfo failed: {}", gai_strerror(ret));
+                    HKU_THROW("DNS resolve failed");
+                }
+                
+                // 将结果转换为 endpoint 列表
+                for (struct addrinfo* ai = res; ai != nullptr; ai = ai->ai_next) {
+                    if (ai->ai_family == AF_INET) {
+                        auto* sin = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
+                        boost::asio::ip::address_v4::bytes_type v4_bytes;
+                        std::memcpy(&v4_bytes, &(sin->sin_addr.s_addr), sizeof(v4_bytes));
+                        dns_endpoints.push_back(tcp::endpoint(boost::asio::ip::make_address_v4(v4_bytes), 
+                                                             ntohs(sin->sin_port)));
+                    } else if (ai->ai_family == AF_INET6) {
+                        auto* sin6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
+                        boost::asio::ip::address_v6::bytes_type v6_bytes;
+                        std::memcpy(&v6_bytes, &(sin6->sin6_addr.s6_addr), sizeof(v6_bytes));
+                        dns_endpoints.push_back(tcp::endpoint(boost::asio::ip::make_address_v6(v6_bytes), 
+                                                             ntohs(sin6->sin6_port)));
                     }
-                    
-                    done = true;
-                }
-            };
-            
-            auto task = std::make_shared<ResolveTask>(host, std::to_string(port));
-            
-            // 在线程中执行同步解析
-            std::thread resolve_thread([task]() {
-                task->run();
-            });
-            
-            // 等待完成或超时
-            auto deadline = std::chrono::steady_clock::now() + m_timeout;
-            while (!task->done) {
-                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    deadline - std::chrono::steady_clock::now()).count();
-                
-                if (remaining <= 0) {
-                    HKU_ERROR("DNS resolve timeout after {}ms", m_timeout.count());
-                    resolve_thread.detach();  // 超时后分离线程
-                    HKU_THROW("DNS resolve timeout");
                 }
                 
-                std::this_thread::sleep_for(std::chrono::milliseconds(
-                    std::min<long long>(remaining, 10)));
+                freeaddrinfo(res);
+                
+                HKU_INFO("Native DNS resolve success, found {} endpoints", dns_endpoints.size());
+                
+                if (dns_endpoints.empty()) {
+                    HKU_THROW("No valid endpoints from DNS resolve");
+                }
             }
-            
-            resolve_thread.join();
-            
-            if (task->ec) {
-                HKU_THROW("DNS resolve failed: {}", task->ec.message());
-            }
-            
-            if (task->endpoints.empty()) {
-                HKU_THROW("No valid endpoints returned from DNS resolve");
-            }
-            
-            // 使用临时解析器创建 results_type（因为不能直接构造）
-            tcp::resolver tmp_resolver(*m_ctx);
-            auto result = tmp_resolver.resolve(host, std::to_string(port));
-            resolver_results = result;
-        }
 #else
         {
             struct ResolveOp {
@@ -290,7 +279,7 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                     op->done = true;
                 });
             
-            // 等待操作完成或超时
+            // 轮询等待操作完成或超时
             auto timer = net::steady_timer{*m_ctx};
             auto deadline = std::chrono::steady_clock::now() + m_timeout;
             
@@ -317,8 +306,13 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         boost::system::error_code connect_ec;
         bool connected = false;
         
+#if defined(__APPLE__) && __APPLE__
+        // macOS 下使用原生 getaddrinfo，直接使用解析结果
+        for (const auto& endpoint : dns_endpoints) {
+#else
         for (const auto& endpoint : resolver_results) {
-            socket.close(connect_ec);
+#endif
+            socket_variant.close(connect_ec);
             
             {
                 struct ConnectOp {
@@ -331,9 +325,11 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                         : socket(s), endpoint(e) {}
                 };
                 
-                auto op = std::make_shared<ConnectOp>(socket, endpoint);
+                // 先创建普通 socket
+                socket_variant.plain.emplace(*m_ctx);
+                auto op = std::make_shared<ConnectOp>(*socket_variant.plain, endpoint);
                 
-                socket.async_connect(endpoint,
+                socket_variant.plain->async_connect(endpoint,
                     [op](const boost::system::error_code& e) {
                         op->ec = e;
                         op->done = true;
@@ -356,7 +352,7 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                     continue;  // 超时，尝试下一个端点
                 }
                 
-                if (!op->ec && socket.is_open()) {
+                if (!op->ec && socket_variant.plain->is_open()) {
                     connected = true;
                     break;
                 }
@@ -368,7 +364,61 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         }
         
         // 设置 socket 选项
-        socket.set_option(tcp::no_delay(true));
+        socket_variant.socket().set_option(tcp::no_delay(true));
+        
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        // 如果是 HTTPS，进行 SSL 握手
+        if (is_https) {
+            HKU_INFO("Performing SSL handshake with {}", host);
+            
+            // 移动到 SSL socket
+            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_impl->ssl_ctx);
+            socket_variant.plain.reset();
+            
+            // 设置 SNI（Server Name Indication）
+            SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), host.c_str());
+            
+            // SSL 握手（带超时）
+            struct SslHandshakeOp {
+                ssl::stream<tcp::socket>& stream;
+                boost::system::error_code ec;
+                bool done = false;
+                
+                SslHandshakeOp(ssl::stream<tcp::socket>& s) : stream(s) {}
+            };
+            
+            auto handshake_op = std::make_shared<SslHandshakeOp>(*socket_variant.ssl);
+            
+            socket_variant.ssl->async_handshake(ssl::stream_base::client,
+                [handshake_op](const boost::system::error_code& e) {
+                    handshake_op->ec = e;
+                    handshake_op->done = true;
+                });
+            
+            // 轮询等待 SSL 握手完成或超时
+            auto timer = net::steady_timer{*m_ctx};
+            auto deadline = std::chrono::steady_clock::now() + m_timeout;
+            
+            while (!handshake_op->done && std::chrono::steady_clock::now() < deadline) {
+                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    deadline - std::chrono::steady_clock::now()).count();
+                
+                timer.expires_after(std::chrono::milliseconds(
+                    std::min<long long>(remaining, 50)));
+                co_await timer.async_wait(net::use_awaitable);
+            }
+            
+            if (!handshake_op->done) {
+                HKU_THROW("SSL handshake timeout");
+            }
+            
+            if (handshake_op->ec) {
+                HKU_THROW("SSL handshake failed: {}", handshake_op->ec.message());
+            }
+            
+            HKU_INFO("SSL handshake successful");
+        }
+#endif
         
         // 创建 HTTP 请求
         http::request<http::string_body> req;
@@ -401,24 +451,35 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         // 发送请求（带超时）
         {
             struct WriteOp {
-                tcp::socket& socket;
-                http::request<http::string_body>& req;
                 boost::system::error_code ec;
                 std::size_t bytes_transferred;
                 bool done = false;
-                
-                WriteOp(tcp::socket& s, http::request<http::string_body>& r) : socket(s), req(r) {}
             };
             
-            auto op = std::make_shared<WriteOp>(socket, req);
+            auto op = std::make_shared<WriteOp>();
             
-            http::async_write(socket, req,
-                [op](const boost::system::error_code& e, std::size_t n) {
-                    op->ec = e;
-                    op->bytes_transferred = n;
-                    op->done = true;
-                });
-            
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            if (socket_variant.is_ssl()) {
+                // SSL 连接：使用 SSL stream 发送
+                http::async_write(*socket_variant.ssl, req,
+                    [op](const boost::system::error_code& e, std::size_t n) {
+                        op->ec = e;
+                        op->bytes_transferred = n;
+                        op->done = true;
+                    });
+            } else {
+#endif
+                // 普通连接：使用 socket 发送
+                http::async_write(socket_variant.socket(), req,
+                    [op](const boost::system::error_code& e, std::size_t n) {
+                        op->ec = e;
+                        op->bytes_transferred = n;
+                        op->done = true;
+                    });
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            }
+#endif
+
             // 轮询等待发送完成或超时
             auto timer = net::steady_timer{*m_ctx};
             auto deadline = std::chrono::steady_clock::now() + m_timeout;
@@ -447,26 +508,35 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         
         {
             struct ReadOp {
-                tcp::socket& socket;
-                beast::flat_buffer& buffer;
-                http::response<http::string_body>& res;
                 boost::system::error_code ec;
                 std::size_t bytes_transferred;
                 bool done = false;
-                
-                ReadOp(tcp::socket& s, beast::flat_buffer& b, http::response<http::string_body>& r)
-                    : socket(s), buffer(b), res(r) {}
             };
             
-            auto op = std::make_shared<ReadOp>(socket, buffer, res);
+            auto op = std::make_shared<ReadOp>();
             
-            http::async_read(socket, buffer, res,
-                [op](const boost::system::error_code& e, std::size_t n) {
-                    op->ec = e;
-                    op->bytes_transferred = n;
-                    op->done = true;
-                });
-            
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            if (socket_variant.is_ssl()) {
+                // SSL 连接：使用 SSL stream 读取
+                http::async_read(*socket_variant.ssl, buffer, res,
+                    [op](const boost::system::error_code& e, std::size_t n) {
+                        op->ec = e;
+                        op->bytes_transferred = n;
+                        op->done = true;
+                    });
+            } else {
+#endif
+                // 普通连接：使用 socket 读取
+                http::async_read(socket_variant.socket(), buffer, res,
+                    [op](const boost::system::error_code& e, std::size_t n) {
+                        op->ec = e;
+                        op->bytes_transferred = n;
+                        op->done = true;
+                    });
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            }
+#endif
+
             // 轮询等待读取完成或超时
             auto timer = net::steady_timer{*m_ctx};
             auto deadline = std::chrono::steady_clock::now() + m_timeout;
@@ -499,10 +569,11 @@ boost::asio::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                                        std::string(it->value()));
         }
         
-        // 关闭 socket
+        // 关闭连接
         beast::error_code shutdown_ec;
-        socket.shutdown(tcp::socket::shutdown_both, shutdown_ec);
-        
+        socket_variant.socket().shutdown(tcp::socket::shutdown_both, shutdown_ec);
+        socket_variant.close(shutdown_ec);  // 确保所有资源被清理
+
     } catch (const boost::system::system_error& e) {
         HKU_ERROR("HTTP request system error: {}", e.what());
         throw;

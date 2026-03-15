@@ -129,6 +129,7 @@ if has_config("http_client") or has_config("node") then
     else
         add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
     end
+    add_requires("openssl3")
     if has_config("http_client_zip") then
         add_requires("gzip-hpp")
     end
@@ -194,7 +195,7 @@ target("hku_utils")
     end
 
     if has_config("http_client") or has_config("node") then
-        add_packages("nng", "nlohmann_json")
+        add_packages("nng", "nlohmann_json", "openssl3")
     end
 
     if has_config("http_client_zip") then

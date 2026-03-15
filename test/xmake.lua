@@ -45,6 +45,10 @@ target("unit-test")
 
     if has_config("http_client") or has_config("node") then
         add_packages("nng", "nlohmann_json")
+        
+        if has_config("http_client_ssl") then
+            add_packages("openssl")
+        end
     end
 
     if has_config("http_client_zip") then

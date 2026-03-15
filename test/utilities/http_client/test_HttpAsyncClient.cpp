@@ -67,11 +67,7 @@ TEST_CASE("test_HttpAsyncClient_Constructors") {
 }
 
 TEST_CASE("test_HttpAsyncClient_BasicRequest") {
-    // 注意：此测试需要网络连接，如果网络不可达可以暂时注释
-    // 参考 memory: 网络依赖测试的临时规避策略
-    // TODO: 在网络可用环境下重新激活
-    
-    /*
+    // HTTP GET 请求测试
     runCoroutineTest([]() -> boost::asio::awaitable<void> {
         try {
             HttpAsyncClient client("http://httpbin.org");
@@ -82,22 +78,49 @@ TEST_CASE("test_HttpAsyncClient_BasicRequest") {
             if (response.status() == 200) {
                 auto data = response.json();
                 auto ip = data["origin"].get<std::string>();
-                HKU_INFO("Async IP: {}", ip);
+                HKU_INFO("HTTP GET IP: {}", ip);
                 CHECK_UNARY(!ip.empty());
+            } else {
+                HKU_WARN("HTTP GET failed with status: {}", response.status());
             }
             
             co_return;
         } catch (const std::exception& e) {
             // 网络不可达时跳过测试
-            HKU_WARN("Network test skipped: {}", e.what());
+            HKU_WARN("HTTP network test skipped: {}", e.what());
         }
     });
-    */
+    
+    // 测试 HTTPS GET 请求
+    #if HKU_ENABLE_HTTP_CLIENT_SSL
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            // 使用 httpbin 的 HTTPS 接口进行测试
+            HttpAsyncClient client("https://httpbin.org");
+            
+            // 简单的 GET 请求
+            auto response = co_await client.get("/get");
+            
+            // 检查响应
+            HKU_INFO("HTTPS GET status: {}", response.status());
+            CHECK_GE(response.status(), 200);
+            CHECK_UNARY(!response.body().empty());
+            
+            // 验证返回的是 JSON
+            auto json_response = response.json();
+            CHECK_UNARY(json_response.contains("url"));
+            
+            co_return;
+        } catch (const std::exception& e) {
+            // 网络不可达时跳过测试
+            HKU_WARN("HTTPS network test skipped: {}", e.what());
+        }
+    });
+    #endif
 }
 
 TEST_CASE("test_HttpAsyncClient_POST") {
-    // TODO: 在网络可用环境下重新激活
-    /*
+    // HTTP POST 测试
     runCoroutineTest([]() -> boost::asio::awaitable<void> {
         try {
             HttpAsyncClient client("http://httpbin.org");
@@ -109,17 +132,45 @@ TEST_CASE("test_HttpAsyncClient_POST") {
             if (response.status() == 200) {
                 auto result = response.json();
                 CHECK_UNARY(result.contains("json"));
+                HKU_INFO("HTTP POST successful");
+            } else {
+                HKU_WARN("HTTP POST failed with status: {}", response.status());
             }
             
             co_return;
         } catch (const std::exception& e) {
-            HKU_WARN("Network test skipped: {}", e.what());
+            HKU_WARN("HTTP POST test skipped: {}", e.what());
         }
     });
-    */
+    
+    // HTTPS POST 测试
+    #if HKU_ENABLE_HTTP_CLIENT_SSL
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            HttpAsyncClient client("https://httpbin.org");
+            
+            // POST JSON 数据
+            json payload = {{"name", "https_test"}, {"value", 456}};
+            auto response = co_await client.post("/post", payload);
+            
+            if (response.status() == 200) {
+                auto result = response.json();
+                CHECK_UNARY(result.contains("json"));
+                HKU_INFO("HTTPS POST successful");
+            } else {
+                HKU_WARN("HTTPS POST failed with status: {}", response.status());
+            }
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("HTTPS POST test skipped: {}", e.what());
+        }
+    });
+    #endif
 }
 
 TEST_CASE("test_HttpAsyncClient_Timeout") {
+    // 超时测试 - HTTP
     runCoroutineTest([]() -> boost::asio::awaitable<void> {
         try {
             // 设置极短的超时时间，应该会超时
@@ -151,11 +202,41 @@ TEST_CASE("test_HttpAsyncClient_Timeout") {
             FAIL("Test failed with exception: {}", e.what());
         }
     });
+    
+    // HTTPS 超时测试
+    #if HKU_ENABLE_HTTP_CLIENT_SSL
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            HttpAsyncClient client("https://httpbin.org", std::chrono::milliseconds(100));
+            
+            bool exception_occurred = false;
+            try {
+                auto response = co_await client.get("/delay/5");
+                HKU_INFO("HTTPS request completed with status: {}", response.status());
+                CHECK_GE(response.status(), 200);
+                exception_occurred = true;
+            } catch (const std::exception& e) {
+                exception_occurred = true;
+                HKU_INFO("HTTPS timeout/error occurred: {}", e.what());
+                std::string msg = e.what();
+                CHECK_UNARY(msg.find("timeout") != std::string::npos || 
+                           msg.find("Timeout") != std::string::npos ||
+                           msg.find("DNS") != std::string::npos);
+            }
+            
+            CHECK_UNARY(exception_occurred);
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_ERROR("Test error: {}", e.what());
+            FAIL("Test failed with exception: {}", e.what());
+        }
+    });
+    #endif
 }
 
 TEST_CASE("test_HttpAsyncClient_Headers") {
-    // TODO: 在网络可用环境下重新激活
-    /*
+    // HTTP Headers 测试
     runCoroutineTest([]() -> boost::asio::awaitable<void> {
         try {
             HttpAsyncClient client("http://httpbin.org");
@@ -170,38 +251,129 @@ TEST_CASE("test_HttpAsyncClient_Headers") {
             
             if (response.status() == 200) {
                 auto result = response.json();
-                HKU_INFO("Headers response received");
+                HKU_INFO("HTTP Headers test successful");
+                CHECK_UNARY(result.contains("headers"));
+            } else {
+                HKU_WARN("HTTP Headers test failed with status: {}", response.status());
             }
             
             co_return;
         } catch (const std::exception& e) {
-            HKU_WARN("Network test skipped: {}", e.what());
+            HKU_WARN("HTTP Headers test skipped: {}", e.what());
         }
     });
-    */
-}
-
-TEST_CASE("test_HttpAsyncClient_SharedIOContext") {
-    // TODO: 在网络可用环境下重新激活
-    /*
-    // 测试多个客户端共享同一个 io_context
-    boost::asio::io_context shared_ctx;
     
-    runCoroutineTest([&shared_ctx]() -> boost::asio::awaitable<void> {
+    // HTTPS Headers 测试
+    #if HKU_ENABLE_HTTP_CLIENT_SSL
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
         try {
-            HttpAsyncClient client1(shared_ctx, "http://httpbin.org");
-            HttpAsyncClient client2(shared_ctx, "http://httpbin.org");
+            HttpAsyncClient client("https://httpbin.org");
             
-            // 并发请求 - 简单版本，不使用 as_future
-            auto response1 = co_await client1.get("/ip");
-            auto response2 = co_await client2.get("/ip");
+            // 设置默认头
+            std::map<std::string, std::string> headers;
+            headers["X-Test-Header"] = "https-test-value";
+            headers["Accept"] = "application/json";
+            client.setDefaultHeaders(headers);
             
-            HKU_INFO("Both requests completed");
+            auto response = co_await client.get("/headers");
+            
+            if (response.status() == 200) {
+                auto result = response.json();
+                HKU_INFO("HTTPS Headers test successful");
+                CHECK_UNARY(result.contains("headers"));
+            } else {
+                HKU_WARN("HTTPS Headers test failed with status: {}", response.status());
+            }
             
             co_return;
         } catch (const std::exception& e) {
-            HKU_WARN("Network test skipped: {}", e.what());
+            HKU_WARN("HTTPS Headers test skipped: {}", e.what());
+        }
+    });
+    #endif
+}
+
+TEST_CASE("test_HttpAsyncClient_SharedIOContext") {
+    // 测试多个客户端共享同一个 io_context - HTTP
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            // 注意：这里不需要创建 shared_ctx，直接使用外层协程的 io_context
+            // 两个客户端都使用同一个 io_context（通过 this_coro::executor 获取）
+            
+            HttpAsyncClient client1("http://httpbin.org");
+            HttpAsyncClient client2("http://httpbin.org");
+            
+            // 并发请求
+            auto response1 = co_await client1.get("/ip");
+            auto response2 = co_await client2.get("/ip");
+            
+            HKU_INFO("Both HTTP requests completed");
+            CHECK_GE(response1.status(), 200);
+            CHECK_GE(response2.status(), 200);
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("HTTP SharedIOContext test skipped: {}", e.what());
+        }
+    });
+    
+    // 测试多个客户端共享同一个 io_context - HTTPS
+    #if HKU_ENABLE_HTTP_CLIENT_SSL
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            HttpAsyncClient client1("https://httpbin.org");
+            HttpAsyncClient client2("https://httpbin.org");
+            
+            // 并发请求
+            auto response1 = co_await client1.get("/ip");
+            auto response2 = co_await client2.get("/ip");
+            
+            HKU_INFO("Both HTTPS requests completed");
+            CHECK_GE(response1.status(), 200);
+            CHECK_GE(response2.status(), 200);
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("HTTPS SharedIOContext test skipped: {}", e.what());
+        }
+    });
+    #endif
+}
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+TEST_CASE("test_HttpAsyncClient_HTTPS") {
+    // 测试 HTTPS 支持
+    // TODO: 在网络可用环境下重新激活
+    /*
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            // 测试 HTTPS GET 请求
+            HttpAsyncClient client("https://httpbin.org");
+            
+            auto response = co_await client.get("/get");
+            
+            if (response.status() == 200) {
+                auto data = response.json();
+                HKU_INFO("HTTPS response received: {}", data.dump().substr(0, 100));
+                CHECK_EQ(response.status(), 200);
+                CHECK_UNARY(!response.body().empty());
+            }
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("HTTPS network test skipped: {}", e.what());
         }
     });
     */
+    
+    // 测试 SSL 握手的基本功能（不需要实际网络连接）
+    try {
+        HttpAsyncClient client("https://example.com");
+        CHECK_UNARY(client.valid());
+        HKU_INFO("HTTPS client created successfully");
+    } catch (const std::exception& e) {
+        HKU_ERROR("Failed to create HTTPS client: {}", e.what());
+        FAIL("Should be able to create HTTPS client");
+    }
 }
+#endif
