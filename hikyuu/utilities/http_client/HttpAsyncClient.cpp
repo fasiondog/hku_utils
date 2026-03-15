@@ -476,9 +476,23 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
 
         // 添加请求体
         if (body != nullptr && body_len > 0) {
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+            auto content_type = req["Content-Type"];
+            if (content_type == "gzip") {
+                gzip::Compressor comp(Z_DEFAULT_COMPRESSION);
+                std::string output;
+                comp.compress(output, body, body_len);
+                req.body() = std::move(output);
+            } else {
+                req.set(http::field::content_type, content_type);
+                req.body() = std::string(body, body_len);
+                req.prepare_payload();
+            }
+#else
             req.set(http::field::content_type, content_type);
             req.body() = std::string(body, body_len);
             req.prepare_payload();
+#endif
         }
 
         // 发送请求（带超时）
