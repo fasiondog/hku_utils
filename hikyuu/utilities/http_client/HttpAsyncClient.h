@@ -197,6 +197,8 @@ public:
 private:
     void _parseUrl() noexcept;
 
+    net::awaitable<std::vector<tcp::endpoint>> _resolveDNS();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

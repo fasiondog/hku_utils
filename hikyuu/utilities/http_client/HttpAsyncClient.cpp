@@ -143,6 +143,110 @@ void HttpAsyncClient::_parseUrl() noexcept {
     m_port = std::to_string(port);
 }
 
+// 异步 DNS 解析方法
+net::awaitable<std::vector<tcp::endpoint>> HttpAsyncClient::_resolveDNS() {
+    HKU_INFO("Starting DNS resolve for {}:{} (https={})", m_host, m_port, m_is_https);
+
+#if HKU_OS_OSX || HKU_OS_IOS
+    // macOS 使用原生 getaddrinfo 方式（beast 解析存在已知问题会卡死）
+    struct addrinfo hints, *res = nullptr;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int ret = getaddrinfo(m_host.c_str(), m_port.c_str(), &hints, &res);
+    HKU_CHECK(ret == 0, "DNS resolve failed!");
+
+    std::vector<tcp::endpoint> dns_endpoints;
+    for (struct addrinfo* ai = res; ai != nullptr; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET) {
+            auto* sin = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
+            net::ip::address_v4::bytes_type v4_bytes;
+            std::memcpy(&v4_bytes, &(sin->sin_addr.s_addr), sizeof(v4_bytes));
+            dns_endpoints.push_back(
+              tcp::endpoint(net::ip::make_address_v4(v4_bytes), ntohs(sin->sin_port)));
+        } else if (ai->ai_family == AF_INET6) {
+            auto* sin6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
+            net::ip::address_v6::bytes_type v6_bytes;
+            std::memcpy(&v6_bytes, &(sin6->sin6_addr.s6_addr), sizeof(v6_bytes));
+            dns_endpoints.push_back(
+              tcp::endpoint(net::ip::make_address_v6(v6_bytes), ntohs(sin6->sin6_port)));
+        }
+    }
+
+    freeaddrinfo(res);
+
+    HKU_INFO("Native DNS resolve success, found {} endpoints", dns_endpoints.size());
+
+    if (dns_endpoints.empty()) {
+        HKU_THROW("No valid endpoints from DNS resolve");
+    }
+
+    co_return dns_endpoints;
+
+#else
+    // 其他平台使用 Boost.ASIO 异步 DNS 解析
+    auto resolver = tcp::resolver{*m_ctx};
+
+    struct ResolveOp {
+        tcp::resolver& resolver;
+        std::string host, port;
+        tcp::resolver::results_type endpoints;
+        boost::system::error_code ec;
+        bool done = false;
+
+        ResolveOp(tcp::resolver& r, const std::string& h, const std::string& p)
+        : resolver(r), host(h), port(p) {}
+    };
+
+    auto op = std::make_shared<ResolveOp>(resolver, m_host, m_port);
+
+    // 启动异步解析
+    resolver.async_resolve(
+      op->host, op->port,
+      [op](const boost::system::error_code& e, tcp::resolver::results_type eps) {
+          op->ec = e;
+          op->endpoints = std::move(eps);
+          op->done = true;
+      });
+
+    // 轮询等待操作完成或超时
+    auto timer = net::steady_timer{*m_ctx};
+    auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+    while (!op->done) {
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           deadline - std::chrono::steady_clock::now())
+                           .count();
+
+        if (remaining <= 0) {
+            HKU_THROW_EXCEPTION(HttpTimeoutException, "DNS resolve timeout");
+        }
+
+        timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+        co_await timer.async_wait(net::use_awaitable);
+    }
+
+    if (op->ec) {
+        HKU_THROW("DNS resolve failed: {}", op->ec.message());
+    }
+
+    // 转换为 endpoint 列表
+    std::vector<tcp::endpoint> dns_endpoints;
+    for (const auto& ep : op->endpoints) {
+        dns_endpoints.push_back(ep.endpoint());
+    }
+
+    HKU_INFO("ASIO DNS resolve success, found {} endpoints", dns_endpoints.size());
+
+    if (dns_endpoints.empty()) {
+        HKU_THROW("No valid endpoints from DNS resolve");
+    }
+
+    co_return dns_endpoints;
+#endif
+}
+
 net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
   const std::string& method, const std::string& path, const HttpParams& params,
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type) {
@@ -234,96 +338,7 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         } socket_variant;
 
         // DNS 解析（带超时）
-#if HKU_OS_OSX || HKU_OS_IOS
-        // 用于 macOS 原生 DNS 解析, beast 解析存在已知问题, 会卡死
-        std::vector<tcp::endpoint> dns_endpoints;
-        {
-            HKU_INFO("Starting DNS resolve for {}:{} (https={})", m_host, m_port, m_is_https);
-
-            struct addrinfo hints, *res = nullptr;
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_UNSPEC;
-            hints.ai_socktype = SOCK_STREAM;
-
-            int ret = getaddrinfo(m_host.c_str(), m_port.c_str(), &hints, &res);
-
-            if (ret != 0) {
-                HKU_ERROR("getaddrinfo failed: {}", gai_strerror(ret));
-                HKU_THROW("DNS resolve failed");
-            }
-
-            // 将结果转换为 endpoint 列表
-            for (struct addrinfo* ai = res; ai != nullptr; ai = ai->ai_next) {
-                if (ai->ai_family == AF_INET) {
-                    auto* sin = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
-                    net::ip::address_v4::bytes_type v4_bytes;
-                    std::memcpy(&v4_bytes, &(sin->sin_addr.s_addr), sizeof(v4_bytes));
-                    dns_endpoints.push_back(
-                      tcp::endpoint(net::ip::make_address_v4(v4_bytes), ntohs(sin->sin_port)));
-                } else if (ai->ai_family == AF_INET6) {
-                    auto* sin6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
-                    net::ip::address_v6::bytes_type v6_bytes;
-                    std::memcpy(&v6_bytes, &(sin6->sin6_addr.s6_addr), sizeof(v6_bytes));
-                    dns_endpoints.push_back(
-                      tcp::endpoint(net::ip::make_address_v6(v6_bytes), ntohs(sin6->sin6_port)));
-                }
-            }
-
-            freeaddrinfo(res);
-
-            HKU_INFO("Native DNS resolve success, found {} endpoints", dns_endpoints.size());
-
-            if (dns_endpoints.empty()) {
-                HKU_THROW("No valid endpoints from DNS resolve");
-            }
-        }
-#else
-        tcp::resolver::results_type dns_endpoints;
-        {
-            struct ResolveOp {
-                tcp::resolver& resolver;
-                std::string host, port;
-                tcp::resolver::results_type endpoints;
-                boost::system::error_code ec;
-                bool done = false;
-
-                ResolveOp(tcp::resolver& r, const std::string& h, const std::string& p)
-                : resolver(r), host(h), port(p) {}
-            };
-
-            auto op = std::make_shared<ResolveOp>(resolver, host, std::to_string(port));
-
-            // 启动异步解析
-            resolver.async_resolve(
-              op->host, op->port,
-              [op](const boost::system::error_code& e, tcp::resolver::results_type eps) {
-                  op->ec = e;
-                  op->endpoints = std::move(eps);
-                  op->done = true;
-              });
-
-            // 轮询等待操作完成或超时
-            auto timer = net::steady_timer{*m_ctx};
-            auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-            while (!op->done) {
-                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now())
-                                   .count();
-
-                if (remaining <= 0) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "DNS resolve timeout");
-                }
-
-                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                co_await timer.async_wait(net::use_awaitable);
-            }
-
-            if (op->ec) {
-                HKU_THROW("DNS resolve failed: {}", op->ec.message());
-            }
-        }
-#endif
+        auto dns_endpoints = co_await _resolveDNS();
 
         // 连接（带超时）
         boost::system::error_code connect_ec;
