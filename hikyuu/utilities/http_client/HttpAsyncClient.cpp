@@ -804,55 +804,64 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
 #endif
         }
 
-        // 发送请求 - 复用已有逻辑
+        // 发送请求 - 使用事件驱动方式
         {
-            struct WriteOp {
-                boost::system::error_code ec;
-                std::size_t bytes_transferred;
-                bool done = false;
-            };
-
-            auto op = std::make_shared<WriteOp>();
-
+            auto timer = net::steady_timer{*m_ctx};
+            timer.expires_after(m_timeout);
+            
 #if HKU_ENABLE_HTTP_CLIENT_SSL
             if (socket_variant.is_ssl()) {
-                http::async_write(*socket_variant.ssl, req,
-                                  [op](const boost::system::error_code& e, std::size_t n) {
-                                      op->ec = e;
-                                      op->bytes_transferred = n;
-                                      op->done = true;
-                                  });
+                struct WriteOp {
+                    ssl::stream<tcp::socket>& stream;
+                    http::request<http::string_body>& req;
+                    
+                    net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                        auto [ec, bytes] = co_await http::async_write(
+                            stream, req,
+                            net::as_tuple(net::use_awaitable)
+                        );
+                        co_return std::make_pair(ec, bytes);
+                    }
+                };
+                
+                auto write_op = WriteOp{*socket_variant.ssl, req};
+                auto [write_ec, bytes_transferred] = co_await write_op.run();
+                
+                if (!timer.cancel()) {
+                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
+                }
+                
+                if (write_ec) {
+                    HKU_THROW("HTTP write failed: {}", write_ec.message());
+                }
             } else {
 #endif
-                http::async_write(socket_variant.socket(), req,
-                                  [op](const boost::system::error_code& e, std::size_t n) {
-                                      op->ec = e;
-                                      op->bytes_transferred = n;
-                                      op->done = true;
-                                  });
+                struct WriteOp {
+                    tcp::socket& sock;
+                    http::request<http::string_body>& req;
+                    
+                    net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                        auto [ec, bytes] = co_await http::async_write(
+                            sock, req,
+                            net::as_tuple(net::use_awaitable)
+                        );
+                        co_return std::make_pair(ec, bytes);
+                    }
+                };
+                
+                auto write_op = WriteOp{socket_variant.socket(), req};
+                auto [write_ec, bytes_transferred] = co_await write_op.run();
+                
+                if (!timer.cancel()) {
+                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
+                }
+                
+                if (write_ec) {
+                    HKU_THROW("HTTP write failed: {}", write_ec.message());
+                }
 #if HKU_ENABLE_HTTP_CLIENT_SSL
             }
 #endif
-
-            auto timer = net::steady_timer{*m_ctx};
-            auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-            while (!op->done && std::chrono::steady_clock::now() < deadline) {
-                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now())
-                                   .count();
-
-                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                co_await timer.async_wait(net::use_awaitable);
-            }
-
-            if (!op->done) {
-                HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
-            }
-
-            if (op->ec) {
-                HKU_THROW("HTTP write failed: {}", op->ec.message());
-            }
         }
 
         // 流式读取响应 - 使用 buffer_body
@@ -875,56 +884,128 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
 
             auto op = std::make_shared<ReadOp>();
 
-            // 读取响应头
+            // 读取响应头 - 使用事件驱动方式
             {
-                struct ReadHeaderOp {
-                    boost::system::error_code ec;
-                    bool done = false;
-                };
-
-                auto header_op = std::make_shared<ReadHeaderOp>();
-
+                auto timer = net::steady_timer{*m_ctx};
+                timer.expires_after(m_timeout);
+                
 #if HKU_ENABLE_HTTP_CLIENT_SSL
                 if (socket_variant.is_ssl()) {
-                    http::async_read_header(
-                      *socket_variant.ssl, buffer, parser,
-                      [header_op](const boost::system::error_code& e, std::size_t) {
-                          header_op->ec = e;
-                          header_op->done = true;
-                      });
+                    struct ReadHeaderOp {
+                        ssl::stream<tcp::socket>& stream;
+                        beast::flat_buffer& buffer;
+                        http::response_parser<http::buffer_body>& parser;
+                        
+                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                            auto [ec, bytes] = co_await http::async_read_header(
+                                stream, buffer, parser,
+                                net::as_tuple(net::use_awaitable)
+                            );
+                            co_return std::make_pair(ec, bytes);
+                        }
+                    };
+                    
+                    auto read_header_op = ReadHeaderOp{*socket_variant.ssl, buffer, parser};
+                    auto [read_ec, bytes_transferred] = co_await read_header_op.run();
+                    
+                    if (!timer.cancel()) {
+                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
+                    }
+                    
+                    if (read_ec) {
+                        HKU_THROW("HTTP read header failed: {}", read_ec.message());
+                    }
                 } else {
 #endif
-                    http::async_read_header(
-                      socket_variant.socket(), buffer, parser,
-                      [header_op](const boost::system::error_code& e, std::size_t) {
-                          header_op->ec = e;
-                          header_op->done = true;
-                      });
+                    struct ReadHeaderOp {
+                        tcp::socket& sock;
+                        beast::flat_buffer& buffer;
+                        http::response_parser<http::buffer_body>& parser;
+                        
+                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                            auto [ec, bytes] = co_await http::async_read_header(
+                                sock, buffer, parser,
+                                net::as_tuple(net::use_awaitable)
+                            );
+                            co_return std::make_pair(ec, bytes);
+                        }
+                    };
+                    
+                    auto read_header_op = ReadHeaderOp{socket_variant.socket(), buffer, parser};
+                    auto [read_ec, bytes_transferred] = co_await read_header_op.run();
+                    
+                    if (!timer.cancel()) {
+                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
+                    }
+                    
+                    if (read_ec) {
+                        HKU_THROW("HTTP read header failed: {}", read_ec.message());
+                    }
 #if HKU_ENABLE_HTTP_CLIENT_SSL
                 }
+            }
 #endif
-
+            // 读取响应头
+            {
                 auto timer = net::steady_timer{*m_ctx};
-                auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-                while (!header_op->done && std::chrono::steady_clock::now() < deadline) {
-                    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       deadline - std::chrono::steady_clock::now())
-                                       .count();
-
-                    timer.expires_after(
-                      std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                    co_await timer.async_wait(net::use_awaitable);
-                }
-
-                if (!header_op->done) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
-                }
-
-                if (header_op->ec) {
-                    HKU_THROW("HTTP read header failed: {}", header_op->ec.message());
+                timer.expires_after(m_timeout);
+                
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                if (socket_variant.is_ssl()) {
+                    struct ReadHeaderOp {
+                        ssl::stream<tcp::socket>& stream;
+                        beast::flat_buffer& buffer;
+                        http::response_parser<http::buffer_body>& parser;
+                        
+                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                            auto [ec, bytes] = co_await http::async_read_header(
+                                stream, buffer, parser,
+                                net::as_tuple(net::use_awaitable)
+                            );
+                            co_return std::make_pair(ec, bytes);
+                        }
+                    };
+                    
+                    auto header_op = ReadHeaderOp{*socket_variant.ssl, buffer, parser};
+                    auto [header_ec, bytes_transferred] = co_await header_op.run();
+                    
+                    if (!timer.cancel()) {
+                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
+                    }
+                    
+                    if (header_ec) {
+                        HKU_THROW("HTTP read header failed: {}", header_ec.message());
+                    }
+                } else {
+#endif
+                    struct ReadHeaderOp {
+                        tcp::socket& sock;
+                        beast::flat_buffer& buffer;
+                        http::response_parser<http::buffer_body>& parser;
+                        
+                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                            auto [ec, bytes] = co_await http::async_read_header(
+                                sock, buffer, parser,
+                                net::as_tuple(net::use_awaitable)
+                            );
+                            co_return std::make_pair(ec, bytes);
+                        }
+                    };
+                    
+                    auto header_op = ReadHeaderOp{socket_variant.socket(), buffer, parser};
+                    auto [header_ec, bytes_transferred] = co_await header_op.run();
+                    
+                    if (!timer.cancel()) {
+                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
+                    }
+                    
+                    if (header_ec) {
+                        HKU_THROW("HTTP read header failed: {}", header_ec.message());
+                    }
+#if HKU_ENABLE_HTTP_CLIENT_SSL
                 }
             }
+#endif
 
             // 填充响应对象
             response.m_status = static_cast<int>(parser.get().result_int());
@@ -936,55 +1017,78 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
 
             // 循环读取响应体数据块
             while (!parser.is_done()) {
-                auto read_op = std::make_shared<ReadOp>();
-
+                auto timer = net::steady_timer{*m_ctx};
+                timer.expires_after(m_timeout);
+                
+                std::size_t bytes_transferred = 0;
+                boost::system::error_code read_ec;
+                
 #if HKU_ENABLE_HTTP_CLIENT_SSL
                 if (socket_variant.is_ssl()) {
-                    http::async_read(*socket_variant.ssl, buffer, parser,
-                                     [read_op](const boost::system::error_code& e, std::size_t n) {
-                                         read_op->ec = e;
-                                         read_op->bytes_transferred = n;
-                                         read_op->done = true;
-                                     });
+                    struct ReadOp {
+                        ssl::stream<tcp::socket>& stream;
+                        beast::flat_buffer& buffer;
+                        http::response_parser<http::buffer_body>& parser;
+                        
+                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                            auto [ec, bytes] = co_await http::async_read(
+                                stream, buffer, parser,
+                                net::as_tuple(net::use_awaitable)
+                            );
+                            co_return std::make_pair(ec, bytes);
+                        }
+                    };
+                    
+                    auto read_op = ReadOp{*socket_variant.ssl, buffer, parser};
+                    auto [ec, bytes] = co_await read_op.run();
+                    read_ec = ec;
+                    bytes_transferred = bytes;
+                    
+                    if (!timer.cancel()) {
+                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read body timeout");
+                    }
+                    
+                    if (read_ec && read_ec != http::error::need_buffer) {
+                        HKU_THROW("HTTP read body failed: {}", read_ec.message());
+                    }
                 } else {
 #endif
-                    http::async_read(socket_variant.socket(), buffer, parser,
-                                     [read_op](const boost::system::error_code& e, std::size_t n) {
-                                         read_op->ec = e;
-                                         read_op->bytes_transferred = n;
-                                         read_op->done = true;
-                                     });
+                    struct ReadOp {
+                        tcp::socket& sock;
+                        beast::flat_buffer& buffer;
+                        http::response_parser<http::buffer_body>& parser;
+                        
+                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
+                            auto [ec, bytes] = co_await http::async_read(
+                                sock, buffer, parser,
+                                net::as_tuple(net::use_awaitable)
+                            );
+                            co_return std::make_pair(ec, bytes);
+                        }
+                    };
+                    
+                    auto read_op = ReadOp{socket_variant.socket(), buffer, parser};
+                    auto [ec, bytes] = co_await read_op.run();
+                    read_ec = ec;
+                    bytes_transferred = bytes;
+                    
+                    if (!timer.cancel()) {
+                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read body timeout");
+                    }
+                    
+                    if (read_ec && read_ec != http::error::need_buffer) {
+                        HKU_THROW("HTTP read body failed: {}", read_ec.message());
+                    }
 #if HKU_ENABLE_HTTP_CLIENT_SSL
                 }
 #endif
-
-                auto timer = net::steady_timer{*m_ctx};
-                auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-                while (!read_op->done && std::chrono::steady_clock::now() < deadline) {
-                    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       deadline - std::chrono::steady_clock::now())
-                                       .count();
-
-                    timer.expires_after(
-                      std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                    co_await timer.async_wait(net::use_awaitable);
-                }
-
-                if (!read_op->done) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read body timeout");
-                }
-
-                if (read_op->ec && read_op->ec != http::error::need_buffer) {
-                    HKU_THROW("HTTP read body failed: {}", read_op->ec.message());
-                }
-
+                
                 // 调用回调处理数据块
-                if (read_op->bytes_transferred > 0) {
-                    response.m_total_bytes_read += read_op->bytes_transferred;
-                    chunk_callback(chunk_buffer.data(), read_op->bytes_transferred);
+                if (bytes_transferred > 0) {
+                    response.m_total_bytes_read += bytes_transferred;
+                    chunk_callback(chunk_buffer.data(), bytes_transferred);
                 }
-
+                
                 // 重置缓冲区供下一次读取使用
                 parser.get().body().data = chunk_buffer.data();
                 parser.get().body().size = BUFFER_SIZE;
