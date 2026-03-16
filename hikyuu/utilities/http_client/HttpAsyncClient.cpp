@@ -32,41 +32,49 @@
 namespace hku {
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-namespace ssl = net::ssl;
-#endif
+struct HttpAsyncClient::SslContext {
+    net::ssl::context ssl_ctx;  // SSL 上下文
 
-struct HttpAsyncClient::Impl {
-    net::io_context& ctx;
-    std::chrono::milliseconds timeout;
-    bool own_io_context{false};  // 是否拥有 io_context
-    
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-    ssl::context ssl_ctx;  // SSL 上下文
-
-    Impl(net::io_context& io_ctx, std::chrono::milliseconds ms, bool is_own = false)
-    : ctx(io_ctx), timeout(ms), own_io_context(is_own), ssl_ctx(ssl::context::tls_client) {
+    SslContext() : ssl_ctx(net::ssl::context::tls_client) {
         // 配置 SSL 上下文
         ssl_ctx.set_default_verify_paths();
-        ssl_ctx.set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 |
-                            ssl::context::no_sslv3 | ssl::context::no_tlsv1 |
-                            ssl::context::no_tlsv1_1);
+        ssl_ctx.set_options(net::ssl::context::default_workarounds | net::ssl::context::no_sslv2 |
+                            net::ssl::context::no_sslv3 | net::ssl::context::no_tlsv1 |
+                            net::ssl::context::no_tlsv1_1);
         // 使用 OpenSSL 原生 API 设置最低 TLS 版本
         SSL_CTX_set_min_proto_version(ssl_ctx.native_handle(), TLS1_2_VERSION);
     }
-#else
-    Impl(net::io_context& io_ctx, std::chrono::milliseconds ms, bool is_own = false) 
-    : ctx(io_ctx), timeout(ms), own_io_context(is_own) {
-    }
-#endif
-};
 
-HttpAsyncClient::HttpAsyncClient() 
-: m_own_ctx(std::make_unique<net::io_context>()), 
-  m_ctx(m_own_ctx.get()) {
+    /**
+     * @brief 设置自定义 CA 证书文件
+     * @param ca_file CA 证书文件路径（PEM 格式）
+     */
+    void setCaFile(const std::string& ca_file) {
+        if (!ca_file.empty()) {
+            ssl_ctx.load_verify_file(ca_file);
+        }
+    }
+};
+#endif
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+namespace ssl = net::ssl;
+
+// 在命名空间内声明上下文类型
+using SslContext = ssl::context;
+#endif
+
+HttpAsyncClient::HttpAsyncClient()
+: m_own_ctx(std::make_unique<net::io_context>()), m_ctx(m_own_ctx.get()) {
     // 创建工作守护，防止 io_context 在无任务时退出
     m_work_guard = std::make_unique<net::executor_work_guard<net::io_context::executor_type>>(
-        m_own_ctx->get_executor());
-    
+      m_own_ctx->get_executor());
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    // 初始化 SSL 上下文
+    m_ssl_ctx = std::make_unique<SslContext>();
+#endif
+
     // 使用内部 io_context，启动工作线程运行事件循环
     m_worker_thread = std::make_unique<std::thread>([this] {
         HKU_INFO("Starting internal io_context thread");
@@ -75,22 +83,33 @@ HttpAsyncClient::HttpAsyncClient()
     });
 }
 
+void HttpAsyncClient::setCaFile(const std::string& filename) {
+    m_ca_file = filename;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    if (m_ssl_ctx) {
+        m_ssl_ctx->setCaFile(filename);
+    }
+#endif
+}
+
 HttpAsyncClient::HttpAsyncClient(const std::string& url, std::chrono::milliseconds timeout)
-: m_url(url), 
+: m_url(url),
   m_timeout(timeout),
   m_own_ctx(std::make_unique<net::io_context>()),
   m_ctx(m_own_ctx.get()),
-  m_impl(nullptr),
   m_worker_thread(nullptr) {
     _parseUrl();
     // 在 _parseUrl() 之后初始化 m_impl，确保 m_ctx 已经设置好
     if (m_is_valid_url && m_ctx) {
-        m_impl = std::make_unique<Impl>(*m_ctx, timeout, true);  // true 表示拥有 io_context
-        
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        // 初始化 SSL 上下文
+        m_ssl_ctx = std::make_unique<SslContext>();
+#endif
+
         // 创建工作守护，防止 io_context 在无任务时退出
         m_work_guard = std::make_unique<net::executor_work_guard<net::io_context::executor_type>>(
-            m_own_ctx->get_executor());
-        
+          m_own_ctx->get_executor());
+
         // 启动后台线程运行 io_context
         m_worker_thread = std::make_unique<std::thread>([this]() {
             HKU_INFO("Starting internal io_context thread");
@@ -102,30 +121,29 @@ HttpAsyncClient::HttpAsyncClient(const std::string& url, std::chrono::millisecon
 
 HttpAsyncClient::HttpAsyncClient(net::io_context& ctx, const std::string& url,
                                  std::chrono::milliseconds timeout)
-: m_url(url), 
-  m_timeout(timeout), 
+: m_url(url),
+  m_timeout(timeout),
   m_ctx(&ctx),  // 使用外部 io_context，不拥有所有权
-  m_impl(nullptr),
   m_worker_thread(nullptr) {
     _parseUrl();
-    // 在 _parseUrl() 之后初始化 m_impl
+
     if (m_is_valid_url && m_ctx) {
-        m_impl = std::make_unique<Impl>(*m_ctx, timeout, false);  // false 表示不拥有 io_context
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        // 初始化 SSL 上下文
+        m_ssl_ctx = std::make_unique<SslContext>();
+#endif
     }
 }
 
 HttpAsyncClient::~HttpAsyncClient() {
-    // 如果有内部 io_context，先重置 work_guard，然后停止它并等待线程完成
     if (m_own_ctx) {
-        m_work_guard.reset();  // 释放工作守护，允许 io_context 退出
-        m_own_ctx->stop();  // 停止 io_context
+        m_work_guard.reset();
+        m_own_ctx->stop();
         if (m_worker_thread && m_worker_thread->joinable()) {
-            m_worker_thread->join();  // 等待线程结束
+            m_worker_thread->join();
         }
     }
-    // m_impl 是 unique_ptr，会自动调用析构函数
 }
-
 
 void HttpAsyncClient::_parseUrl() noexcept {
     size_t pos = m_url.find("://");
@@ -280,17 +298,11 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type) {
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
 
-    // 确保 io_context 已设置（默认构造函数可能没有初始化 m_impl）
+    // 确保 io_context 已设置（默认构造函数可能没有初始化）
     if (m_ctx == nullptr) {
         auto exec = co_await net::this_coro::executor;
         m_ctx = &static_cast<net::io_context&>(exec.context());
         HKU_CHECK(m_ctx != nullptr, "Cannot get io_context from execution context");
-        if (!m_own_ctx) {
-            // 如果当前没有内部 io_context，说明是从外部协程运行，不需要创建 Impl
-            // 因为外部 io_context 由外部管理
-        } else {
-            m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
-        }
     }
 
 #if !HKU_ENABLE_HTTP_CLIENT_SSL
@@ -438,7 +450,11 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
             HKU_INFO("Performing SSL handshake with {}", m_host);
 
             // 移动到 SSL socket
-            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_impl->ssl_ctx);
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_ssl_ctx->ssl_ctx);
+#else
+            socket_variant.ssl.emplace(std::move(*socket_variant.plain));
+#endif
             socket_variant.plain.reset();
 
             // 设置 SNI（Server Name Indication）
@@ -677,8 +693,8 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
 
 net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
   const std::string& method, const std::string& path, const HttpParams& params,
-  const HttpHeaders& headers, const char* body, size_t body_len, 
-  const std::string& content_type, const HttpChunkCallback& chunk_callback) {
+  const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type,
+  const HttpChunkCallback& chunk_callback) {
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
     HKU_CHECK(chunk_callback != nullptr, "Chunk callback must not be null");
 
@@ -687,11 +703,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
         auto exec = co_await net::this_coro::executor;
         m_ctx = &static_cast<net::io_context&>(exec.context());
         HKU_CHECK(m_ctx != nullptr, "Cannot get io_context from execution context");
-        if (!m_own_ctx) {
-            // 如果当前没有内部 io_context，说明是从外部协程运行，不需要创建 Impl
-        } else {
-            m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
-        }
+        // m_impl 已废弃，不再使用
     }
 
 #if !HKU_ENABLE_HTTP_CLIENT_SSL
@@ -835,7 +847,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
         if (m_is_https) {
             HKU_INFO("Performing SSL handshake with {}", m_host);
 
-            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_impl->ssl_ctx);
+            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_ssl_ctx->ssl_ctx);
             socket_variant.plain.reset();
 
             SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
@@ -972,11 +984,11 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
         // 流式读取响应 - 使用 buffer_body
         beast::flat_buffer buffer;
         http::response_parser<http::buffer_body> parser;
-        
+
         // 设置缓冲区大小（8KB 块）
         constexpr size_t BUFFER_SIZE = 8192;
         std::vector<char> chunk_buffer(BUFFER_SIZE);
-        
+
         parser.get().body().data = chunk_buffer.data();
         parser.get().body().size = BUFFER_SIZE;
 
@@ -1000,18 +1012,20 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
                 if (socket_variant.is_ssl()) {
-                    http::async_read_header(*socket_variant.ssl, buffer, parser,
-                                            [header_op](const boost::system::error_code& e, std::size_t) {
-                                                header_op->ec = e;
-                                                header_op->done = true;
-                                            });
+                    http::async_read_header(
+                      *socket_variant.ssl, buffer, parser,
+                      [header_op](const boost::system::error_code& e, std::size_t) {
+                          header_op->ec = e;
+                          header_op->done = true;
+                      });
                 } else {
 #endif
-                    http::async_read_header(socket_variant.socket(), buffer, parser,
-                                            [header_op](const boost::system::error_code& e, std::size_t) {
-                                                header_op->ec = e;
-                                                header_op->done = true;
-                                            });
+                    http::async_read_header(
+                      socket_variant.socket(), buffer, parser,
+                      [header_op](const boost::system::error_code& e, std::size_t) {
+                          header_op->ec = e;
+                          header_op->done = true;
+                      });
 #if HKU_ENABLE_HTTP_CLIENT_SSL
                 }
 #endif
@@ -1024,7 +1038,8 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                                        deadline - std::chrono::steady_clock::now())
                                        .count();
 
-                    timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                    timer.expires_after(
+                      std::chrono::milliseconds(std::min<long long>(remaining, 50)));
                     co_await timer.async_wait(net::use_awaitable);
                 }
 
@@ -1041,7 +1056,8 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
             response.m_status = static_cast<int>(parser.get().result_int());
             response.m_reason = std::string(parser.get().reason());
             for (auto it = parser.get().begin(); it != parser.get().end(); ++it) {
-                response.m_headers.emplace(std::string(it->name_string()), std::string(it->value()));
+                response.m_headers.emplace(std::string(it->name_string()),
+                                           std::string(it->value()));
             }
 
             // 循环读取响应体数据块
@@ -1076,7 +1092,8 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                                        deadline - std::chrono::steady_clock::now())
                                        .count();
 
-                    timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                    timer.expires_after(
+                      std::chrono::milliseconds(std::min<long long>(remaining, 50)));
                     co_await timer.async_wait(net::use_awaitable);
                 }
 

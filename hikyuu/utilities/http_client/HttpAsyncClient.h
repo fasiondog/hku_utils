@@ -203,14 +203,21 @@ public:
         return m_timeout;
     }
 
-    void setDefaultHeaders(const HttpHeaders& headers) {
-        m_default_headers = headers;
-    }
-
     void setDefaultHeaders(std::map<std::string, std::string>&& headers) {
         m_default_headers = std::move(headers);
     }
 
+    /**
+     * @brief 设置自定义 CA 证书文件路径
+     *
+     * 用于 HTTPS 连接时验证服务器证书
+     * @param filename CA 证书文件路径（PEM 格式）
+     */
+    void setCaFile(const std::string& filename);
+
+    void setDefaultHeaders(const HttpHeaders& headers) {
+        m_default_headers = headers;
+    }
 
     // 异步请求方法 - 返回 net::awaitable
     net::awaitable<HttpResponseAsync> request(const std::string& method, const std::string& path,
@@ -348,8 +355,8 @@ private:
     net::awaitable<std::vector<tcp::endpoint>> _resolveDNS();
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    struct SslContext;
+    std::unique_ptr<SslContext> m_ssl_ctx;  // SSL 上下文（仅在启用 SSL 时使用）
 
     bool m_is_valid_url{false};
     bool m_is_https{false};
@@ -359,13 +366,14 @@ private:
     std::string m_port;
     std::chrono::milliseconds m_timeout{30000};
     std::map<std::string, std::string> m_default_headers;
-    
-    // io_context 管理
-    std::unique_ptr<net::io_context> m_own_ctx;       // 内部 io_context
-    net::io_context* m_ctx{nullptr};                 // 当前使用的 io_context
-    std::unique_ptr<std::thread> m_worker_thread;    // 后台运行 io_context 的线程
-    std::unique_ptr<net::executor_work_guard<net::io_context::executor_type>> m_work_guard;  // 防止 io_context 在无任务时退出
+    std::string m_ca_file;  // 自定义 CA 证书文件路径
 
+    // io_context 管理
+    std::unique_ptr<net::io_context> m_own_ctx;    // 内部 io_context
+    net::io_context* m_ctx{nullptr};               // 当前使用的 io_context
+    std::unique_ptr<std::thread> m_worker_thread;  // 后台运行 io_context 的线程
+    std::unique_ptr<net::executor_work_guard<net::io_context::executor_type>>
+      m_work_guard;  // 防止 io_context 在无任务时退出
 };
 
 }  // namespace hku
