@@ -16,6 +16,7 @@
 
 #include <string>
 #include <map>
+#include <functional>
 #include <nlohmann/json.hpp>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -37,6 +38,15 @@ using tcp = net::ip::tcp;
 
 using HttpHeaders = std::map<std::string, std::string>;
 using HttpParams = std::map<std::string, std::string>;
+
+/**
+ * @brief HTTP 数据块回调函数类型
+ *
+ * 用于流式响应处理，每次接收到数据块时调用
+ * @param data 数据块指针
+ * @param size 数据块大小
+ */
+using HttpChunkCallback = std::function<void(const char* data, size_t size)>;
 
 class HKU_UTILS_API HttpAsyncClient;
 
@@ -91,6 +101,66 @@ private:
     std::string m_reason;
     std::string m_body;
     std::map<std::string, std::string> m_headers;
+};
+
+/**
+ * @brief 流式 HTTP 响应类
+ *
+ * 用于处理大响应体的流式下载，避免一次性加载到内存
+ * 支持 Content-Length 和 Transfer-Encoding: chunked 两种模式
+ */
+class HKU_UTILS_API HttpStreamResponseAsync final {
+    friend class HKU_UTILS_API HttpAsyncClient;
+
+public:
+    HttpStreamResponseAsync() = default;
+    ~HttpStreamResponseAsync() = default;
+
+    HttpStreamResponseAsync(const HttpStreamResponseAsync&) = delete;
+    HttpStreamResponseAsync& operator=(const HttpStreamResponseAsync&) = delete;
+
+    HttpStreamResponseAsync(HttpStreamResponseAsync&& rhs) = default;
+    HttpStreamResponseAsync& operator=(HttpStreamResponseAsync&& rhs) = default;
+
+    int status() const noexcept {
+        return m_status;
+    }
+
+    std::string reason() const noexcept {
+        return m_reason;
+    }
+
+    std::string getHeader(const std::string& key) const noexcept {
+        auto it = m_headers.find(key);
+        return it != m_headers.end() ? it->second : std::string();
+    }
+
+    size_t getContentLength() const noexcept {
+        auto it = m_headers.find("Content-Length");
+        if (it != m_headers.end() && !it->second.empty()) {
+            try {
+                return std::stoull(it->second);
+            } catch (...) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    bool isChunked() const noexcept {
+        auto it = m_headers.find("Transfer-Encoding");
+        return it != m_headers.end() && it->second == "chunked";
+    }
+
+    uint64_t totalBytesRead() const noexcept {
+        return m_total_bytes_read;
+    }
+
+private:
+    int m_status{0};
+    std::string m_reason;
+    std::map<std::string, std::string> m_headers;
+    uint64_t m_total_bytes_read{0};
 };
 
 class HKU_UTILS_API HttpAsyncClient {
@@ -192,6 +262,81 @@ public:
 
     net::awaitable<HttpResponseAsync> post(const std::string& path, const json& body) {
         co_return co_await post(path, {}, body);
+    }
+
+    /**
+     * @brief 流式 HTTP 请求（支持大文件下载）
+     *
+     * 使用回调函数处理响应数据块，避免一次性加载到内存
+     * 自动支持 Content-Length 和 Transfer-Encoding: chunked 两种模式
+     *
+     * @param method HTTP 方法 (GET, POST 等)
+     * @param path 请求路径
+     * @param params URL 查询参数
+     * @param headers HTTP 请求头
+     * @param body 请求体指针
+     * @param body_len 请求体长度
+     * @param content_type 内容类型
+     * @param chunk_callback 数据块回调函数，每次接收到数据时调用
+     * @return HttpStreamResponseAsync 流式响应对象
+     */
+    net::awaitable<HttpStreamResponseAsync> requestStream(
+      const std::string& method, const std::string& path, const HttpParams& params,
+      const HttpHeaders& headers, const char* body, size_t body_len,
+      const std::string& content_type, const HttpChunkCallback& chunk_callback);
+
+    /**
+     * @brief 流式 GET 请求
+     *
+     * @param path 请求路径
+     * @param params URL 查询参数
+     * @param headers HTTP 请求头
+     * @param chunk_callback 数据块回调函数
+     * @return HttpStreamResponseAsync 流式响应对象
+     */
+    net::awaitable<HttpStreamResponseAsync> getStream(const std::string& path,
+                                                      const HttpParams& params,
+                                                      const HttpHeaders& headers,
+                                                      const HttpChunkCallback& chunk_callback) {
+        co_return co_await requestStream("GET", path, params, headers, nullptr, 0, "",
+                                         chunk_callback);
+    }
+
+    net::awaitable<HttpStreamResponseAsync> getStream(const std::string& path,
+                                                      const HttpHeaders& headers,
+                                                      const HttpChunkCallback& chunk_callback) {
+        co_return co_await requestStream("GET", path, {}, headers, nullptr, 0, "", chunk_callback);
+    }
+
+    /**
+     * @brief 流式 POST 请求
+     *
+     * @param path 请求路径
+     * @param params URL 查询参数
+     * @param headers HTTP 请求头
+     * @param body 请求体指针
+     * @param body_len 请求体长度
+     * @param content_type 内容类型
+     * @param chunk_callback 数据块回调函数
+     * @return HttpStreamResponseAsync 流式响应对象
+     */
+    net::awaitable<HttpStreamResponseAsync> postStream(const std::string& path,
+                                                       const HttpParams& params,
+                                                       const HttpHeaders& headers, const char* body,
+                                                       size_t body_len,
+                                                       const std::string& content_type,
+                                                       const HttpChunkCallback& chunk_callback) {
+        co_return co_await requestStream("POST", path, params, headers, body, body_len,
+                                         content_type, chunk_callback);
+    }
+
+    net::awaitable<HttpStreamResponseAsync> postStream(const std::string& path,
+                                                       const HttpHeaders& headers, const char* body,
+                                                       size_t body_len,
+                                                       const std::string& content_type,
+                                                       const HttpChunkCallback& chunk_callback) {
+        co_return co_await requestStream("POST", path, {}, headers, body, body_len, content_type,
+                                         chunk_callback);
     }
 
 private:

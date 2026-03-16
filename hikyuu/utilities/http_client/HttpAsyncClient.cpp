@@ -642,4 +642,441 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
     co_return response;
 }
 
+net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
+  const std::string& method, const std::string& path, const HttpParams& params,
+  const HttpHeaders& headers, const char* body, size_t body_len, 
+  const std::string& content_type, const HttpChunkCallback& chunk_callback) {
+    HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
+    HKU_CHECK(chunk_callback != nullptr, "Chunk callback must not be null");
+
+    // 如果没有设置 io_context，从当前协程的 execution context 获取
+    if (m_ctx == nullptr) {
+        auto exec = co_await net::this_coro::executor;
+        m_ctx = &static_cast<net::io_context&>(exec.context());
+        HKU_CHECK(m_ctx != nullptr, "Cannot get io_context from execution context");
+        m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
+    }
+
+#if !HKU_ENABLE_HTTP_CLIENT_SSL
+    HKU_CHECK(m_is_https,
+              "HTTPS is not supported. Please enable SSL support with --http_client_ssl=y");
+#endif
+
+    // 构建完整的 URI
+    std::ostringstream uri_stream;
+    uri_stream << m_base_path;
+    if (!path.empty()) {
+        if (m_base_path.back() != '/' && path.front() != '/') {
+            uri_stream << '/';
+        }
+        uri_stream << path;
+    }
+
+    // 添加查询参数
+    bool first = true;
+    for (const auto& [key, value] : params) {
+        uri_stream << (first ? "?" : "&") << key << "=" << value;
+        first = false;
+    }
+
+    std::string uri = uri_stream.str();
+
+    HttpStreamResponseAsync response;
+
+    try {
+        // DNS 解析（带超时）
+        auto dns_endpoints = co_await _resolveDNS();
+
+        // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
+        struct SocketVariant {
+            std::optional<tcp::socket> plain;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            std::optional<ssl::stream<tcp::socket>> ssl;
+
+            void close(boost::system::error_code& ec) {
+                if (plain) {
+                    plain->close(ec);
+                    plain.reset();
+                }
+                if (ssl) {
+                    ssl->lowest_layer().close(ec);
+                    ssl.reset();
+                }
+            }
+
+            bool is_ssl() const {
+                return ssl.has_value();
+            }
+
+            tcp::socket& socket() {
+                if (ssl) {
+                    return ssl->next_layer();
+                } else if (plain) {
+                    return *plain;
+                }
+                HKU_THROW("Socket not initialized");
+            }
+#else
+            void close(boost::system::error_code& ec) {
+                if (plain) {
+                    plain->close(ec);
+                    plain.reset();
+                }
+            }
+
+            bool is_ssl() const {
+                return false;
+            }
+
+            tcp::socket& socket() {
+                if (plain) {
+                    return *plain;
+                }
+                HKU_THROW("Socket not initialized");
+            }
+#endif
+        } socket_variant;
+
+        // 连接（带超时）- 复用已有逻辑
+        boost::system::error_code connect_ec;
+        bool connected = false;
+
+        for (const auto& endpoint : dns_endpoints) {
+            socket_variant.close(connect_ec);
+
+            {
+                struct ConnectOp {
+                    tcp::socket& socket;
+                    tcp::endpoint endpoint;
+                    boost::system::error_code ec;
+                    bool done = false;
+
+                    ConnectOp(tcp::socket& s, const tcp::endpoint& e) : socket(s), endpoint(e) {}
+                };
+
+                socket_variant.plain.emplace(*m_ctx);
+                auto op = std::make_shared<ConnectOp>(*socket_variant.plain, endpoint);
+
+                socket_variant.plain->async_connect(endpoint,
+                                                    [op](const boost::system::error_code& e) {
+                                                        op->ec = e;
+                                                        op->done = true;
+                                                    });
+
+                auto timer = net::steady_timer{*m_ctx};
+                auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+                while (!op->done && std::chrono::steady_clock::now() < deadline) {
+                    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       deadline - std::chrono::steady_clock::now())
+                                       .count();
+
+                    timer.expires_after(
+                      std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                    co_await timer.async_wait(net::use_awaitable);
+                }
+
+                if (!op->done) {
+                    continue;
+                }
+
+                if (!op->ec && socket_variant.plain->is_open()) {
+                    connected = true;
+                    break;
+                }
+            }
+        }
+
+        if (!connected) {
+            HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host, m_port);
+        }
+
+        socket_variant.socket().set_option(tcp::no_delay(true));
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        // SSL 握手 - 复用已有逻辑
+        if (m_is_https) {
+            HKU_INFO("Performing SSL handshake with {}", m_host);
+
+            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_impl->ssl_ctx);
+            socket_variant.plain.reset();
+
+            SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
+
+            struct SslHandshakeOp {
+                ssl::stream<tcp::socket>& stream;
+                boost::system::error_code ec;
+                bool done = false;
+
+                SslHandshakeOp(ssl::stream<tcp::socket>& s) : stream(s) {}
+            };
+
+            auto handshake_op = std::make_shared<SslHandshakeOp>(*socket_variant.ssl);
+
+            socket_variant.ssl->async_handshake(ssl::stream_base::client,
+                                                [handshake_op](const boost::system::error_code& e) {
+                                                    handshake_op->ec = e;
+                                                    handshake_op->done = true;
+                                                });
+
+            auto timer = net::steady_timer{*m_ctx};
+            auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+            while (!handshake_op->done && std::chrono::steady_clock::now() < deadline) {
+                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   deadline - std::chrono::steady_clock::now())
+                                   .count();
+
+                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                co_await timer.async_wait(net::use_awaitable);
+            }
+
+            if (!handshake_op->done) {
+                HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
+            }
+
+            if (handshake_op->ec) {
+                HKU_THROW("SSL handshake failed: {}", handshake_op->ec.message());
+            }
+
+            HKU_INFO("SSL handshake successful");
+        }
+#endif
+
+        // 创建 HTTP 请求
+        http::request<http::string_body> req;
+        req.method(http::string_to_verb(method));
+        req.target(uri);
+        req.version(11);
+
+        for (const auto& [key, value] : m_default_headers) {
+            req.set(key, value);
+        }
+
+        for (const auto& [key, value] : headers) {
+            req.set(key, value);
+        }
+
+        req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+        req.set(http::field::host, m_host);
+        req.set(http::field::connection, "close");
+
+        if (body != nullptr && body_len > 0) {
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+            auto content_type = req["Content-Type"];
+            if (content_type == "gzip") {
+                gzip::Compressor comp(Z_DEFAULT_COMPRESSION);
+                std::string output;
+                comp.compress(output, body, body_len);
+                req.body() = std::move(output);
+            } else {
+                req.set(http::field::content_type, content_type);
+                req.body() = std::string(body, body_len);
+                req.prepare_payload();
+            }
+#else
+            req.set(http::field::content_type, content_type);
+            req.body() = std::string(body, body_len);
+            req.prepare_payload();
+#endif
+        }
+
+        // 发送请求 - 复用已有逻辑
+        {
+            struct WriteOp {
+                boost::system::error_code ec;
+                std::size_t bytes_transferred;
+                bool done = false;
+            };
+
+            auto op = std::make_shared<WriteOp>();
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            if (socket_variant.is_ssl()) {
+                http::async_write(*socket_variant.ssl, req,
+                                  [op](const boost::system::error_code& e, std::size_t n) {
+                                      op->ec = e;
+                                      op->bytes_transferred = n;
+                                      op->done = true;
+                                  });
+            } else {
+#endif
+                http::async_write(socket_variant.socket(), req,
+                                  [op](const boost::system::error_code& e, std::size_t n) {
+                                      op->ec = e;
+                                      op->bytes_transferred = n;
+                                      op->done = true;
+                                  });
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            }
+#endif
+
+            auto timer = net::steady_timer{*m_ctx};
+            auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+            while (!op->done && std::chrono::steady_clock::now() < deadline) {
+                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   deadline - std::chrono::steady_clock::now())
+                                   .count();
+
+                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                co_await timer.async_wait(net::use_awaitable);
+            }
+
+            if (!op->done) {
+                HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
+            }
+
+            if (op->ec) {
+                HKU_THROW("HTTP write failed: {}", op->ec.message());
+            }
+        }
+
+        // 流式读取响应 - 使用 buffer_body
+        beast::flat_buffer buffer;
+        http::response_parser<http::buffer_body> parser;
+        
+        // 设置缓冲区大小（8KB 块）
+        constexpr size_t BUFFER_SIZE = 8192;
+        std::vector<char> chunk_buffer(BUFFER_SIZE);
+        
+        parser.get().body().data = chunk_buffer.data();
+        parser.get().body().size = BUFFER_SIZE;
+
+        {
+            struct ReadOp {
+                boost::system::error_code ec;
+                std::size_t bytes_transferred;
+                bool done = false;
+            };
+
+            auto op = std::make_shared<ReadOp>();
+
+            // 读取响应头
+            {
+                struct ReadHeaderOp {
+                    boost::system::error_code ec;
+                    bool done = false;
+                };
+
+                auto header_op = std::make_shared<ReadHeaderOp>();
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                if (socket_variant.is_ssl()) {
+                    http::async_read_header(*socket_variant.ssl, buffer, parser,
+                                            [header_op](const boost::system::error_code& e, std::size_t) {
+                                                header_op->ec = e;
+                                                header_op->done = true;
+                                            });
+                } else {
+#endif
+                    http::async_read_header(socket_variant.socket(), buffer, parser,
+                                            [header_op](const boost::system::error_code& e, std::size_t) {
+                                                header_op->ec = e;
+                                                header_op->done = true;
+                                            });
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                }
+#endif
+
+                auto timer = net::steady_timer{*m_ctx};
+                auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+                while (!header_op->done && std::chrono::steady_clock::now() < deadline) {
+                    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       deadline - std::chrono::steady_clock::now())
+                                       .count();
+
+                    timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                    co_await timer.async_wait(net::use_awaitable);
+                }
+
+                if (!header_op->done) {
+                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
+                }
+
+                if (header_op->ec) {
+                    HKU_THROW("HTTP read header failed: {}", header_op->ec.message());
+                }
+            }
+
+            // 填充响应对象
+            response.m_status = static_cast<int>(parser.get().result_int());
+            response.m_reason = std::string(parser.get().reason());
+            for (auto it = parser.get().begin(); it != parser.get().end(); ++it) {
+                response.m_headers.emplace(std::string(it->name_string()), std::string(it->value()));
+            }
+
+            // 循环读取响应体数据块
+            while (!parser.is_done()) {
+                auto read_op = std::make_shared<ReadOp>();
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                if (socket_variant.is_ssl()) {
+                    http::async_read(*socket_variant.ssl, buffer, parser,
+                                     [read_op](const boost::system::error_code& e, std::size_t n) {
+                                         read_op->ec = e;
+                                         read_op->bytes_transferred = n;
+                                         read_op->done = true;
+                                     });
+                } else {
+#endif
+                    http::async_read(socket_variant.socket(), buffer, parser,
+                                     [read_op](const boost::system::error_code& e, std::size_t n) {
+                                         read_op->ec = e;
+                                         read_op->bytes_transferred = n;
+                                         read_op->done = true;
+                                     });
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                }
+#endif
+
+                auto timer = net::steady_timer{*m_ctx};
+                auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+                while (!read_op->done && std::chrono::steady_clock::now() < deadline) {
+                    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       deadline - std::chrono::steady_clock::now())
+                                       .count();
+
+                    timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                    co_await timer.async_wait(net::use_awaitable);
+                }
+
+                if (!read_op->done) {
+                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read body timeout");
+                }
+
+                if (read_op->ec && read_op->ec != http::error::need_buffer) {
+                    HKU_THROW("HTTP read body failed: {}", read_op->ec.message());
+                }
+
+                // 调用回调处理数据块
+                if (read_op->bytes_transferred > 0) {
+                    response.m_total_bytes_read += read_op->bytes_transferred;
+                    chunk_callback(chunk_buffer.data(), read_op->bytes_transferred);
+                }
+
+                // 重置缓冲区供下一次读取使用
+                parser.get().body().data = chunk_buffer.data();
+                parser.get().body().size = BUFFER_SIZE;
+            }
+        }
+
+        // 关闭连接
+        beast::error_code shutdown_ec;
+        socket_variant.socket().shutdown(tcp::socket::shutdown_both, shutdown_ec);
+        socket_variant.close(shutdown_ec);
+
+    } catch (const boost::system::system_error& e) {
+        HKU_ERROR("HTTP stream request system error! {}", e.what());
+        throw;
+    } catch (const std::exception& e) {
+        HKU_ERROR("HTTP stream request failed! {}", e.what());
+        throw;
+    }
+
+    co_return response;
+}
+
 }  // namespace hku

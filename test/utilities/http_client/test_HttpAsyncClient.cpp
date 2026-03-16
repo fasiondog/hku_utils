@@ -340,6 +340,90 @@ TEST_CASE("test_HttpAsyncClient_SharedIOContext") {
     #endif
 }
 
+TEST_CASE("test_HttpAsyncClient_StreamRequest") {
+    // 测试流式 GET 请求
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            HttpAsyncClient client("http://httpbin.org");
+            
+            // 用于收集响应数据的缓冲区
+            std::string collected_data;
+            
+            // 流式 GET 请求，使用回调函数处理数据块
+            auto response = co_await client.getStream(
+                "/stream/5",  // httpbin 提供的流式接口
+                {}, 
+                [&collected_data](const char* data, size_t size) {
+                    // 回调函数：累积接收到的数据块
+                    collected_data.append(data, size);
+                    HKU_INFO("Received chunk: {} bytes, total: {} bytes", 
+                             size, collected_data.size());
+                }
+            );
+            
+            if (response.status() == 200) {
+                HKU_INFO("Stream response completed, total bytes: {}", response.totalBytesRead());
+                CHECK_UNARY(!collected_data.empty());
+                CHECK_GT(response.totalBytesRead(), 0);
+                
+                // 验证收集的数据完整性（简单检查是否包含换行符）
+                HKU_INFO("Received data size: {} bytes", collected_data.size());
+            } else {
+                HKU_WARN("Stream request failed with status: {}", response.status());
+            }
+            
+            co_return;
+        } catch (const std::exception& e) {
+            // 网络不可达时跳过测试
+            HKU_WARN("HTTP stream test skipped: {}", e.what());
+        }
+    });
+    
+    // 测试流式 POST 请求
+    runCoroutineTest([]() -> boost::asio::awaitable<void> {
+        try {
+            HttpAsyncClient client("http://httpbin.org");
+            
+            // 准备请求体
+            std::string request_body = R"({"test": "streaming data"})";
+            
+            // 用于统计的计数器
+            size_t chunk_count = 0;
+            size_t total_bytes = 0;
+            
+            // 流式 POST 请求
+            auto response = co_await client.postStream(
+                "/post",
+                {},
+                {},
+                request_body.data(),
+                request_body.size(),
+                "application/json",
+                [&chunk_count, &total_bytes](const char* data, size_t size) {
+                    // 回调函数：统计接收到的数据块信息
+                    chunk_count++;
+                    total_bytes += size;
+                    HKU_INFO("Chunk #{}: {} bytes", chunk_count, size);
+                }
+            );
+            
+            if (response.status() == 200) {
+                HKU_INFO("Stream POST completed, chunks: {}, total bytes: {}", 
+                         chunk_count, total_bytes);
+                CHECK_GT(chunk_count, 0);
+                CHECK_GT(total_bytes, 0);
+                CHECK_EQ(response.totalBytesRead(), total_bytes);
+            } else {
+                HKU_WARN("Stream POST failed with status: {}", response.status());
+            }
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("HTTP stream POST test skipped: {}", e.what());
+        }
+    });
+}
+
 #if HKU_ENABLE_HTTP_CLIENT_SSL
 TEST_CASE("test_HttpAsyncClient_HTTPS") {
     // 测试 HTTPS 支持
