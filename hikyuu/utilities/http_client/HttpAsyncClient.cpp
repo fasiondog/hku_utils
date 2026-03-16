@@ -83,15 +83,6 @@ HttpAsyncClient::HttpAsyncClient()
     });
 }
 
-void HttpAsyncClient::setCaFile(const std::string& filename) {
-    m_ca_file = filename;
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-    if (m_ssl_ctx) {
-        m_ssl_ctx->setCaFile(filename);
-    }
-#endif
-}
-
 HttpAsyncClient::HttpAsyncClient(const std::string& url, std::chrono::milliseconds timeout)
 : m_url(url),
   m_timeout(timeout),
@@ -143,6 +134,15 @@ HttpAsyncClient::~HttpAsyncClient() {
             m_worker_thread->join();
         }
     }
+}
+
+void HttpAsyncClient::setCaFile(const std::string& filename) {
+    m_ca_file = filename;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    if (m_ssl_ctx) {
+        m_ssl_ctx->setCaFile(filename);
+    }
+#endif
 }
 
 void HttpAsyncClient::_parseUrl() noexcept {
