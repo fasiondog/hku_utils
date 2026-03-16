@@ -38,11 +38,13 @@ namespace ssl = net::ssl;
 struct HttpAsyncClient::Impl {
     net::io_context& ctx;
     std::chrono::milliseconds timeout;
+    bool own_io_context{false};  // 是否拥有 io_context
+    
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     ssl::context ssl_ctx;  // SSL 上下文
 
-    Impl(net::io_context& io_ctx, std::chrono::milliseconds ms)
-    : ctx(io_ctx), timeout(ms), ssl_ctx(ssl::context::tls_client) {
+    Impl(net::io_context& io_ctx, std::chrono::milliseconds ms, bool is_own = false)
+    : ctx(io_ctx), timeout(ms), own_io_context(is_own), ssl_ctx(ssl::context::tls_client) {
         // 配置 SSL 上下文
         ssl_ctx.set_default_verify_paths();
         ssl_ctx.set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 |
@@ -52,52 +54,78 @@ struct HttpAsyncClient::Impl {
         SSL_CTX_set_min_proto_version(ssl_ctx.native_handle(), TLS1_2_VERSION);
     }
 #else
-    Impl(net::io_context& io_ctx, std::chrono::milliseconds ms) : ctx(io_ctx), timeout(ms) {}
+    Impl(net::io_context& io_ctx, std::chrono::milliseconds ms, bool is_own = false) 
+    : ctx(io_ctx), timeout(ms), own_io_context(is_own) {
+    }
 #endif
 };
 
-HttpAsyncClient::HttpAsyncClient() = default;
+HttpAsyncClient::HttpAsyncClient() 
+: m_own_ctx(std::make_unique<net::io_context>()), 
+  m_ctx(m_own_ctx.get()) {
+    // 创建工作守护，防止 io_context 在无任务时退出
+    m_work_guard = std::make_unique<net::executor_work_guard<net::io_context::executor_type>>(
+        m_own_ctx->get_executor());
+    
+    // 使用内部 io_context，启动工作线程运行事件循环
+    m_worker_thread = std::make_unique<std::thread>([this] {
+        HKU_INFO("Starting internal io_context thread");
+        m_ctx->run();
+        HKU_INFO("Internal io_context thread stopped");
+    });
+}
 
 HttpAsyncClient::HttpAsyncClient(const std::string& url, std::chrono::milliseconds timeout)
-: m_url(url), m_timeout(timeout) {
+: m_url(url), 
+  m_timeout(timeout),
+  m_own_ctx(std::make_unique<net::io_context>()),
+  m_ctx(m_own_ctx.get()),
+  m_impl(nullptr),
+  m_worker_thread(nullptr) {
     _parseUrl();
+    // 在 _parseUrl() 之后初始化 m_impl，确保 m_ctx 已经设置好
+    if (m_is_valid_url && m_ctx) {
+        m_impl = std::make_unique<Impl>(*m_ctx, timeout, true);  // true 表示拥有 io_context
+        
+        // 创建工作守护，防止 io_context 在无任务时退出
+        m_work_guard = std::make_unique<net::executor_work_guard<net::io_context::executor_type>>(
+            m_own_ctx->get_executor());
+        
+        // 启动后台线程运行 io_context
+        m_worker_thread = std::make_unique<std::thread>([this]() {
+            HKU_INFO("Starting internal io_context thread");
+            m_ctx->run();
+            HKU_INFO("Internal io_context thread stopped");
+        });
+    }
 }
 
 HttpAsyncClient::HttpAsyncClient(net::io_context& ctx, const std::string& url,
                                  std::chrono::milliseconds timeout)
-: m_url(url), m_timeout(timeout), m_ctx(&ctx), m_impl(std::make_unique<Impl>(ctx, timeout)) {
+: m_url(url), 
+  m_timeout(timeout), 
+  m_ctx(&ctx),  // 使用外部 io_context，不拥有所有权
+  m_impl(nullptr),
+  m_worker_thread(nullptr) {
     _parseUrl();
-}
-
-HttpAsyncClient::~HttpAsyncClient() = default;
-
-HttpAsyncClient::HttpAsyncClient(HttpAsyncClient&& rhs) noexcept
-: m_impl(std::move(rhs.m_impl)),
-  m_is_valid_url(rhs.m_is_valid_url),
-  m_is_https(rhs.m_is_https),
-  m_url(std::move(rhs.m_url)),
-  m_base_path(std::move(rhs.m_base_path)),
-  m_host(std::move(rhs.m_host)),
-  m_port(std::move(rhs.m_port)),
-  m_timeout(rhs.m_timeout),
-  m_ctx(rhs.m_ctx),
-  m_default_headers(std::move(rhs.m_default_headers)) {}
-
-HttpAsyncClient& HttpAsyncClient::operator=(HttpAsyncClient&& rhs) noexcept {
-    if (this != &rhs) {
-        m_impl = std::move(rhs.m_impl);
-        m_is_valid_url = rhs.m_is_valid_url;
-        m_is_https = rhs.m_is_https;
-        m_url = std::move(rhs.m_url);
-        m_base_path = std::move(rhs.m_base_path);
-        m_host = std::move(rhs.m_host);
-        m_port = std::move(rhs.m_port);
-        m_timeout = rhs.m_timeout;
-        m_ctx = rhs.m_ctx;
-        m_default_headers = std::move(rhs.m_default_headers);
+    // 在 _parseUrl() 之后初始化 m_impl
+    if (m_is_valid_url && m_ctx) {
+        m_impl = std::make_unique<Impl>(*m_ctx, timeout, false);  // false 表示不拥有 io_context
     }
-    return *this;
 }
+
+HttpAsyncClient::~HttpAsyncClient() {
+    // 如果有内部 io_context，先重置 work_guard，然后停止它并等待线程完成
+    if (m_own_ctx) {
+        m_work_guard.reset();  // 释放工作守护，允许 io_context 退出
+        m_own_ctx->stop();  // 停止 io_context
+        if (m_worker_thread && m_worker_thread->joinable()) {
+            m_worker_thread->join();  // 等待线程结束
+        }
+    }
+    // m_impl 是 unique_ptr，会自动调用析构函数
+}
+
 
 void HttpAsyncClient::_parseUrl() noexcept {
     size_t pos = m_url.find("://");
@@ -252,16 +280,21 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type) {
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
 
-    // 如果没有设置 io_context，从当前协程的 execution context 获取
+    // 确保 io_context 已设置（默认构造函数可能没有初始化 m_impl）
     if (m_ctx == nullptr) {
         auto exec = co_await net::this_coro::executor;
         m_ctx = &static_cast<net::io_context&>(exec.context());
         HKU_CHECK(m_ctx != nullptr, "Cannot get io_context from execution context");
-        m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
+        if (!m_own_ctx) {
+            // 如果当前没有内部 io_context，说明是从外部协程运行，不需要创建 Impl
+            // 因为外部 io_context 由外部管理
+        } else {
+            m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
+        }
     }
 
 #if !HKU_ENABLE_HTTP_CLIENT_SSL
-    HKU_CHECK(m_is_https,
+    HKU_CHECK(!m_is_https,
               "HTTPS is not supported. Please enable SSL support with --http_client_ssl=y");
 #endif
 
@@ -649,16 +682,20 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
     HKU_CHECK(chunk_callback != nullptr, "Chunk callback must not be null");
 
-    // 如果没有设置 io_context，从当前协程的 execution context 获取
+    // 确保 io_context 已设置（默认构造函数可能没有初始化 m_impl）
     if (m_ctx == nullptr) {
         auto exec = co_await net::this_coro::executor;
         m_ctx = &static_cast<net::io_context&>(exec.context());
         HKU_CHECK(m_ctx != nullptr, "Cannot get io_context from execution context");
-        m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
+        if (!m_own_ctx) {
+            // 如果当前没有内部 io_context，说明是从外部协程运行，不需要创建 Impl
+        } else {
+            m_impl = std::make_unique<Impl>(*m_ctx, m_timeout);
+        }
     }
 
 #if !HKU_ENABLE_HTTP_CLIENT_SSL
-    HKU_CHECK(m_is_https,
+    HKU_CHECK(!m_is_https,
               "HTTPS is not supported. Please enable SSL support with --http_client_ssl=y");
 #endif
 

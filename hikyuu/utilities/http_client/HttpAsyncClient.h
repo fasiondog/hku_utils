@@ -17,6 +17,7 @@
 #include <string>
 #include <map>
 #include <functional>
+#include <thread>
 #include <nlohmann/json.hpp>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -177,8 +178,9 @@ public:
     HttpAsyncClient(const HttpAsyncClient&) = delete;
     HttpAsyncClient& operator=(const HttpAsyncClient&) = delete;
 
-    HttpAsyncClient(HttpAsyncClient&& rhs) noexcept;
-    HttpAsyncClient& operator=(HttpAsyncClient&& rhs) noexcept;
+    // 禁用移动操作，因为管理后台线程和 io_context 的生命周期不安全
+    HttpAsyncClient(HttpAsyncClient&&) = delete;
+    HttpAsyncClient& operator=(HttpAsyncClient&&) = delete;
 
     bool valid() const noexcept {
         return !m_url.empty();
@@ -208,6 +210,7 @@ public:
     void setDefaultHeaders(std::map<std::string, std::string>&& headers) {
         m_default_headers = std::move(headers);
     }
+
 
     // 异步请求方法 - 返回 net::awaitable
     net::awaitable<HttpResponseAsync> request(const std::string& method, const std::string& path,
@@ -356,7 +359,13 @@ private:
     std::string m_port;
     std::chrono::milliseconds m_timeout{30000};
     std::map<std::string, std::string> m_default_headers;
-    net::io_context* m_ctx;  // 非 owned 指针，可能指向外部或内部的 io_context
+    
+    // io_context 管理
+    std::unique_ptr<net::io_context> m_own_ctx;       // 内部 io_context
+    net::io_context* m_ctx{nullptr};                 // 当前使用的 io_context
+    std::unique_ptr<std::thread> m_worker_thread;    // 后台运行 io_context 的线程
+    std::unique_ptr<net::executor_work_guard<net::io_context::executor_type>> m_work_guard;  // 防止 io_context 在无任务时退出
+
 };
 
 }  // namespace hku
