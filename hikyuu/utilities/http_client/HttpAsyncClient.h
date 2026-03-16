@@ -354,6 +354,10 @@ private:
 
     net::awaitable<std::vector<tcp::endpoint>> _resolveDNS();
 
+    struct SocketVariant;
+    net::awaitable<void> _connect(SocketVariant& socket_variant,
+                                  const std::vector<tcp::endpoint>& dns_endpoints);
+
 private:
     struct SslContext;
     std::unique_ptr<SslContext> m_ssl_ctx;  // SSL 上下文（仅在启用 SSL 时使用）

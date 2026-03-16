@@ -305,6 +305,176 @@ net::awaitable<std::vector<tcp::endpoint>> HttpAsyncClient::_resolveDNS() {
 #endif
 }
 
+// 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
+struct HttpAsyncClient::SocketVariant {
+    std::optional<tcp::socket> plain;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    std::optional<ssl::stream<tcp::socket>> ssl;
+
+    void close(boost::system::error_code& ec) {
+        if (plain) {
+            plain->close(ec);
+            plain.reset();
+        }
+        if (ssl) {
+            ssl->lowest_layer().close(ec);
+            ssl.reset();
+        }
+    }
+
+    bool is_ssl() const {
+        return ssl.has_value();
+    }
+
+    tcp::socket& socket() {
+        if (ssl) {
+            return ssl->next_layer();
+        } else if (plain) {
+            return *plain;
+        }
+        HKU_THROW("Socket not initialized");
+    }
+#else
+    void close(boost::system::error_code& ec) {
+        if (plain) {
+            plain->close(ec);
+            plain.reset();
+        }
+    }
+
+    bool is_ssl() const {
+        return false;
+    }
+
+    tcp::socket& socket() {
+        if (plain) {
+            return *plain;
+        }
+        HKU_THROW("Socket not initialized");
+    }
+#endif
+};
+
+net::awaitable<void> HttpAsyncClient::_connect(SocketVariant& socket_variant,
+                                               const std::vector<tcp::endpoint>& dns_endpoints) {
+    // 连接（带超时）
+    boost::system::error_code connect_ec;
+    bool connected = false;
+
+    for (const auto& endpoint : dns_endpoints) {
+        socket_variant.close(connect_ec);
+
+        {
+            struct ConnectOp {
+                tcp::socket& socket;
+                tcp::endpoint endpoint;
+                boost::system::error_code ec;
+                bool done = false;
+
+                ConnectOp(tcp::socket& s, const tcp::endpoint& e) : socket(s), endpoint(e) {}
+            };
+
+            // 先创建普通 socket
+            socket_variant.plain.emplace(*m_ctx);
+            auto op = std::make_shared<ConnectOp>(*socket_variant.plain, endpoint);
+
+            socket_variant.plain->async_connect(endpoint, [op](const boost::system::error_code& e) {
+                op->ec = e;
+                op->done = true;
+            });
+
+            // 轮询等待连接完成或超时
+            auto timer = net::steady_timer{*m_ctx};
+            auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+            while (!op->done && std::chrono::steady_clock::now() < deadline) {
+                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   deadline - std::chrono::steady_clock::now())
+                                   .count();
+
+                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+                co_await timer.async_wait(net::use_awaitable);
+            }
+
+            if (!op->done) {
+                continue;  // 超时，尝试下一个端点
+            }
+
+            if (!op->ec && socket_variant.plain->is_open()) {
+                connected = true;
+                break;
+            }
+        }
+    }
+
+    if (!connected) {
+        HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host, m_port);
+    }
+
+    // 设置 socket 选项
+    socket_variant.socket().set_option(tcp::no_delay(true));
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    // 如果是 HTTPS，进行 SSL 握手
+    if (m_is_https) {
+        HKU_INFO("Performing SSL handshake with {}", m_host);
+
+        // 移动到 SSL socket
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_ssl_ctx->ssl_ctx);
+#else
+        socket_variant.ssl.emplace(std::move(*socket_variant.plain));
+#endif
+        socket_variant.plain.reset();
+
+        // 设置 SNI（Server Name Indication）
+        SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
+
+        // SSL 握手（带超时）
+        struct SslHandshakeOp {
+            ssl::stream<tcp::socket>& stream;
+            boost::system::error_code ec;
+            bool done = false;
+
+            SslHandshakeOp(ssl::stream<tcp::socket>& s) : stream(s) {}
+        };
+
+        auto handshake_op = std::make_shared<SslHandshakeOp>(*socket_variant.ssl);
+
+        socket_variant.ssl->async_handshake(ssl::stream_base::client,
+                                            [handshake_op](const boost::system::error_code& e) {
+                                                handshake_op->ec = e;
+                                                handshake_op->done = true;
+                                            });
+
+        // 轮询等待 SSL 握手完成或超时
+        auto timer = net::steady_timer{*m_ctx};
+        auto deadline = std::chrono::steady_clock::now() + m_timeout;
+
+        while (!handshake_op->done && std::chrono::steady_clock::now() < deadline) {
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               deadline - std::chrono::steady_clock::now())
+                               .count();
+
+            timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
+            co_await timer.async_wait(net::use_awaitable);
+        }
+
+        if (!handshake_op->done) {
+            HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
+        }
+
+        if (handshake_op->ec) {
+            HKU_THROW("SSL handshake failed: {}", handshake_op->ec.message());
+        }
+
+        HKU_INFO("SSL handshake successful");
+    }
+#endif
+
+    co_return;
+}
+
 net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
   const std::string& method, const std::string& path, const HttpParams& params,
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type) {
@@ -348,171 +518,8 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         auto dns_endpoints = co_await _resolveDNS();
 
         // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
-        struct SocketVariant {
-            std::optional<tcp::socket> plain;
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-            std::optional<ssl::stream<tcp::socket>> ssl;
-
-            void close(boost::system::error_code& ec) {
-                if (plain) {
-                    plain->close(ec);
-                    plain.reset();
-                }
-                if (ssl) {
-                    ssl->lowest_layer().close(ec);
-                    ssl.reset();
-                }
-            }
-
-            bool is_ssl() const {
-                return ssl.has_value();
-            }
-
-            tcp::socket& socket() {
-                if (ssl) {
-                    return ssl->next_layer();
-                } else if (plain) {
-                    return *plain;
-                }
-                HKU_THROW("Socket not initialized");
-            }
-#else
-            void close(boost::system::error_code& ec) {
-                if (plain) {
-                    plain->close(ec);
-                    plain.reset();
-                }
-            }
-
-            bool is_ssl() const {
-                return false;
-            }
-
-            tcp::socket& socket() {
-                if (plain) {
-                    return *plain;
-                }
-                HKU_THROW("Socket not initialized");
-            }
-#endif
-        } socket_variant;
-
-        // 连接（带超时）
-        boost::system::error_code connect_ec;
-        bool connected = false;
-
-        for (const auto& endpoint : dns_endpoints) {
-            socket_variant.close(connect_ec);
-
-            {
-                struct ConnectOp {
-                    tcp::socket& socket;
-                    tcp::endpoint endpoint;
-                    boost::system::error_code ec;
-                    bool done = false;
-
-                    ConnectOp(tcp::socket& s, const tcp::endpoint& e) : socket(s), endpoint(e) {}
-                };
-
-                // 先创建普通 socket
-                socket_variant.plain.emplace(*m_ctx);
-                auto op = std::make_shared<ConnectOp>(*socket_variant.plain, endpoint);
-
-                socket_variant.plain->async_connect(endpoint,
-                                                    [op](const boost::system::error_code& e) {
-                                                        op->ec = e;
-                                                        op->done = true;
-                                                    });
-
-                // 轮询等待连接完成或超时
-                auto timer = net::steady_timer{*m_ctx};
-                auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-                while (!op->done && std::chrono::steady_clock::now() < deadline) {
-                    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       deadline - std::chrono::steady_clock::now())
-                                       .count();
-
-                    timer.expires_after(
-                      std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                    co_await timer.async_wait(net::use_awaitable);
-                }
-
-                if (!op->done) {
-                    continue;  // 超时，尝试下一个端点
-                }
-
-                if (!op->ec && socket_variant.plain->is_open()) {
-                    connected = true;
-                    break;
-                }
-            }
-        }
-
-        if (!connected) {
-            HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host, m_port);
-        }
-
-        // 设置 socket 选项
-        socket_variant.socket().set_option(tcp::no_delay(true));
-
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-        // 如果是 HTTPS，进行 SSL 握手
-        if (m_is_https) {
-            HKU_INFO("Performing SSL handshake with {}", m_host);
-
-            // 移动到 SSL socket
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_ssl_ctx->ssl_ctx);
-#else
-            socket_variant.ssl.emplace(std::move(*socket_variant.plain));
-#endif
-            socket_variant.plain.reset();
-
-            // 设置 SNI（Server Name Indication）
-            SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
-
-            // SSL 握手（带超时）
-            struct SslHandshakeOp {
-                ssl::stream<tcp::socket>& stream;
-                boost::system::error_code ec;
-                bool done = false;
-
-                SslHandshakeOp(ssl::stream<tcp::socket>& s) : stream(s) {}
-            };
-
-            auto handshake_op = std::make_shared<SslHandshakeOp>(*socket_variant.ssl);
-
-            socket_variant.ssl->async_handshake(ssl::stream_base::client,
-                                                [handshake_op](const boost::system::error_code& e) {
-                                                    handshake_op->ec = e;
-                                                    handshake_op->done = true;
-                                                });
-
-            // 轮询等待 SSL 握手完成或超时
-            auto timer = net::steady_timer{*m_ctx};
-            auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-            while (!handshake_op->done && std::chrono::steady_clock::now() < deadline) {
-                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now())
-                                   .count();
-
-                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                co_await timer.async_wait(net::use_awaitable);
-            }
-
-            if (!handshake_op->done) {
-                HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
-            }
-
-            if (handshake_op->ec) {
-                HKU_THROW("SSL handshake failed: {}", handshake_op->ec.message());
-            }
-
-            HKU_INFO("SSL handshake successful");
-        }
-#endif
+        SocketVariant socket_variant;
+        co_await _connect(socket_variant, dns_endpoints);
 
         // 创建 HTTP 请求
         http::request<http::string_body> req;
@@ -749,160 +756,8 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
         auto dns_endpoints = co_await _resolveDNS();
 
         // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
-        struct SocketVariant {
-            std::optional<tcp::socket> plain;
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-            std::optional<ssl::stream<tcp::socket>> ssl;
-
-            void close(boost::system::error_code& ec) {
-                if (plain) {
-                    plain->close(ec);
-                    plain.reset();
-                }
-                if (ssl) {
-                    ssl->lowest_layer().close(ec);
-                    ssl.reset();
-                }
-            }
-
-            bool is_ssl() const {
-                return ssl.has_value();
-            }
-
-            tcp::socket& socket() {
-                if (ssl) {
-                    return ssl->next_layer();
-                } else if (plain) {
-                    return *plain;
-                }
-                HKU_THROW("Socket not initialized");
-            }
-#else
-            void close(boost::system::error_code& ec) {
-                if (plain) {
-                    plain->close(ec);
-                    plain.reset();
-                }
-            }
-
-            bool is_ssl() const {
-                return false;
-            }
-
-            tcp::socket& socket() {
-                if (plain) {
-                    return *plain;
-                }
-                HKU_THROW("Socket not initialized");
-            }
-#endif
-        } socket_variant;
-
-        // 连接（带超时）- 复用已有逻辑
-        boost::system::error_code connect_ec;
-        bool connected = false;
-
-        for (const auto& endpoint : dns_endpoints) {
-            socket_variant.close(connect_ec);
-
-            {
-                struct ConnectOp {
-                    tcp::socket& socket;
-                    tcp::endpoint endpoint;
-                    boost::system::error_code ec;
-                    bool done = false;
-
-                    ConnectOp(tcp::socket& s, const tcp::endpoint& e) : socket(s), endpoint(e) {}
-                };
-
-                socket_variant.plain.emplace(*m_ctx);
-                auto op = std::make_shared<ConnectOp>(*socket_variant.plain, endpoint);
-
-                socket_variant.plain->async_connect(endpoint,
-                                                    [op](const boost::system::error_code& e) {
-                                                        op->ec = e;
-                                                        op->done = true;
-                                                    });
-
-                auto timer = net::steady_timer{*m_ctx};
-                auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-                while (!op->done && std::chrono::steady_clock::now() < deadline) {
-                    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                       deadline - std::chrono::steady_clock::now())
-                                       .count();
-
-                    timer.expires_after(
-                      std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                    co_await timer.async_wait(net::use_awaitable);
-                }
-
-                if (!op->done) {
-                    continue;
-                }
-
-                if (!op->ec && socket_variant.plain->is_open()) {
-                    connected = true;
-                    break;
-                }
-            }
-        }
-
-        if (!connected) {
-            HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host, m_port);
-        }
-
-        socket_variant.socket().set_option(tcp::no_delay(true));
-
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-        // SSL 握手 - 复用已有逻辑
-        if (m_is_https) {
-            HKU_INFO("Performing SSL handshake with {}", m_host);
-
-            socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_ssl_ctx->ssl_ctx);
-            socket_variant.plain.reset();
-
-            SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
-
-            struct SslHandshakeOp {
-                ssl::stream<tcp::socket>& stream;
-                boost::system::error_code ec;
-                bool done = false;
-
-                SslHandshakeOp(ssl::stream<tcp::socket>& s) : stream(s) {}
-            };
-
-            auto handshake_op = std::make_shared<SslHandshakeOp>(*socket_variant.ssl);
-
-            socket_variant.ssl->async_handshake(ssl::stream_base::client,
-                                                [handshake_op](const boost::system::error_code& e) {
-                                                    handshake_op->ec = e;
-                                                    handshake_op->done = true;
-                                                });
-
-            auto timer = net::steady_timer{*m_ctx};
-            auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-            while (!handshake_op->done && std::chrono::steady_clock::now() < deadline) {
-                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now())
-                                   .count();
-
-                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                co_await timer.async_wait(net::use_awaitable);
-            }
-
-            if (!handshake_op->done) {
-                HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
-            }
-
-            if (handshake_op->ec) {
-                HKU_THROW("SSL handshake failed: {}", handshake_op->ec.message());
-            }
-
-            HKU_INFO("SSL handshake successful");
-        }
-#endif
+        SocketVariant socket_variant;
+        co_await _connect(socket_variant, dns_endpoints);
 
         // 创建 HTTP 请求
         http::request<http::string_body> req;
