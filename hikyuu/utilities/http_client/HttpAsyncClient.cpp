@@ -128,9 +128,19 @@ HttpAsyncClient::HttpAsyncClient(net::io_context& ctx, const std::string& url,
 
 HttpAsyncClient::~HttpAsyncClient() {
     if (m_own_ctx) {
+        // 1. 先释放 work_guard，允许 io_context 自然退出
         m_work_guard.reset();
-        m_own_ctx->stop();
+        
+        // 2. 等待所有异步操作完成，让 io_context 自然处理完所有 pending 任务
         if (m_worker_thread && m_worker_thread->joinable()) {
+            m_worker_thread->join();
+        }
+        
+        // 3. 如果线程还在（理论上不应该），才强制 stop
+        // 注意：正常情况下，release work_guard 后 io_context 会自然退出
+        // 这里保留 stop() 作为最后的保护措施
+        if (m_worker_thread && m_worker_thread->joinable()) {
+            m_own_ctx->stop();
             m_worker_thread->join();
         }
     }
