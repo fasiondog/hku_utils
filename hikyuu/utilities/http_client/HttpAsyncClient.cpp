@@ -287,6 +287,9 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
     HttpResponseAsync response;
 
     try {
+        // DNS 解析（带超时）
+        auto dns_endpoints = co_await _resolveDNS();
+
         // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
         struct SocketVariant {
             std::optional<tcp::socket> plain;
@@ -336,9 +339,6 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
             }
 #endif
         } socket_variant;
-
-        // DNS 解析（带超时）
-        auto dns_endpoints = co_await _resolveDNS();
 
         // 连接（带超时）
         boost::system::error_code connect_ec;
@@ -393,7 +393,7 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         }
 
         if (!connected) {
-            HKU_THROW("Failed to connect to {}:{}", m_host, m_port);
+            HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host, m_port);
         }
 
         // 设置 socket 选项
@@ -632,10 +632,10 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         socket_variant.close(shutdown_ec);  // 确保所有资源被清理
 
     } catch (const boost::system::system_error& e) {
-        HKU_ERROR("HTTP request system error: {}", e.what());
+        HKU_ERROR("HTTP request system error! {}", e.what());
         throw;
     } catch (const std::exception& e) {
-        HKU_ERROR("HTTP request failed: {}", e.what());
+        HKU_ERROR("HTTP request failed! {}", e.what());
         throw;
     }
 
