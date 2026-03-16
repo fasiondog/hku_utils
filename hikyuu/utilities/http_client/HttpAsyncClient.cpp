@@ -365,45 +365,44 @@ net::awaitable<void> HttpAsyncClient::_connect(SocketVariant& socket_variant,
         socket_variant.close(connect_ec);
 
         {
-            struct ConnectOp {
-                tcp::socket& socket;
-                tcp::endpoint endpoint;
-                boost::system::error_code ec;
-                bool done = false;
-
-                ConnectOp(tcp::socket& s, const tcp::endpoint& e) : socket(s), endpoint(e) {}
-            };
-
             // 先创建普通 socket
             socket_variant.plain.emplace(*m_ctx);
-            auto op = std::make_shared<ConnectOp>(*socket_variant.plain, endpoint);
-
-            socket_variant.plain->async_connect(endpoint, [op](const boost::system::error_code& e) {
-                op->ec = e;
-                op->done = true;
-            });
-
-            // 轮询等待连接完成或超时
-            auto timer = net::steady_timer{*m_ctx};
-            auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-            while (!op->done && std::chrono::steady_clock::now() < deadline) {
-                auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now())
-                                   .count();
-
-                timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-                co_await timer.async_wait(net::use_awaitable);
+            
+            // 使用真正的事件驱动异步连接配合超时
+        auto timer = net::steady_timer{*m_ctx};
+        timer.expires_after(m_timeout);
+        
+        // 直接 co_await async_connect，这是真正的事件驱动
+        struct ConnectOp {
+            tcp::socket* socket;
+            tcp::endpoint endpoint;
+            
+            net::awaitable<boost::system::error_code> run() {
+                auto [ec] = co_await socket->async_connect(
+                    endpoint, 
+                    net::as_tuple(net::use_awaitable)
+                );
+                co_return ec ? ec : (socket->is_open() 
+                    ? boost::system::errc::make_error_code(boost::system::errc::success)
+                    : boost::system::errc::make_error_code(boost::system::errc::not_connected));
             }
-
-            if (!op->done) {
-                continue;  // 超时，尝试下一个端点
-            }
-
-            if (!op->ec && socket_variant.plain->is_open()) {
-                connected = true;
-                break;
-            }
+        };
+        
+        ConnectOp connect_op{&socket_variant.plain.value(), endpoint};
+        
+        // 等待连接完成（如果超时，协程会被中断）
+        auto connect_result = co_await connect_op.run();
+        
+        // 检查是否超时（通过检查 timer 状态）
+        if (!timer.cancel()) {
+            // timer 已经触发，说明超时了
+            continue;  // 尝试下一个端点
+        }
+        
+        if (!connect_result && socket_variant.plain->is_open()) {
+            connected = true;
+            break;
+        }
         }
     }
 
@@ -415,7 +414,7 @@ net::awaitable<void> HttpAsyncClient::_connect(SocketVariant& socket_variant,
     socket_variant.socket().set_option(tcp::no_delay(true));
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-    // 如果是 HTTPS，进行 SSL 握手
+    // 如果是 HTTPS，进行 SSL 握手（带超时）
     if (m_is_https) {
         HKU_INFO("Performing SSL handshake with {}", m_host);
 
@@ -430,42 +429,32 @@ net::awaitable<void> HttpAsyncClient::_connect(SocketVariant& socket_variant,
         // 设置 SNI（Server Name Indication）
         SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
 
-        // SSL 握手（带超时）
-        struct SslHandshakeOp {
-            ssl::stream<tcp::socket>& stream;
-            boost::system::error_code ec;
-            bool done = false;
-
-            SslHandshakeOp(ssl::stream<tcp::socket>& s) : stream(s) {}
-        };
-
-        auto handshake_op = std::make_shared<SslHandshakeOp>(*socket_variant.ssl);
-
-        socket_variant.ssl->async_handshake(ssl::stream_base::client,
-                                            [handshake_op](const boost::system::error_code& e) {
-                                                handshake_op->ec = e;
-                                                handshake_op->done = true;
-                                            });
-
-        // 轮询等待 SSL 握手完成或超时
+        // 使用事件驱动的 SSL 握手配合超时
         auto timer = net::steady_timer{*m_ctx};
-        auto deadline = std::chrono::steady_clock::now() + m_timeout;
-
-        while (!handshake_op->done && std::chrono::steady_clock::now() < deadline) {
-            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                               deadline - std::chrono::steady_clock::now())
-                               .count();
-
-            timer.expires_after(std::chrono::milliseconds(std::min<long long>(remaining, 50)));
-            co_await timer.async_wait(net::use_awaitable);
-        }
-
-        if (!handshake_op->done) {
+        timer.expires_after(m_timeout);
+        
+        struct SslHandshakeOp {
+            ssl::stream<tcp::socket>* stream;
+            
+            net::awaitable<boost::system::error_code> run() {
+                auto [ec] = co_await stream->async_handshake(
+                    ssl::stream_base::client,
+                    net::as_tuple(net::use_awaitable)
+                );
+                co_return ec;
+            }
+        };
+        
+        SslHandshakeOp handshake_op{&socket_variant.ssl.value()};
+        auto handshake_result = co_await handshake_op.run();
+        
+        // 检查是否超时
+        if (!timer.cancel()) {
             HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
         }
-
-        if (handshake_op->ec) {
-            HKU_THROW("SSL handshake failed: {}", handshake_op->ec.message());
+        
+        if (handshake_result) {
+            HKU_THROW("SSL handshake failed: {}", handshake_result.message());
         }
 
         HKU_INFO("SSL handshake successful");
