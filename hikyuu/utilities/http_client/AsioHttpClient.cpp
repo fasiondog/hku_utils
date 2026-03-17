@@ -172,11 +172,8 @@ AsioHttpClient::AsioHttpClient()
     pool_param.set("is_https", m_is_https);
     pool_param.set("timeout", m_timeout.count());
 
-    // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
-    size_t max_connections = std::thread::hardware_concurrency() * 2;
-    size_t max_idle = std::thread::hardware_concurrency();
-    m_connection_pool =
-      std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param, max_connections, max_idle);
+    // 创建连接池（协程环境下不需要资源数量限制）
+    m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param);
 
     // 使用内部 io_context，启动工作线程运行事件循环
     m_worker_thread = std::make_unique<std::thread>([this] {
@@ -211,11 +208,8 @@ AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds
         pool_param.set("is_https", m_is_https);
         pool_param.set("timeout", m_timeout.count());
 
-        // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
-        size_t max_connections = std::thread::hardware_concurrency() * 2;
-        size_t max_idle = std::thread::hardware_concurrency();
-        m_connection_pool =
-          std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param, max_connections, max_idle);
+        // 创建连接池（协程环境下不需要资源数量限制）
+        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param);
 
         // 启动后台线程运行 io_context
         m_worker_thread = std::make_unique<std::thread>([this]() {
@@ -247,11 +241,8 @@ AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url,
         pool_param.set("is_https", m_is_https);
         pool_param.set("timeout", m_timeout.count());
 
-        // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
-        size_t max_connections = std::thread::hardware_concurrency() * 2;
-        size_t max_idle = std::thread::hardware_concurrency();
-        m_connection_pool =
-          std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param, max_connections, max_idle);
+        // 创建连接池（协程环境下不需要资源数量限制）
+        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param);
     }
 }
 

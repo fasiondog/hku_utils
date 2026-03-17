@@ -48,16 +48,11 @@ public:
     /**
      * 构造函数
      * @param param 连接参数
-     * @param maxPoolSize 允许的最大共享资源数，为 0 表示不限制
-     * @param maxIdleNum 运行的最大空闲资源数，为 0 表示用完即刻释放，无缓存
      */
-    explicit ResourceAsioPool(const Parameter &param, size_t maxPoolSize = 0,
-                              size_t maxIdleNum = 100)
-    : m_maxPoolSize(maxPoolSize),
-      m_maxIdleSize(maxIdleNum),
-      m_count(0),
+    explicit ResourceAsioPool(const Parameter &param)
+    : m_count(0),
       m_idleCount(0),
-      m_resourceList(maxPoolSize + maxIdleNum),  // 初始队列大小
+      m_resourceList(256),  // 初始队列大小
       m_param(param) {}
 
     /**
@@ -78,16 +73,6 @@ public:
         }
     }
 
-    /** 获取当前允许的最大资源数 */
-    size_t maxPoolSize() const {
-        return m_maxPoolSize;
-    }
-
-    /** 获取当前允许的最大空闲资源数 */
-    size_t maxIdleSize() const {
-        return m_maxIdleSize;
-    }
-
     /** 资源实例指针类型 */
     typedef std::shared_ptr<ResourceType> ResourcePtr;
 
@@ -101,27 +86,8 @@ public:
 
         // 尝试从空闲队列获取资源
         if (m_resourceList.pop(p)) {
-            m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
+            m_idleCount.fetch_sub(1);  // 空闲计数减 1,活动资源数不变
             co_return ResourcePtr(p, ResourceCloser(this));
-        }
-
-        // 检查是否可以创建新资源
-        size_t currentCount = m_count.load();
-        size_t maxPool = m_maxPoolSize;
-        if (maxPool > 0 && currentCount >= maxPool) {
-            // 等待可用资源
-            auto timer = boost::asio::steady_timer(co_await this_coro::executor);
-
-            // 轮询等待资源可用
-            while (true) {
-                if (m_resourceList.pop(p)) {
-                    m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
-                    co_return ResourcePtr(p, ResourceCloser(this));
-                }
-
-                timer.expires_after(std::chrono::milliseconds(10));
-                co_await timer.async_wait(use_awaitable);
-            }
         }
 
         // 创建新资源
@@ -135,88 +101,13 @@ public:
                                 "Failed create a new Resource! Unknown error!");
         }
 
-        m_count.fetch_add(1);  // 活动资源数加1
+        m_count.fetch_add(1);  // 活动资源数加 1
         auto result = ResourcePtr(p, ResourceCloser(this));
         {
             std::lock_guard<std::mutex> lock(m_closer_mutex);
             m_closer_set.insert(std::get_deleter<ResourceCloser>(result));
         }
         co_return result;
-    }
-
-    /**
-     * 在指定的超时时间内获取可用资源
-     * @param ms_timeout 超时时间，单位毫秒
-     * @return awaitable<ResourcePtr> 可等待的资源指针
-     * @exception GetResourceTimeoutException, CreateResourceException
-     */
-    awaitable<ResourcePtr> getWaitFor(uint64_t ms_timeout) {
-        ResourceType *p = nullptr;
-        auto timer = boost::asio::steady_timer(co_await this_coro::executor,
-                                               std::chrono::milliseconds(ms_timeout));
-
-        // 尝试从空闲队列获取资源
-        if (m_resourceList.pop(p)) {
-            m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
-            co_return ResourcePtr(p, ResourceCloser(this));
-        }
-
-        // 检查是否可以创建新资源
-        size_t currentCount = m_count.load();
-        size_t maxPool = m_maxPoolSize;
-        if (maxPool > 0 && currentCount >= maxPool) {
-            // 等待可用资源或超时
-            auto polling_timer = boost::asio::steady_timer(co_await this_coro::executor);
-
-            while (true) {
-                if (timer.expiry() <= boost::asio::steady_timer::clock_type::now()) {
-                    HKU_THROW_EXCEPTION(GetResourceTimeoutException,
-                                        "Failed get resource timeout!");
-                }
-
-                if (m_resourceList.pop(p)) {
-                    m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
-                    co_return ResourcePtr(p, ResourceCloser(this));
-                }
-
-                // 等待一小段时间再重试
-                polling_timer.expires_after(std::chrono::milliseconds(10));
-                try {
-                    co_await polling_timer.async_wait(use_awaitable);
-                } catch (const boost::system::system_error &) {
-                    HKU_THROW_EXCEPTION(GetResourceTimeoutException,
-                                        "Failed get resource timeout!");
-                }
-            }
-        }
-
-        // 创建新资源
-        try {
-            p = new ResourceType(m_param);
-        } catch (const std::exception &e) {
-            HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
-                                e.what());
-        } catch (...) {
-            HKU_THROW_EXCEPTION(CreateResourceException,
-                                "Failed create a new Resource! Unknown error!");
-        }
-
-        m_count.fetch_add(1);  // 活动资源数加1
-        auto result = ResourcePtr(p, ResourceCloser(this));
-        {
-            std::lock_guard<std::mutex> lock(m_closer_mutex);
-            m_closer_set.insert(std::get_deleter<ResourceCloser>(result));
-        }
-        co_return result;
-    }
-
-    /**
-     * 获取可用资源，如超出允许的最大资源数，将阻塞等待直到获得空闲资源
-     * @return awaitable<ResourcePtr> 可等待的资源指针
-     * @exception CreateResourceException 新资源创建可能抛出异常
-     */
-    awaitable<ResourcePtr> getAndWait() {
-        co_return co_await getWaitFor(0);
     }
 
     /** 当前活动的资源数, 即全部资源数（含空闲及被使用的资源） */
@@ -245,8 +136,6 @@ public:
     }
 
 private:
-    size_t m_maxPoolSize;             // 允许的最大共享资源数
-    size_t m_maxIdleSize;             // 允许的最大空闲资源数
     std::atomic<size_t> m_count;      // 当前活动的资源数
     std::atomic<size_t> m_idleCount;  // 当前空闲的资源数
     Parameter m_param;
@@ -279,26 +168,18 @@ private:
     /** 归还至资源池 */
     void returnResource(ResourceType *p, ResourceCloser *closer) {
         if (p) {
-            size_t maxIdle = m_maxIdleSize;
-
-            // 如果当前空闲资源数未达到上限，尝试归还
-            if (maxIdle > 0 && m_idleCount.load() < maxIdle) {
-                if (m_resourceList.push(p)) {
-                    // 推入成功，增加空闲计数
-                    m_idleCount.fetch_add(1);
-                    // 活动资源数不变,资源仍在池中
-                } else {
-                    // 推入失败（队列满），删除资源
-                    delete p;
-                    m_count.fetch_sub(1);  // 活动资源数减1
-                }
+            // 始终将资源归还到池中，不限制空闲数量
+            if (m_resourceList.push(p)) {
+                // 推入成功，增加空闲计数
+                m_idleCount.fetch_add(1);
+                // 活动资源数不变，资源仍在池中
             } else {
-                // 超过最大空闲数或不需要缓存，删除资源
+                // 推入失败（极罕见），删除资源
                 delete p;
-                m_count.fetch_sub(1);  // 活动资源数减1
+                m_count.fetch_sub(1);  // 活动资源数减 1
             }
         } else {
-            // p为nullptr,只减少活动资源数
+            // p 为 nullptr，只减少活动资源数
             m_count.fetch_sub(1);
         }
 
