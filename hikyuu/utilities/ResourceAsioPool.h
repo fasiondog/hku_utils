@@ -88,16 +88,6 @@ public:
         return m_maxIdleSize;
     }
 
-    /** 设置最大资源数 */
-    void maxPoolSize(size_t num) {
-        m_maxPoolSize.store(num);
-    }
-
-    /** 设置允许的最大空闲资源数 */
-    void maxIdleSize(size_t num) {
-        m_maxIdleSize.store(num);
-    }
-
     /** 资源实例指针类型 */
     typedef std::shared_ptr<ResourceType> ResourcePtr;
 
@@ -117,7 +107,7 @@ public:
 
         // 检查是否可以创建新资源
         size_t currentCount = m_count.load();
-        size_t maxPool = m_maxPoolSize.load();
+        size_t maxPool = m_maxPoolSize;
         if (maxPool > 0 && currentCount >= maxPool) {
             // 等待可用资源
             auto timer = boost::asio::steady_timer(co_await this_coro::executor);
@@ -173,7 +163,7 @@ public:
 
         // 检查是否可以创建新资源
         size_t currentCount = m_count.load();
-        size_t maxPool = m_maxPoolSize.load();
+        size_t maxPool = m_maxPoolSize;
         if (maxPool > 0 && currentCount >= maxPool) {
             // 等待可用资源或超时
             auto polling_timer = boost::asio::steady_timer(co_await this_coro::executor);
@@ -255,10 +245,10 @@ public:
     }
 
 private:
-    std::atomic<size_t> m_maxPoolSize;  // 允许的最大共享资源数
-    std::atomic<size_t> m_maxIdleSize;  // 允许的最大空闲资源数
-    std::atomic<size_t> m_count;        // 当前活动的资源数
-    std::atomic<size_t> m_idleCount;    // 当前空闲的资源数
+    size_t m_maxPoolSize;             // 允许的最大共享资源数
+    size_t m_maxIdleSize;             // 允许的最大空闲资源数
+    std::atomic<size_t> m_count;      // 当前活动的资源数
+    std::atomic<size_t> m_idleCount;  // 当前空闲的资源数
     Parameter m_param;
     boost::lockfree::queue<ResourceType *> m_resourceList;
 
@@ -289,7 +279,7 @@ private:
     /** 归还至资源池 */
     void returnResource(ResourceType *p, ResourceCloser *closer) {
         if (p) {
-            size_t maxIdle = m_maxIdleSize.load();
+            size_t maxIdle = m_maxIdleSize;
 
             // 如果当前空闲资源数未达到上限，尝试归还
             if (maxIdle > 0 && m_idleCount.load() < maxIdle) {
