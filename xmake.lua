@@ -233,13 +233,12 @@ target("hku_utils")
 
     -- gcc 4.8.5 必须编译和链接同时加上 -pthread, 否则运行异常
     if is_plat("macosx", "linux", "cross") then
-        add_cxxflags("-fcoroutines")
         add_cxflags("-pthread")
         add_syslinks("pthread")
     end
 
     if is_plat("linux", "cross") then
-        add_cxxflags("-fcoroutines")
+        add_cxflags("-fcoroutines")
     end    
 
     if is_plat("windows") then
