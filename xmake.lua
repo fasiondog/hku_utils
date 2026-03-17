@@ -175,6 +175,8 @@ target("hku_utils")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 
+    add_defines("BOOST_ASIO_HAS_CO_AWAIT=1", "BOOST_ASIO_HAS_CXX20_COROUTINES=1", "DBOOST_ASIO_DISABLE_DEPRECATED=1")
+
     add_includedirs(".")
 
     if has_config("sqlcipher") then
