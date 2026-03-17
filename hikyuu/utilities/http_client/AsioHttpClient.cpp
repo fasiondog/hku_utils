@@ -973,15 +973,6 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::request(
         auto [conn, is_new] = co_await _getConnection();
         HKU_CHECK(conn != nullptr, "Failed to get connection from pool");
 
-        HKU_INFO("Got connection - is_new={}, socket_has_value={}, ssl_socket_has_value={}", is_new,
-                 conn->socket.has_value(),
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-                 conn->ssl_socket.has_value()
-#else
-                 false
-#endif
-        );
-
         // 创建 HTTP 请求
         http::request<http::string_body> req;
         req.method(http::string_to_verb(method));
