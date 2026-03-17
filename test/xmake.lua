@@ -55,6 +55,8 @@ target("unit-test")
         add_packages("gzip-hpp")
     end
 
+    add_defines("BOOST_ASIO_HAS_CO_AWAIT=1", "BOOST_ASIO_HAS_CXX20_COROUTINES=1", "DBOOST_ASIO_DISABLE_DEPRECATED=1")
+
     add_includedirs("..", ".")
 
     if is_plat("macosx", "linux", "cross") then
@@ -68,6 +70,8 @@ target("unit-test")
 
     if is_plat("windows") then
         add_cxflags("-wd4996", "-wd4251")
+    else 
+        add_cxxflags("-fcoroutines")
     end
 
     add_files("test_main.cpp")
