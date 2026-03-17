@@ -112,8 +112,7 @@ public:
 
         // 尝试从空闲队列获取资源
         if (m_resourceList.pop(p)) {
-            m_count.fetch_sub(1);
-            m_idleCount.fetch_sub(1);
+            m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
             co_return ResourcePtr(p, ResourceCloser(this));
         }
 
@@ -127,8 +126,7 @@ public:
             // 轮询等待资源可用
             while (true) {
                 if (m_resourceList.pop(p)) {
-                    m_count.fetch_sub(1);
-                    m_idleCount.fetch_sub(1);
+                    m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
                     co_return ResourcePtr(p, ResourceCloser(this));
                 }
                 
@@ -146,7 +144,7 @@ public:
             HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! Unknown error!");
         }
 
-        m_count.fetch_add(1);
+        m_count.fetch_add(1);  // 活动资源数加1
         auto result = ResourcePtr(p, ResourceCloser(this));
         {
             std::lock_guard<std::mutex> lock(m_closer_mutex);
@@ -163,13 +161,12 @@ public:
      */
     awaitable<ResourcePtr> getWaitFor(uint64_t ms_timeout) {
         ResourceType *p = nullptr;
-        auto timer = boost::asio::steady_timer(co_await this_coro::executor, 
+        auto timer = boost::asio::steady_timer(co_await this_coro::executor,
                                              std::chrono::milliseconds(ms_timeout));
 
         // 尝试从空闲队列获取资源
         if (m_resourceList.pop(p)) {
-            m_count.fetch_sub(1);
-            m_idleCount.fetch_sub(1);  // 减少空闲计数
+            m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
             co_return ResourcePtr(p, ResourceCloser(this));
         }
 
@@ -179,15 +176,14 @@ public:
         if (maxPool > 0 && currentCount >= maxPool) {
             // 等待可用资源或超时
             auto polling_timer = boost::asio::steady_timer(co_await this_coro::executor);
-            
+
             while (true) {
                 if (timer.expiry() <= boost::asio::steady_timer::clock_type::now()) {
                     HKU_THROW_EXCEPTION(GetResourceTimeoutException, "Failed get resource timeout!");
                 }
 
                 if (m_resourceList.pop(p)) {
-                    m_count.fetch_sub(1);
-                    m_idleCount.fetch_sub(1);  // 减少空闲计数
+                    m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
                     co_return ResourcePtr(p, ResourceCloser(this));
                 }
 
@@ -210,7 +206,7 @@ public:
             HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! Unknown error!");
         }
 
-        m_count.fetch_add(1);
+        m_count.fetch_add(1);  // 活动资源数加1
         auto result = ResourcePtr(p, ResourceCloser(this));
         {
             std::lock_guard<std::mutex> lock(m_closer_mutex);
@@ -290,24 +286,25 @@ private:
     void returnResource(ResourceType *p, ResourceCloser *closer) {
         if (p) {
             size_t maxIdle = m_maxIdleSize.load();
-            
-            // 如果当前空闲资源数已达到上限，则删除该资源
-            if (maxIdle > 0 && idleCount() < maxIdle) {
-                if (!m_resourceList.push(p)) {
-                    // 如果推入失败（队列满），则删除资源
-                    delete p;
-                    m_count.fetch_sub(1);
-                    m_idleCount.fetch_sub(1);
-                } else {
+
+            // 如果当前空闲资源数未达到上限，尝试归还
+            if (maxIdle > 0 && m_idleCount.load() < maxIdle) {
+                if (m_resourceList.push(p)) {
                     // 推入成功，增加空闲计数
                     m_idleCount.fetch_add(1);
+                    // 活动资源数不变,资源仍在池中
+                } else {
+                    // 推入失败（队列满），删除资源
+                    delete p;
+                    m_count.fetch_sub(1);  // 活动资源数减1
                 }
             } else {
-                // 超过最大空闲数或不需要缓存，直接删除
+                // 超过最大空闲数或不需要缓存，删除资源
                 delete p;
-                m_count.fetch_sub(1);
+                m_count.fetch_sub(1);  // 活动资源数减1
             }
         } else {
+            // p为nullptr,只减少活动资源数
             m_count.fetch_sub(1);
         }
 
