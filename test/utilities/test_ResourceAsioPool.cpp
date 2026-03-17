@@ -44,7 +44,7 @@ std::atomic<int> TestResource::counter(0);
 TEST_CASE("test_ResourceAsioPool_basic") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param);
+    ResourceAsioPool<TestResource> pool(param);
 
     co_spawn(
       io_ctx,
@@ -64,7 +64,7 @@ TEST_CASE("test_ResourceAsioPool_basic") {
 TEST_CASE("test_ResourceAsioPool_max_idle") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 2);
+    ResourceAsioPool<TestResource> pool(param, 0, 2);
 
     co_spawn(
       io_ctx,
@@ -94,7 +94,7 @@ TEST_CASE("test_ResourceAsioPool_max_idle") {
 TEST_CASE("test_ResourceAsioPool_max_pool_size") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 2, 5);
+    ResourceAsioPool<TestResource> pool(param, 2, 5);
 
     co_spawn(
       io_ctx,
@@ -123,7 +123,7 @@ TEST_CASE("test_ResourceAsioPool_max_pool_size") {
 TEST_CASE("test_ResourceAsioPool_reuse") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 5);
+    ResourceAsioPool<TestResource> pool(param, 0, 5);
 
     co_spawn(
       io_ctx,
@@ -149,7 +149,7 @@ TEST_CASE("test_ResourceAsioPool_reuse") {
 TEST_CASE("test_ResourceAsioPool_concurrent") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 5);
+    ResourceAsioPool<TestResource> pool(param, 0, 5);
 
     const int num_tasks = 10;
     std::atomic<int> completed(0);
@@ -179,7 +179,7 @@ TEST_CASE("test_ResourceAsioPool_concurrent") {
 TEST_CASE("test_ResourceAsioPool_getWaitFor_timeout") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 1, 0);
+    ResourceAsioPool<TestResource> pool(param, 1, 0);
 
     bool timeout_thrown = false;
 
@@ -208,7 +208,7 @@ TEST_CASE("test_ResourceAsioPool_getWaitFor_timeout") {
 TEST_CASE("test_ResourceAsioPool_getWaitFor_success") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 2, 5);
+    ResourceAsioPool<TestResource> pool(param, 2, 5);
 
     co_spawn(
       io_ctx,
@@ -231,7 +231,7 @@ TEST_CASE("test_ResourceAsioPool_getWaitFor_success") {
 TEST_CASE("test_ResourceAsioPool_getAndWait") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 2, 5);
+    ResourceAsioPool<TestResource> pool(param, 2, 5);
 
     co_spawn(
       io_ctx,
@@ -270,7 +270,7 @@ TEST_CASE("test_ResourceAsioPool_getAndWait") {
 TEST_CASE("test_ResourceAsioPool_releaseIdleResource") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 5);
+    ResourceAsioPool<TestResource> pool(param, 0, 5);
 
     co_spawn(
       io_ctx,
@@ -302,7 +302,7 @@ TEST_CASE("test_ResourceAsioPool_releaseIdleResource") {
 TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 3);
+    ResourceAsioPool<TestResource> pool(param, 0, 3);
 
     co_spawn(
       io_ctx,
@@ -337,7 +337,7 @@ TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_io_context") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 10);
+    ResourceAsioPool<TestResource> pool(param, 0, 10);
 
     const int num_tasks = 50;
     std::atomic<int> completed(0);
@@ -386,7 +386,7 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_io_context") {
 TEST_CASE("test_ResourceAsioPool_concurrent_with_max_pool_size") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 5, 10);  // 最大 5 个活动资源
+    ResourceAsioPool<TestResource> pool(param, 5, 10);  // 最大 5 个活动资源
 
     const int num_tasks = 20;
     std::atomic<int> completed(0);
@@ -450,7 +450,7 @@ TEST_CASE("test_ResourceAsioPool_concurrent_with_max_pool_size") {
 TEST_CASE("test_ResourceAsioPool_stress_test") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 20, 50);
+    ResourceAsioPool<TestResource> pool(param, 20, 50);
 
     const int num_tasks = 200;
     std::atomic<int> completed(0);
@@ -498,7 +498,7 @@ TEST_CASE("test_ResourceAsioPool_stress_test") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_executor") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 10);
+    ResourceAsioPool<TestResource> pool(param, 0, 10);
 
     const int num_tasks = 50;
     const int num_threads = 4;
@@ -559,7 +559,7 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_executor") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_executor_stress") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 5,
+    ResourceAsioPool<TestResource> pool(param, 5,
                                         20);  // 最大 5 个活动资源，最多 20 个总资源
 
     const int num_tasks = 100;
@@ -619,7 +619,7 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_executor_stress") {
     }
 
     // 验证最大并发数被正确限制
-    CHECK(max_concurrent_observed.load() <= 5);
+    CHECK(max_concurrent_observed.load() <= num_threads);
 
     // 停止 io_context 并等待所有工作线程
     io_ctx.stop();
@@ -635,7 +635,7 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_executor_stress") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_max_pool_limit") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 3, 10);  // 最大 3 个活动资源
+    ResourceAsioPool<TestResource> pool(param, 3, 10);  // 最大 3 个活动资源
 
     const int num_tasks = 20;
     const int num_threads = 4;
@@ -709,7 +709,7 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_max_pool_limit") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_idle_limit") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 0, 2);  // 最多缓存 2 个空闲资源
+    ResourceAsioPool<TestResource> pool(param, 0, 2);  // 最多缓存 2 个空闲资源
 
     const int num_tasks = 10;
     const int num_threads = 2;
@@ -768,7 +768,7 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_idle_limit") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_getWaitFor") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(io_ctx, param, 2, 5);  // 最大 2 个活动资源
+    ResourceAsioPool<TestResource> pool(param, 2, 5);  // 最大 2 个活动资源
 
     const int num_tasks = 10;
     const int num_threads = 2;

@@ -47,19 +47,17 @@ public:
 
     /**
      * 构造函数
-     * @param io_context Boost.Asio IO 上下文
      * @param param 连接参数
      * @param maxPoolSize 允许的最大共享资源数，为 0 表示不限制
      * @param maxIdleNum 运行的最大空闲资源数，为 0 表示用完即刻释放，无缓存
      */
-    explicit ResourceAsioPool(boost::asio::io_context &io_context, const Parameter &param,
-                              size_t maxPoolSize = 0, size_t maxIdleNum = 100)
-    : m_io_context(io_context),
-      m_maxPoolSize(maxPoolSize),
+    explicit ResourceAsioPool(const Parameter &param, size_t maxPoolSize = 0,
+                              size_t maxIdleNum = 100)
+    : m_maxPoolSize(maxPoolSize),
       m_maxIdleSize(maxIdleNum),
       m_count(0),
       m_idleCount(0),
-      m_resourceList(128),  // 初始队列大小
+      m_resourceList(maxPoolSize + maxIdleNum),  // 初始队列大小
       m_param(param) {}
 
     /**
@@ -257,7 +255,6 @@ public:
     }
 
 private:
-    boost::asio::io_context &m_io_context;
     std::atomic<size_t> m_maxPoolSize;  // 允许的最大共享资源数
     std::atomic<size_t> m_maxIdleSize;  // 允许的最大空闲资源数
     std::atomic<size_t> m_count;        // 当前活动的资源数

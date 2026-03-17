@@ -175,8 +175,8 @@ AsioHttpClient::AsioHttpClient()
     // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
     size_t max_connections = std::thread::hardware_concurrency() * 2;
     size_t max_idle = std::thread::hardware_concurrency();
-    m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(
-      *m_ctx, pool_param, max_connections, max_idle);
+    m_connection_pool =
+      std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param, max_connections, max_idle);
 
     // 使用内部 io_context，启动工作线程运行事件循环
     m_worker_thread = std::make_unique<std::thread>([this] {
@@ -214,8 +214,8 @@ AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds
         // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
         size_t max_connections = std::thread::hardware_concurrency() * 2;
         size_t max_idle = std::thread::hardware_concurrency();
-        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(
-          *m_ctx, pool_param, max_connections, max_idle);
+        m_connection_pool =
+          std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param, max_connections, max_idle);
 
         // 启动后台线程运行 io_context
         m_worker_thread = std::make_unique<std::thread>([this]() {
@@ -250,8 +250,8 @@ AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url,
         // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
         size_t max_connections = std::thread::hardware_concurrency() * 2;
         size_t max_idle = std::thread::hardware_concurrency();
-        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(
-          *m_ctx, pool_param, max_connections, max_idle);
+        m_connection_pool =
+          std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param, max_connections, max_idle);
     }
 }
 
