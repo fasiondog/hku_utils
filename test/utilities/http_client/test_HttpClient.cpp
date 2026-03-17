@@ -39,9 +39,10 @@ TEST_CASE("test_HttpClient") {
     cli.setTimeout(1);
     CHECK_THROWS(cli.get("/ip"));
 
-    HttpClient cli2("http://httpbin.org/", 1);
-    CHECK_UNARY(cli2.valid());
-    CHECK_THROWS(cli2.get("/ip"));
+    // 不一定超时
+    // HttpClient cli2("http://httpbin.org/", 1);
+    // CHECK_UNARY(cli2.valid());
+    // CHECK_THROWS(cli2.get("/ip"));
 
     // 正常访问 http
     cli.setTimeout(-2);

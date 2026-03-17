@@ -519,54 +519,6 @@ TEST_CASE("test_AsioHttpClient_SetCaFile") {
 }
 #endif
 
-/**
- * @brief 使用示例：如何在实际场景中使用 setCaFile
- *
- * 示例 1：使用默认系统证书（不需要调用 setCaFile）
- * ```cpp
- * AsioHttpClient client("https://api.example.com");
- * // 使用系统默认的 CA 证书路径进行验证
- * auto response = co_await client.get("/data");
- * ```
- *
- * 示例 2：使用自定义 CA 证书（自签名证书场景）
- * ```cpp
- * AsioHttpClient client("https://internal-api.company.com");
- * // 设置公司内部的 CA 证书文件（PEM 格式）
- * client.setCaFile("/path/to/company-ca.pem");
- * auto response = co_await client.get("/internal/data");
- * ```
- *
- * 示例 3：在协程中使用自定义 CA 证书
- * ```cpp
- * boost::asio::io_context ctx;
- * boost::asio::co_spawn(ctx, []() -> boost::asio::awaitable<void> {
- *     AsioHttpClient client("https://secure.example.com");
- *
- *     // 设置自定义 CA 证书
- *     client.setCaFile("./certs/custom-ca.pem");
- *
- *     try {
- *         auto response = co_await client.get("/secure-endpoint");
- *         std::cout << "Status: " << response.status() << std::endl;
- *         std::cout << "Body: " << response.body() << std::endl;
- *     } catch (const std::exception& e) {
- *         std::cerr << "Request failed: " << e.what() << std::endl;
- *     }
- *
- *     co_return;
- * }, boost::asio::detached);
- * ctx.run();
- * ```
- *
- * 注意事项：
- * 1. CA 证书文件必须是 PEM 格式
- * 2. 必须在发起 HTTPS 请求之前调用 setCaFile
- * 3. 如果服务器使用自签名证书，必须提供对应的 CA 证书
- * 4. 对于公共 HTTPS 服务（如 api.github.com），通常不需要调用 setCaFile
- * 5. 文件路径必须是绝对路径或相对于当前工作目录的有效路径
- */
-
 TEST_CASE("test_AsioHttpClient_MultithreadedIOContext") {
     // 测试多线程io_context环境下的并发请求
     boost::asio::io_context io_ctx;
