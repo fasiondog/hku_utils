@@ -52,7 +52,7 @@ public:
      * @param maxIdleNum 运行的最大空闲资源数，为 0 表示用完即刻释放，无缓存
      */
     explicit ResourceAsioPool(boost::asio::io_context &io_context, const Parameter &param,
-                             size_t maxPoolSize = 0, size_t maxIdleNum = 100)
+                              size_t maxPoolSize = 0, size_t maxIdleNum = 100)
     : m_io_context(io_context),
       m_maxPoolSize(maxPoolSize),
       m_maxIdleSize(maxIdleNum),
@@ -122,14 +122,14 @@ public:
         if (maxPool > 0 && currentCount >= maxPool) {
             // 等待可用资源
             auto timer = boost::asio::steady_timer(co_await this_coro::executor);
-            
+
             // 轮询等待资源可用
             while (true) {
                 if (m_resourceList.pop(p)) {
                     m_idleCount.fetch_sub(1);  // 空闲计数减1,活动资源数不变
                     co_return ResourcePtr(p, ResourceCloser(this));
                 }
-                
+
                 timer.expires_after(std::chrono::milliseconds(10));
                 co_await timer.async_wait(use_awaitable);
             }
@@ -139,9 +139,11 @@ public:
         try {
             p = new ResourceType(m_param);
         } catch (const std::exception &e) {
-            HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}", e.what());
+            HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
+                                e.what());
         } catch (...) {
-            HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! Unknown error!");
+            HKU_THROW_EXCEPTION(CreateResourceException,
+                                "Failed create a new Resource! Unknown error!");
         }
 
         m_count.fetch_add(1);  // 活动资源数加1
@@ -162,7 +164,7 @@ public:
     awaitable<ResourcePtr> getWaitFor(uint64_t ms_timeout) {
         ResourceType *p = nullptr;
         auto timer = boost::asio::steady_timer(co_await this_coro::executor,
-                                             std::chrono::milliseconds(ms_timeout));
+                                               std::chrono::milliseconds(ms_timeout));
 
         // 尝试从空闲队列获取资源
         if (m_resourceList.pop(p)) {
@@ -179,7 +181,8 @@ public:
 
             while (true) {
                 if (timer.expiry() <= boost::asio::steady_timer::clock_type::now()) {
-                    HKU_THROW_EXCEPTION(GetResourceTimeoutException, "Failed get resource timeout!");
+                    HKU_THROW_EXCEPTION(GetResourceTimeoutException,
+                                        "Failed get resource timeout!");
                 }
 
                 if (m_resourceList.pop(p)) {
@@ -192,7 +195,8 @@ public:
                 try {
                     co_await polling_timer.async_wait(use_awaitable);
                 } catch (const boost::system::system_error &) {
-                    HKU_THROW_EXCEPTION(GetResourceTimeoutException, "Failed get resource timeout!");
+                    HKU_THROW_EXCEPTION(GetResourceTimeoutException,
+                                        "Failed get resource timeout!");
                 }
             }
         }
@@ -201,9 +205,11 @@ public:
         try {
             p = new ResourceType(m_param);
         } catch (const std::exception &e) {
-            HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}", e.what());
+            HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
+                                e.what());
         } catch (...) {
-            HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! Unknown error!");
+            HKU_THROW_EXCEPTION(CreateResourceException,
+                                "Failed create a new Resource! Unknown error!");
         }
 
         m_count.fetch_add(1);  // 活动资源数加1
@@ -229,7 +235,7 @@ public:
         return m_count.load();
     }
 
-    /** 
+    /**
      * 当前空闲的资源数（精确值）
      * 使用原子计数器跟踪，避免操作队列本身
      */
@@ -314,7 +320,7 @@ private:
         }
     }
 
-    std::mutex m_closer_mutex;  // 保护 closer_set 的互斥锁
+    std::mutex m_closer_mutex;                          // 保护 closer_set 的互斥锁
     std::unordered_set<ResourceCloser *> m_closer_set;  // 占用资源的 closer
 };
 
