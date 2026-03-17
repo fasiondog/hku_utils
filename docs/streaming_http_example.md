@@ -16,7 +16,7 @@
 ### 1. 基础流式请求方法
 
 ```cpp
-net::awaitable<HttpStreamResponseAsync> requestStream(
+net::awaitable<AsioHttpStreamResponse> requestStream(
     const std::string& method, 
     const std::string& path,
     const HttpParams& params, 
@@ -30,14 +30,14 @@ net::awaitable<HttpStreamResponseAsync> requestStream(
 
 ```cpp
 // GET 流式请求
-net::awaitable<HttpStreamResponseAsync> getStream(
+net::awaitable<AsioHttpStreamResponse> getStream(
     const std::string& path,
     const HttpParams& params,
     const HttpHeaders& headers,
     const HttpChunkCallback& chunk_callback);
 
 // POST 流式请求
-net::awaitable<HttpStreamResponseAsync> postStream(
+net::awaitable<AsioHttpStreamResponse> postStream(
     const std::string& path,
     const HttpParams& params,
     const HttpHeaders& headers,
@@ -51,7 +51,7 @@ net::awaitable<HttpStreamResponseAsync> postStream(
 ### 示例 1：下载大文件
 
 ```cpp
-#include "hikyuu/utilities/http_client/HttpAsyncClient.h"
+#include "hikyuu/utilities/http_client/AsioHttpClient.h"
 #include <boost/asio.hpp>
 #include <fstream>
 
@@ -59,7 +59,7 @@ using namespace hku;
 
 boost::asio::awaitable<void> downloadLargeFile() {
     try {
-        HttpAsyncClient client("http://example.com");
+        AsioHttpClient client("http://example.com");
         
         // 打开文件用于写入
         std::ofstream outputFile("download.bin", std::ios::binary);
@@ -97,7 +97,7 @@ int main() {
 ```cpp
 boost::asio::awaitable<void> processStreamingJson() {
     try {
-        HttpAsyncClient client("http://api.example.com");
+        AsioHttpClient client("http://api.example.com");
         
         std::string json_buffer;
         
@@ -134,7 +134,7 @@ boost::asio::awaitable<void> processStreamingJson() {
 ```cpp
 boost::asio::awaitable<void> uploadLogs() {
     try {
-        HttpAsyncClient client("http://log-server.com");
+        AsioHttpClient client("http://log-server.com");
         
         std::string log_data = generateLargeLogData();
         size_t total_sent = 0;
@@ -166,7 +166,7 @@ boost::asio::awaitable<void> uploadLogs() {
 ```cpp
 boost::asio::awaitable<void> subscribeToSSE() {
     try {
-        HttpAsyncClient client("http://sse-server.com");
+        AsioHttpClient client("http://sse-server.com");
         
         auto response = co_await client.getStream(
             "/events",

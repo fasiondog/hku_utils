@@ -125,7 +125,7 @@ try {
 ## 完整示例
 
 ```cpp
-#include "hikyuu/utilities/http_client/HttpAsyncClient.h"
+#include "hikyuu/utilities/http_client/AsioHttpClient.h"
 #include <boost/asio.hpp>
 #include <fstream>
 
@@ -133,7 +133,7 @@ using namespace hku;
 
 boost::asio::awaitable<void> downloadFile() {
     try {
-        HttpAsyncClient client("http://example.com");
+        AsioHttpClient client("http://example.com");
         
         std::ofstream file("download.bin", std::ios::binary);
         

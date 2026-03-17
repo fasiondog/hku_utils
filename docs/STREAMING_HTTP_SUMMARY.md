@@ -10,13 +10,13 @@
 
 ## 🔧 主要改动
 
-### 1. 新增类型定义 (`HttpAsyncClient.h`)
+### 1. 新增类型定义 (`AsioHttpClient.h`)
 
 ```cpp
 using HttpChunkCallback = std::function<void(const char* data, size_t size)>;
 ```
 
-### 2. 新增流式响应类 (`HttpStreamResponseAsync`)
+### 2. 新增流式响应类 (`AsioHttpStreamResponse`)
 
 提供以下功能：
 - `status()` - HTTP 状态码
@@ -30,7 +30,7 @@ using HttpChunkCallback = std::function<void(const char* data, size_t size)>;
 
 #### 基础方法
 ```cpp
-net::awaitable<HttpStreamResponseAsync> requestStream(
+net::awaitable<AsioHttpStreamResponse> requestStream(
     const std::string& method, 
     const std::string& path,
     const HttpParams& params, 
@@ -44,7 +44,7 @@ net::awaitable<HttpStreamResponseAsync> requestStream(
 - `getStream()` - GET 流式请求
 - `postStream()` - POST 流式请求
 
-### 4. 核心实现 (`HttpAsyncClient.cpp`)
+### 4. 核心实现 (`AsioHttpClient.cpp`)
 
 关键实现点：
 - 使用 `http::response_parser<http::buffer_body>` 解析响应
@@ -53,9 +53,9 @@ net::awaitable<HttpStreamResponseAsync> requestStream(
 - 每次读取后立即调用回调函数处理数据
 - 自动适配 Content-Length 和 Transfer-Encoding: chunked 两种模式
 
-### 5. 测试用例 (`test_HttpAsyncClient.cpp`)
+### 5. 测试用例 (`test_AsioHttpClient.cpp`)
 
-添加了 `test_HttpAsyncClient_StreamRequest` 测试用例：
+添加了 `test_AsioHttpClient_StreamRequest` 测试用例：
 - 测试流式 GET 请求（使用 httpbin 的 `/stream/5` 接口）
 - 测试流式 POST 请求
 - 验证数据完整性和统计信息
@@ -77,17 +77,17 @@ net::awaitable<HttpStreamResponseAsync> requestStream(
 
 ## 📦 修改的文件
 
-1. **hikyuu/utilities/http_client/HttpAsyncClient.h**
+1. **hikyuu/utilities/http_client/AsioHttpClient.h**
    - 新增 `HttpChunkCallback` 类型
-   - 新增 `HttpStreamResponseAsync` 类
+   - 新增 `AsioHttpStreamResponse` 类
    - 新增 `requestStream()`, `getStream()`, `postStream()` 方法
 
-2. **hikyuu/utilities/http_client/HttpAsyncClient.cpp**
+2. **hikyuu/utilities/http_client/AsioHttpClient.cpp**
    - 实现 `requestStream()` 方法
    - 使用 `buffer_body` 进行流式读取
 
-3. **test/utilities/http_client/test_HttpAsyncClient.cpp**
-   - 新增 `test_HttpAsyncClient_StreamRequest` 测试用例
+3. **test/utilities/http_client/test_AsioHttpClient.cpp**
+   - 新增 `test_AsioHttpClient_StreamRequest` 测试用例
 
 ## 📚 文档
 
