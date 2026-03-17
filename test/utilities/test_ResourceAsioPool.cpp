@@ -353,6 +353,8 @@ TEST_CASE("test_ResourceAsioPool_concurrent_with_max_pool_size") {
     const int num_tasks = 20;
     std::atomic<int> completed(0);
     std::atomic<bool> max_limit_verified(false);
+    std::promise<void> completion_promise;
+    std::future<void> completion_future = completion_promise.get_future();
 
     // 使用单线程运行 io_context，避免多线程竞争导致的复杂性
     std::thread worker([&]() {
@@ -361,12 +363,12 @@ TEST_CASE("test_ResourceAsioPool_concurrent_with_max_pool_size") {
 
     // 提交多个并发任务，测试资源池大小限制
     for (int i = 0; i < num_tasks; ++i) {
-        co_spawn(io_ctx, [&]() -> boost::asio::awaitable<void> {
+        co_spawn(io_ctx, [&, i]() -> boost::asio::awaitable<void> {
             try {
                 auto resource = co_await pool.get();
                 CHECK(resource != nullptr);
                 
-                // 检查当前活动资源数是否满足限制（应该不超过5个）
+                // 检查当前活动资源数是否满足限制（应该不超过 5 个）
                 size_t count = pool.count();
                 if (count <= 5) {
                     max_limit_verified = true;
@@ -382,13 +384,17 @@ TEST_CASE("test_ResourceAsioPool_concurrent_with_max_pool_size") {
             } catch (const std::exception& e) {
                 HKU_ERROR("Task failed: {}", e.what());
             }
-            completed++;
+            
+            int prev_count = completed.fetch_add(1);
+            if (prev_count + 1 == num_tasks) {
+                completion_promise.set_value();
+            }
         }, boost::asio::detached);
     }
 
-    // 等待所有任务完成
-    while (completed < num_tasks) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // 等待所有任务完成或超时
+    if (completion_future.wait_for(std::chrono::seconds(10)) == std::future_status::timeout) {
+        HKU_ERROR("Test timeout!");
     }
 
     // 验证资源池大小限制被触发过

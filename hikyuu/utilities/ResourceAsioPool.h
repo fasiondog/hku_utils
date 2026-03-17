@@ -57,6 +57,7 @@ public:
       m_maxPoolSize(maxPoolSize),
       m_maxIdleSize(maxIdleNum),
       m_count(0),
+      m_idleCount(0),
       m_resourceList(128),  // 初始队列大小
       m_param(param) {}
 
@@ -112,6 +113,7 @@ public:
         // 尝试从空闲队列获取资源
         if (m_resourceList.pop(p)) {
             m_count.fetch_sub(1);
+            m_idleCount.fetch_sub(1);
             co_return ResourcePtr(p, ResourceCloser(this));
         }
 
@@ -126,6 +128,7 @@ public:
             while (true) {
                 if (m_resourceList.pop(p)) {
                     m_count.fetch_sub(1);
+                    m_idleCount.fetch_sub(1);
                     co_return ResourcePtr(p, ResourceCloser(this));
                 }
                 
@@ -166,6 +169,7 @@ public:
         // 尝试从空闲队列获取资源
         if (m_resourceList.pop(p)) {
             m_count.fetch_sub(1);
+            m_idleCount.fetch_sub(1);  // 减少空闲计数
             co_return ResourcePtr(p, ResourceCloser(this));
         }
 
@@ -183,6 +187,7 @@ public:
 
                 if (m_resourceList.pop(p)) {
                     m_count.fetch_sub(1);
+                    m_idleCount.fetch_sub(1);  // 减少空闲计数
                     co_return ResourcePtr(p, ResourceCloser(this));
                 }
 
@@ -228,24 +233,12 @@ public:
         return m_count.load();
     }
 
-    /** 当前空闲的资源数 */
-    size_t idleCount() {
-        ResourceType *p = nullptr;
-        size_t count = 0;
-        std::vector<ResourceType*> temp_resources;
-        
-        // 注意：这是估算值，因为队列在并发环境下会变化
-        while (m_resourceList.pop(p)) {
-            count++;
-            temp_resources.push_back(p);  // 暂存取出的资源
-        }
-        
-        // 将资源放回队列
-        for (auto* resource : temp_resources) {
-            m_resourceList.push(resource);
-        }
-        
-        return count;
+    /** 
+     * 当前空闲的资源数（精确值）
+     * 使用原子计数器跟踪，避免操作队列本身
+     */
+    size_t idleCount() const {
+        return m_idleCount.load();
     }
 
     /** 释放当前所有的空闲资源 */
@@ -253,6 +246,7 @@ public:
         ResourceType *p = nullptr;
         while (m_resourceList.pop(p)) {
             if (p) {
+                m_idleCount.fetch_sub(1);  // 减少空闲计数
                 delete p;
                 m_count.fetch_sub(1);  // 减少计数
             }
@@ -264,6 +258,7 @@ private:
     std::atomic<size_t> m_maxPoolSize;  // 允许的最大共享资源数
     std::atomic<size_t> m_maxIdleSize;  // 允许的最大空闲资源数
     std::atomic<size_t> m_count;        // 当前活动的资源数
+    std::atomic<size_t> m_idleCount;    // 当前空闲的资源数
     Parameter m_param;
     boost::lockfree::queue<ResourceType *> m_resourceList;
 
@@ -295,14 +290,17 @@ private:
     void returnResource(ResourceType *p, ResourceCloser *closer) {
         if (p) {
             size_t maxIdle = m_maxIdleSize.load();
-            size_t currentIdle = idleCount();
             
             // 如果当前空闲资源数已达到上限，则删除该资源
-            if (maxIdle > 0 && currentIdle < maxIdle) {
+            if (maxIdle > 0 && idleCount() < maxIdle) {
                 if (!m_resourceList.push(p)) {
                     // 如果推入失败（队列满），则删除资源
                     delete p;
                     m_count.fetch_sub(1);
+                    m_idleCount.fetch_sub(1);
+                } else {
+                    // 推入成功，增加空闲计数
+                    m_idleCount.fetch_add(1);
                 }
             } else {
                 // 超过最大空闲数或不需要缓存，直接删除
