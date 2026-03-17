@@ -70,7 +70,7 @@ target("unit-test")
 
     if is_plat("windows") then
         add_cxflags("-wd4996", "-wd4251")
-    else 
+    elseif is_plat("linux", "cross") then
         add_cxxflags("-fcoroutines")
     end
 
