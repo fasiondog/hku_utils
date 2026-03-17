@@ -8,6 +8,7 @@
 #include "HttpAsyncClient.h"
 #include "hikyuu/utilities/Log.h"
 #include "hikyuu/utilities/os.h"
+#include "hikyuu/utilities/ResourceAsioPool.h"
 
 #include <sstream>
 #include <boost/beast/core.hpp>
@@ -30,6 +31,102 @@
 #endif
 
 namespace hku {
+
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+namespace ssl = net::ssl;
+#endif
+
+// HttpConnection 类定义 - 用于连接池的可复用连接
+struct HttpConnection {
+    using SocketType = tcp::socket;
+    
+    Parameter params;
+    std::string host;
+    std::string port;
+    bool is_https{false};
+    std::vector<tcp::endpoint> endpoints;  // DNS 解析结果缓存
+    std::chrono::steady_clock::time_point last_used_time;  // 最后使用时间
+    int version{0};  // 版本号，用于检测参数是否更新
+    
+    // socket 在连接被获取时创建
+    std::optional<SocketType> socket;
+    
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    std::optional<ssl::stream<tcp::socket>> ssl_socket;
+    
+    HttpConnection(const Parameter& p) : params(p) {
+        host = params.have("host") ? params.get<std::string>("host") : "";
+        port = params.have("port") ? params.get<std::string>("port") : "";
+        is_https = params.have("is_https") ? params.get<bool>("is_https") : false;
+        last_used_time = std::chrono::steady_clock::now();
+    }
+    
+    ~HttpConnection() {
+        close();
+    }
+    
+    void close() {
+        if (ssl_socket) {
+            boost::system::error_code ec;
+            ssl_socket->lowest_layer().close(ec);
+            ssl_socket.reset();
+        }
+        if (socket) {
+            boost::system::error_code ec;
+            socket->close(ec);
+            socket.reset();
+        }
+    }
+    
+    bool is_open() const {
+        if (ssl_socket) {
+            return ssl_socket->lowest_layer().is_open();
+        } else if (socket) {
+            return socket->is_open();
+        }
+        return false;
+    }
+    
+    SocketType& lowest_layer() {
+        if (ssl_socket) {
+            return static_cast<SocketType&>(ssl_socket->lowest_layer());
+        } else if (socket) {
+            return *socket;
+        }
+        HKU_THROW("Socket not initialized");
+    }
+#else
+    HttpConnection(const Parameter& p) : params(p) {
+        host = params.have("host") ? params.get<std::string>("host") : "";
+        port = params.have("port") ? params.get<std::string>("port") : "";
+        is_https = params.have("is_https") ? params.get<bool>("is_https") : false;
+        last_used_time = std::chrono::steady_clock::now();
+    }
+    
+    ~HttpConnection() {
+        close();
+    }
+    
+    void close() {
+        if (socket) {
+            boost::system::error_code ec;
+            socket->close(ec);
+            socket.reset();
+        }
+    }
+    
+    bool is_open() const {
+        return socket && socket->is_open();
+    }
+    
+    SocketType& lowest_layer() {
+        if (socket) {
+            return *socket;
+        }
+        HKU_THROW("Socket not initialized");
+    }
+#endif
+};
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
 struct HttpAsyncClient::SslContext {
@@ -57,13 +154,6 @@ struct HttpAsyncClient::SslContext {
 };
 #endif
 
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-namespace ssl = net::ssl;
-
-// 在命名空间内声明上下文类型
-using SslContext = ssl::context;
-#endif
-
 HttpAsyncClient::HttpAsyncClient()
 : m_own_ctx(std::make_unique<net::io_context>()), m_ctx(m_own_ctx.get()) {
     // 创建工作守护，防止 io_context 在无任务时退出
@@ -74,6 +164,19 @@ HttpAsyncClient::HttpAsyncClient()
     // 初始化 SSL 上下文
     m_ssl_ctx = std::make_unique<SslContext>();
 #endif
+
+    // 初始化连接池参数
+    Parameter pool_param;
+    pool_param.set("host", m_host);
+    pool_param.set("port", m_port);
+    pool_param.set("is_https", m_is_https);
+    pool_param.set("timeout", m_timeout.count());
+    
+    // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
+    size_t max_connections = std::thread::hardware_concurrency() * 2;
+    size_t max_idle = std::thread::hardware_concurrency();
+    m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(
+        *m_ctx, pool_param, max_connections, max_idle);
 
     // 使用内部 io_context，启动工作线程运行事件循环
     m_worker_thread = std::make_unique<std::thread>([this] {
@@ -90,7 +193,7 @@ HttpAsyncClient::HttpAsyncClient(const std::string& url, std::chrono::millisecon
   m_ctx(m_own_ctx.get()),
   m_worker_thread(nullptr) {
     _parseUrl();
-    // 在 _parseUrl() 之后初始化 m_impl，确保 m_ctx 已经设置好
+    // 在 _parseUrl() 之后初始化连接池，确保 m_host 和 m_port 已经设置好
     if (m_is_valid_url && m_ctx) {
 #if HKU_ENABLE_HTTP_CLIENT_SSL
         // 初始化 SSL 上下文
@@ -100,6 +203,19 @@ HttpAsyncClient::HttpAsyncClient(const std::string& url, std::chrono::millisecon
         // 创建工作守护，防止 io_context 在无任务时退出
         m_work_guard = std::make_unique<net::executor_work_guard<net::io_context::executor_type>>(
           m_own_ctx->get_executor());
+
+        // 初始化连接池参数
+        Parameter pool_param;
+        pool_param.set("host", m_host);
+        pool_param.set("port", m_port);
+        pool_param.set("is_https", m_is_https);
+        pool_param.set("timeout", m_timeout.count());
+        
+        // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
+        size_t max_connections = std::thread::hardware_concurrency() * 2;
+        size_t max_idle = std::thread::hardware_concurrency();
+        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(
+            *m_ctx, pool_param, max_connections, max_idle);
 
         // 启动后台线程运行 io_context
         m_worker_thread = std::make_unique<std::thread>([this]() {
@@ -123,6 +239,19 @@ HttpAsyncClient::HttpAsyncClient(net::io_context& ctx, const std::string& url,
         // 初始化 SSL 上下文
         m_ssl_ctx = std::make_unique<SslContext>();
 #endif
+
+        // 初始化连接池参数
+        Parameter pool_param;
+        pool_param.set("host", m_host);
+        pool_param.set("port", m_port);
+        pool_param.set("is_https", m_is_https);
+        pool_param.set("timeout", m_timeout.count());
+        
+        // 创建连接池，最大连接数为 CPU 核心数 * 2，最大空闲连接数为 CPU 核心数
+        size_t max_connections = std::thread::hardware_concurrency() * 2;
+        size_t max_idle = std::thread::hardware_concurrency();
+        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(
+            *m_ctx, pool_param, max_connections, max_idle);
     }
 }
 
@@ -196,9 +325,27 @@ void HttpAsyncClient::_parseUrl() noexcept {
         host = host.substr(0, pos);
     }
 
+    // 检查 host 或 port 是否变化，如果变化则递增版本号
+    bool host_changed = (m_host != host || m_port != std::to_string(port));
+    
     m_base_path = std::move(base_path);
     m_host = std::move(host);
     m_port = std::to_string(port);
+    
+    // 如果 host 或 port 变化，递增版本号使旧连接失效
+    if (host_changed && m_connection_pool) {
+        m_connection_version.fetch_add(1);
+        
+        // 更新连接池参数
+        Parameter pool_param;
+        pool_param.set("host", m_host);
+        pool_param.set("port", m_port);
+        pool_param.set("is_https", m_is_https);
+        pool_param.set("timeout", m_timeout.count());
+        
+        // 释放旧连接池中的空闲连接
+        m_connection_pool->releaseIdleResource();
+    }
 }
 
 // 异步 DNS 解析方法
@@ -303,6 +450,319 @@ net::awaitable<std::vector<tcp::endpoint>> HttpAsyncClient::_resolveDNS() {
 
     co_return dns_endpoints;
 #endif
+}
+
+// 从连接池获取已连接的连接（带版本检查和 DNS 缓存）
+net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> HttpAsyncClient::_getConnection() {
+    HKU_CHECK(m_connection_pool != nullptr, "Connection pool not initialized");
+    
+    // 从池中获取连接
+    auto conn_ptr = co_await m_connection_pool->get();
+    HKU_CHECK(conn_ptr != nullptr, "Failed to get connection from pool");
+    
+    int current_version = m_connection_version.load();
+    bool is_new_connection = false;
+    
+    // 检查连接是否需要重新创建
+    if (!conn_ptr->is_open() || conn_ptr->version != current_version) {
+        // 连接已关闭或版本不匹配，需要重新创建
+        is_new_connection = true;
+        HKU_INFO("Creating new connection - is_open={}, version_mismatch={}", 
+                 conn_ptr->is_open(), 
+                 conn_ptr->version != current_version);
+        
+        // 如果 DNS 缓存为空或超时（5 分钟），重新解析 DNS
+        auto now = std::chrono::steady_clock::now();
+        bool need_dns_resolve = conn_ptr->endpoints.empty();
+        
+        if (!need_dns_resolve) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(
+                now - conn_ptr->last_used_time).count();
+            if (elapsed > 5) {
+                need_dns_resolve = true;
+            }
+        }
+        
+        if (need_dns_resolve) {
+            // DNS 解析（带超时）
+            conn_ptr->endpoints = co_await _resolveDNS();
+        }
+        
+        // 关闭旧连接（如果有）
+        conn_ptr->close();
+        
+        // 创建新 socket 并连接
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        if (m_is_https) {
+            conn_ptr->ssl_socket.emplace(*m_ctx, m_ssl_ctx->ssl_ctx);
+            SSL_set_tlsext_host_name(conn_ptr->ssl_socket->native_handle(), m_host.c_str());
+            
+            // 连接到服务器
+            boost::system::error_code connect_ec;
+            bool connected = false;
+            
+            for (const auto& endpoint : conn_ptr->endpoints) {
+                conn_ptr->close();
+                
+                auto timer = net::steady_timer{*m_ctx};
+                timer.expires_after(m_timeout);
+                
+                struct ConnectOp {
+                    tcp::socket* socket;
+                    tcp::endpoint endpoint;
+                    
+                    net::awaitable<boost::system::error_code> run() {
+                        auto [ec] = co_await socket->async_connect(
+                            endpoint, 
+                            net::as_tuple(net::use_awaitable)
+                        );
+                        co_return ec ? ec : (socket->is_open() 
+                            ? boost::system::errc::make_error_code(boost::system::errc::success)
+                            : boost::system::errc::make_error_code(boost::system::errc::not_connected));
+                    }
+                };
+                
+                ConnectOp connect_op{&conn_ptr->ssl_socket->next_layer(), endpoint};
+                HKU_INFO("Trying to connect to {}:{}", endpoint.address().to_string(), endpoint.port());
+                auto connect_result = co_await connect_op.run();
+                HKU_INFO("Connect result: ec={}, socket.is_open={}", connect_result.message(), conn_ptr->socket->is_open());
+                
+                if (!timer.cancel()) {
+                    HKU_INFO("Timer expired, trying next endpoint");
+                    continue;
+                }
+                
+                if (!connect_result && conn_ptr->ssl_socket->lowest_layer().is_open()) {
+                    connected = true;
+                    break;
+                }
+            }
+            
+            if (!connected) {
+                HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host, m_port);
+            }
+            
+            // 设置 socket 选项
+            conn_ptr->ssl_socket->lowest_layer().set_option(tcp::no_delay(true));
+            
+            // SSL 握手
+            HKU_INFO("Performing SSL handshake with {}", m_host);
+            auto timer = net::steady_timer{*m_ctx};
+            timer.expires_after(m_timeout);
+            
+            struct SslHandshakeOp {
+                ssl::stream<tcp::socket>* stream;
+                
+                net::awaitable<boost::system::error_code> run() {
+                    auto [ec] = co_await stream->async_handshake(
+                        ssl::stream_base::client,
+                        net::as_tuple(net::use_awaitable)
+                    );
+                    co_return ec;
+                }
+            };
+            
+            SslHandshakeOp handshake_op{&conn_ptr->ssl_socket.value()};
+            auto handshake_result = co_await handshake_op.run();
+            
+            if (!timer.cancel()) {
+                HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
+            }
+            
+            if (handshake_result) {
+                HKU_THROW("SSL handshake failed: {}", handshake_result.message());
+            }
+            
+            HKU_INFO("SSL handshake successful");
+        } else {
+#endif
+            // 普通 HTTP 连接
+            conn_ptr->socket.emplace(*m_ctx);
+            
+            boost::system::error_code connect_ec;
+            bool connected = false;
+            
+            for (const auto& endpoint : conn_ptr->endpoints) {
+                auto timer = net::steady_timer{*m_ctx};
+                timer.expires_after(m_timeout);
+                
+                struct ConnectOp {
+                    tcp::socket* socket;
+                    tcp::endpoint endpoint;
+                    
+                    net::awaitable<boost::system::error_code> run() {
+                        auto [ec] = co_await socket->async_connect(
+                            endpoint, 
+                            net::as_tuple(net::use_awaitable)
+                        );
+                        co_return ec ? ec : (socket->is_open() 
+                            ? boost::system::errc::make_error_code(boost::system::errc::success)
+                            : boost::system::errc::make_error_code(boost::system::errc::not_connected));
+                    }
+                };
+                
+                ConnectOp connect_op{&conn_ptr->socket.value(), endpoint};
+                HKU_INFO("Trying to connect to {}:{}", endpoint.address().to_string(), endpoint.port());
+                auto connect_result = co_await connect_op.run();
+                HKU_INFO("Connect result: ec={}, socket.is_open={}", connect_result.message(), conn_ptr->socket->is_open());
+                
+                // 先检查连接是否成功
+                if (!connect_result && conn_ptr->socket->is_open()) {
+                    connected = true;
+                    HKU_INFO("Connected successfully");
+                    break;
+                }
+                
+                // 连接失败，检查是否超时
+                if (!timer.cancel()) {
+                    HKU_INFO("Timer expired, trying next endpoint");
+                    // 超时后不再尝试其他 endpoint
+                    break;
+                }
+                
+                // 连接失败但未超时，继续尝试下一个 endpoint
+                HKU_INFO("Connect failed, trying next endpoint");
+
+                // 连接失败，关闭 socket 以便下一次尝试
+                boost::system::error_code ec;
+                conn_ptr->socket->close(ec);
+            }
+            
+            if (!connected) {
+                HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host, m_port);
+            }
+            
+            // 设置 socket 选项
+            conn_ptr->socket->set_option(tcp::no_delay(true));
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+        }
+#endif
+        
+        // 更新版本号和使用时间
+        conn_ptr->version = current_version;
+        conn_ptr->last_used_time = now;
+    } else {
+        // 复用已有连接，更新时间并检查连接是否有效
+        auto now = std::chrono::steady_clock::now();
+        
+        // 检查连接是否仍然打开
+        if (!conn_ptr->is_open()) {
+            HKU_INFO("Connection closed, need reconnect");
+            
+            // 连接已关闭，需要重新创建 - 直接在这里处理重连
+            conn_ptr->close();
+            
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+            if (m_is_https) {
+                conn_ptr->ssl_socket.emplace(*m_ctx, m_ssl_ctx->ssl_ctx);
+#else
+            {
+#endif
+                
+                struct ConnectOp {
+                    tcp::socket* socket;
+                    tcp::endpoint endpoint;
+                    
+                    net::awaitable<boost::system::error_code> run() {
+                        auto [ec] = co_await socket->async_connect(
+                            endpoint, 
+                            net::as_tuple(net::use_awaitable)
+                        );
+                        co_return ec ? ec : (socket->is_open() 
+                            ? boost::system::errc::make_error_code(boost::system::errc::success)
+                            : boost::system::errc::make_error_code(boost::system::errc::not_connected));
+                    }
+                };
+                
+                bool connected = false;
+                for (const auto& endpoint : conn_ptr->endpoints) {
+                    auto timer = net::steady_timer{*m_ctx};
+                    timer.expires_after(m_timeout);
+                    
+                    ConnectOp connect_op{
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                        m_is_https ? &conn_ptr->ssl_socket->next_layer() : 
+#endif
+                        &conn_ptr->socket.value(), 
+                        endpoint
+                    };
+                    auto connect_result = co_await connect_op.run();
+                    
+                    if (!timer.cancel()) {
+                        continue;
+                    }
+                    
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                    if (!connect_result && (m_is_https ? conn_ptr->ssl_socket->lowest_layer().is_open() : conn_ptr->socket->is_open())) {
+#else
+                    if (!connect_result && conn_ptr->socket->is_open()) {
+#endif
+                        connected = true;
+                        break;
+                    }
+                }
+                
+                if (!connected) {
+                    HKU_THROW_EXCEPTION(HttpTimeoutException, "Reconnect timeout to {}:{}", m_host, m_port);
+                }
+                
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+                if (m_is_https) {
+                    conn_ptr->ssl_socket->lowest_layer().set_option(tcp::no_delay(true));
+                    
+                    // SSL 握手
+                    auto timer = net::steady_timer{*m_ctx};
+                    timer.expires_after(m_timeout);
+                    
+                    struct SslHandshakeOp {
+                        ssl::stream<tcp::socket>* stream;
+                        
+                        net::awaitable<boost::system::error_code> run() {
+                            auto [ec] = co_await stream->async_handshake(
+                                ssl::stream_base::client,
+                                net::as_tuple(net::use_awaitable)
+                            );
+                            co_return ec;
+                        }
+                    };
+                    
+                    SslHandshakeOp handshake_op{&conn_ptr->ssl_socket.value()};
+                    auto handshake_result = co_await handshake_op.run();
+                    
+                    if (!timer.cancel()) {
+                        HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
+                    }
+                    
+                    if (handshake_result) {
+                        HKU_THROW("SSL handshake failed: {}", handshake_result.message());
+                    }
+                } else {
+                    conn_ptr->socket->set_option(tcp::no_delay(true));
+                }
+#else
+                conn_ptr->socket->set_option(tcp::no_delay(true));
+#endif
+            }
+            
+            conn_ptr->version = current_version;
+        }
+        
+        conn_ptr->last_used_time = now;
+    }
+
+    // 设置 socket 选项以确保连接活跃
+    if (conn_ptr->socket) {
+        boost::system::error_code ec;
+        conn_ptr->socket->set_option(tcp::no_delay(true), ec);
+    }
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+    if (conn_ptr->ssl_socket) {
+        boost::system::error_code ec;
+        conn_ptr->ssl_socket->lowest_layer().set_option(tcp::no_delay(true), ec);
+    }
+#endif
+    
+    co_return std::make_pair(conn_ptr, is_new_connection);
 }
 
 // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
@@ -503,15 +963,22 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
     HttpResponseAsync response;
 
     try {
-        // DNS 解析（带超时）
-        auto dns_endpoints = co_await _resolveDNS();
+        // 从连接池获取连接（自动处理 DNS 缓存和连接复用）
+    auto [conn, is_new] = co_await _getConnection();
+    HKU_CHECK(conn != nullptr, "Failed to get connection from pool");
+    
+    HKU_INFO("Got connection - is_new={}, socket_has_value={}, ssl_socket_has_value={}", 
+             is_new, 
+             conn->socket.has_value(),
+#if HKU_ENABLE_HTTP_CLIENT_SSL
+             conn->ssl_socket.has_value()
+#else
+             false
+#endif
+    );
 
-        // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
-        SocketVariant socket_variant;
-        co_await _connect(socket_variant, dns_endpoints);
-
-        // 创建 HTTP 请求
-        http::request<http::string_body> req;
+    // 创建 HTTP 请求
+    http::request<http::string_body> req;
         req.method(http::string_to_verb(method));
         req.target(uri);
         req.version(11);  // HTTP/1.1
@@ -529,7 +996,7 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         // 添加 User-Agent
         req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
         req.set(http::field::host, m_host);
-        req.set(http::field::connection, "close");
+        // 注意：不使用 "close"，允许连接复用
 
         // 添加请求体
         if (body != nullptr && body_len > 0) {
@@ -554,11 +1021,8 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
 
         // 发送请求（带超时）
         {
-            auto timer = net::steady_timer{*m_ctx};
-            timer.expires_after(m_timeout);
-            
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-            if (socket_variant.is_ssl()) {
+            if (conn->ssl_socket) {
                 // SSL 连接：使用 SSL stream 发送
                 struct WriteOp {
                     ssl::stream<tcp::socket>& stream;
@@ -573,12 +1037,8 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                     }
                 };
                 
-                auto write_op = WriteOp{*socket_variant.ssl, req};
+                auto write_op = WriteOp{*conn->ssl_socket, req};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
-                
-                if (!timer.cancel()) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
-                }
                 
                 if (write_ec) {
                     HKU_THROW("HTTP write failed: {}", write_ec.message());
@@ -599,12 +1059,8 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                     }
                 };
                 
-                auto write_op = WriteOp{socket_variant.socket(), req};
+                auto write_op = WriteOp{conn->socket.value(), req};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
-                
-                if (!timer.cancel()) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
-                }
                 
                 if (write_ec) {
                     HKU_THROW("HTTP write failed: {}", write_ec.message());
@@ -619,11 +1075,8 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
         http::response<http::string_body> res;
 
         {
-            auto timer = net::steady_timer{*m_ctx};
-            timer.expires_after(m_timeout);
-            
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-            if (socket_variant.is_ssl()) {
+            if (conn->ssl_socket) {
                 // SSL 连接：使用 SSL stream 读取
                 struct ReadOp {
                     ssl::stream<tcp::socket>& stream;
@@ -639,12 +1092,8 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                     }
                 };
                 
-                auto read_op = ReadOp{*socket_variant.ssl, buffer, res};
+                auto read_op = ReadOp{*conn->ssl_socket, buffer, res};
                 auto [read_ec, bytes_transferred] = co_await read_op.run();
-                
-                if (!timer.cancel()) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read timeout");
-                }
                 
                 if (read_ec) {
                     HKU_THROW("HTTP read failed: {}", read_ec.message());
@@ -666,12 +1115,9 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
                     }
                 };
                 
-                auto read_op = ReadOp{socket_variant.socket(), buffer, res};
-                auto [read_ec, bytes_transferred] = co_await read_op.run();
+                auto read_op = ReadOp{conn->socket.value(), buffer, res};
                 
-                if (!timer.cancel()) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read timeout");
-                }
+                auto [read_ec, bytes_transferred] = co_await read_op.run();
                 
                 if (read_ec) {
                     HKU_THROW("HTTP read failed: {}", read_ec.message());
@@ -701,10 +1147,7 @@ net::awaitable<HttpResponseAsync> HttpAsyncClient::request(
             response.m_headers.emplace(std::string(it->name_string()), std::string(it->value()));
         }
 
-        // 关闭连接
-        beast::error_code shutdown_ec;
-        socket_variant.socket().shutdown(tcp::socket::shutdown_both, shutdown_ec);
-        socket_variant.close(shutdown_ec);  // 确保所有资源被清理
+        // 不关闭连接，让连接池自动管理（连接会被归还到池中）
 
     } catch (const boost::system::system_error& e) {
         HKU_ERROR("HTTP request system error! {}", e.what());
@@ -724,12 +1167,11 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
     HKU_CHECK(chunk_callback != nullptr, "Chunk callback must not be null");
 
-    // 确保 io_context 已设置（默认构造函数可能没有初始化 m_impl）
+    // 确保 io_context 已设置（默认构造函数可能没有初始化）
     if (m_ctx == nullptr) {
         auto exec = co_await net::this_coro::executor;
         m_ctx = &static_cast<net::io_context&>(exec.context());
         HKU_CHECK(m_ctx != nullptr, "Cannot get io_context from execution context");
-        // m_impl 已废弃，不再使用
     }
 
 #if !HKU_ENABLE_HTTP_CLIENT_SSL
@@ -759,12 +1201,9 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
     HttpStreamResponseAsync response;
 
     try {
-        // DNS 解析（带超时）
-        auto dns_endpoints = co_await _resolveDNS();
-
-        // 创建 socket（使用 variant 存储普通 socket 或 SSL socket）
-        SocketVariant socket_variant;
-        co_await _connect(socket_variant, dns_endpoints);
+        // 从连接池获取连接（自动处理 DNS 缓存和连接复用）
+        auto [conn, is_new] = co_await _getConnection();
+        HKU_CHECK(conn != nullptr, "Failed to get connection from pool");
 
         // 创建 HTTP 请求
         http::request<http::string_body> req;
@@ -810,7 +1249,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
             timer.expires_after(m_timeout);
             
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-            if (socket_variant.is_ssl()) {
+            if (conn->ssl_socket) {
                 struct WriteOp {
                     ssl::stream<tcp::socket>& stream;
                     http::request<http::string_body>& req;
@@ -824,7 +1263,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                     }
                 };
                 
-                auto write_op = WriteOp{*socket_variant.ssl, req};
+                auto write_op = WriteOp{*conn->ssl_socket, req};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
                 
                 if (!timer.cancel()) {
@@ -849,7 +1288,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                     }
                 };
                 
-                auto write_op = WriteOp{socket_variant.socket(), req};
+                auto write_op = WriteOp{conn->socket.value(), req};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
                 
                 if (!timer.cancel()) {
@@ -876,21 +1315,13 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
         parser.get().body().size = BUFFER_SIZE;
 
         {
-            struct ReadOp {
-                boost::system::error_code ec;
-                std::size_t bytes_transferred;
-                bool done = false;
-            };
-
-            auto op = std::make_shared<ReadOp>();
-
             // 读取响应头 - 使用事件驱动方式
             {
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
                 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-                if (socket_variant.is_ssl()) {
+                if (conn->ssl_socket) {
                     struct ReadHeaderOp {
                         ssl::stream<tcp::socket>& stream;
                         beast::flat_buffer& buffer;
@@ -905,7 +1336,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                         }
                     };
                     
-                    auto read_header_op = ReadHeaderOp{*socket_variant.ssl, buffer, parser};
+                    auto read_header_op = ReadHeaderOp{*conn->ssl_socket, buffer, parser};
                     auto [read_ec, bytes_transferred] = co_await read_header_op.run();
                     
                     if (!timer.cancel()) {
@@ -931,7 +1362,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                         }
                     };
                     
-                    auto read_header_op = ReadHeaderOp{socket_variant.socket(), buffer, parser};
+                    auto read_header_op = ReadHeaderOp{conn->socket.value(), buffer, parser};
                     auto [read_ec, bytes_transferred] = co_await read_header_op.run();
                     
                     if (!timer.cancel()) {
@@ -943,69 +1374,8 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                     }
 #if HKU_ENABLE_HTTP_CLIENT_SSL
                 }
+#endif
             }
-#endif
-            // 读取响应头
-            {
-                auto timer = net::steady_timer{*m_ctx};
-                timer.expires_after(m_timeout);
-                
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-                if (socket_variant.is_ssl()) {
-                    struct ReadHeaderOp {
-                        ssl::stream<tcp::socket>& stream;
-                        beast::flat_buffer& buffer;
-                        http::response_parser<http::buffer_body>& parser;
-                        
-                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
-                            auto [ec, bytes] = co_await http::async_read_header(
-                                stream, buffer, parser,
-                                net::as_tuple(net::use_awaitable)
-                            );
-                            co_return std::make_pair(ec, bytes);
-                        }
-                    };
-                    
-                    auto header_op = ReadHeaderOp{*socket_variant.ssl, buffer, parser};
-                    auto [header_ec, bytes_transferred] = co_await header_op.run();
-                    
-                    if (!timer.cancel()) {
-                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
-                    }
-                    
-                    if (header_ec) {
-                        HKU_THROW("HTTP read header failed: {}", header_ec.message());
-                    }
-                } else {
-#endif
-                    struct ReadHeaderOp {
-                        tcp::socket& sock;
-                        beast::flat_buffer& buffer;
-                        http::response_parser<http::buffer_body>& parser;
-                        
-                        net::awaitable<std::pair<boost::system::error_code, std::size_t>> run() {
-                            auto [ec, bytes] = co_await http::async_read_header(
-                                sock, buffer, parser,
-                                net::as_tuple(net::use_awaitable)
-                            );
-                            co_return std::make_pair(ec, bytes);
-                        }
-                    };
-                    
-                    auto header_op = ReadHeaderOp{socket_variant.socket(), buffer, parser};
-                    auto [header_ec, bytes_transferred] = co_await header_op.run();
-                    
-                    if (!timer.cancel()) {
-                        HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP read header timeout");
-                    }
-                    
-                    if (header_ec) {
-                        HKU_THROW("HTTP read header failed: {}", header_ec.message());
-                    }
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-                }
-            }
-#endif
 
             // 填充响应对象
             response.m_status = static_cast<int>(parser.get().result_int());
@@ -1024,7 +1394,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                 boost::system::error_code read_ec;
                 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-                if (socket_variant.is_ssl()) {
+                if (conn->ssl_socket) {
                     struct ReadOp {
                         ssl::stream<tcp::socket>& stream;
                         beast::flat_buffer& buffer;
@@ -1039,7 +1409,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                         }
                     };
                     
-                    auto read_op = ReadOp{*socket_variant.ssl, buffer, parser};
+                    auto read_op = ReadOp{*conn->ssl_socket, buffer, parser};
                     auto [ec, bytes] = co_await read_op.run();
                     read_ec = ec;
                     bytes_transferred = bytes;
@@ -1067,7 +1437,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
                         }
                     };
                     
-                    auto read_op = ReadOp{socket_variant.socket(), buffer, parser};
+                    auto read_op = ReadOp{conn->socket.value(), buffer, parser};
                     auto [ec, bytes] = co_await read_op.run();
                     read_ec = ec;
                     bytes_transferred = bytes;
@@ -1095,10 +1465,7 @@ net::awaitable<HttpStreamResponseAsync> HttpAsyncClient::requestStream(
             }
         }
 
-        // 关闭连接
-        beast::error_code shutdown_ec;
-        socket_variant.socket().shutdown(tcp::socket::shutdown_both, shutdown_ec);
-        socket_variant.close(shutdown_ec);
+        // 不关闭连接，让连接池自动管理（连接会被归还到池中）
 
     } catch (const boost::system::system_error& e) {
         HKU_ERROR("HTTP stream request system error! {}", e.what());

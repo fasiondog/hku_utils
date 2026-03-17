@@ -23,6 +23,7 @@
 #include <boost/beast.hpp>
 #include "hikyuu/utilities/Log.h"
 #include "HttpException.h"
+#include "hikyuu/utilities/ResourceAsioPool.h"
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API
@@ -50,6 +51,9 @@ using HttpParams = std::map<std::string, std::string>;
 using HttpChunkCallback = std::function<void(const char* data, size_t size)>;
 
 class HKU_UTILS_API HttpAsyncClient;
+
+// HttpConnection 前向声明
+struct HttpConnection;
 
 class HKU_UTILS_API HttpResponseAsync final {
     friend class HKU_UTILS_API HttpAsyncClient;
@@ -193,14 +197,32 @@ public:
     void setUrl(const std::string& url) {
         m_url = url;
         _parseUrl();
+        // URL 变更时递增版本号，使旧连接失效
+        if (m_connection_pool) {
+            m_connection_version.fetch_add(1);
+        }
     }
 
     void setTimeout(std::chrono::milliseconds ms) {
         m_timeout = ms;
+        // 超时时间变更时递增版本号
+        if (m_connection_pool) {
+            m_connection_version.fetch_add(1);
+        }
     }
 
     std::chrono::milliseconds getTimeout() const noexcept {
         return m_timeout;
+    }
+
+    /**
+     * @brief 获取 io_context 的执行器
+     * 
+     * 用于在 HttpAsyncClient 的内部 io_context 上启动协程或其他异步操作
+     * @return net::any_io_executor io_context 的执行器
+     */
+    executor_type get_executor() const noexcept {
+        return m_ctx->get_executor();
     }
 
     void setDefaultHeaders(std::map<std::string, std::string>&& headers) {
@@ -357,6 +379,9 @@ private:
     struct SocketVariant;
     net::awaitable<void> _connect(SocketVariant& socket_variant,
                                   const std::vector<tcp::endpoint>& dns_endpoints);
+    
+    // 从连接池获取已连接的 socket（带版本检查）
+    net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> _getConnection();
 
 private:
     struct SslContext;
@@ -371,6 +396,10 @@ private:
     std::chrono::milliseconds m_timeout{30000};
     std::map<std::string, std::string> m_default_headers;
     std::string m_ca_file;  // 自定义 CA 证书文件路径
+    
+    // 连接池相关成员
+    std::atomic<int> m_connection_version{0};  // 连接版本号，用于参数更新时淘汰旧连接
+    std::unique_ptr<ResourceAsioPool<HttpConnection>> m_connection_pool;  // 连接池
 
     // io_context 管理
     std::unique_ptr<net::io_context> m_own_ctx;    // 内部 io_context
