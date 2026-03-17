@@ -383,8 +383,10 @@ private:
     net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> _getConnection();
 
 private:
+#if HKU_ENABLE_HTTP_CLIENT_SSL
     struct SslContext;
     std::unique_ptr<SslContext> m_ssl_ctx;  // SSL 上下文（仅在启用 SSL 时使用）
+#endif
 
     bool m_is_valid_url{false};
     bool m_is_https{false};
