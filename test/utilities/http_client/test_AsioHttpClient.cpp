@@ -865,15 +865,15 @@ TEST_CASE("test_AsioHttpClient_ResourceVersionPool_TimeoutChange") {
     runCoroutineTest(ctx2, [&ctx2]() -> boost::asio::awaitable<void> {
         try {
             AsioHttpClient client(ctx2, "http://httpbin.org", 5000);
-            
+
             // 设置为 0，应该使用 MAX_TIMEOUT_MS
             client.setTimeout(0);
             CHECK_EQ(client.getTimeout(), AsioHttpClient::MAX_TIMEOUT_MS);
-            
+
             // 设置为负数，应该使用 MAX_TIMEOUT_MS
             client.setTimeout(-5000);
             CHECK_EQ(client.getTimeout(), AsioHttpClient::MAX_TIMEOUT_MS);
-            
+
             // 设置为正常值，应该生效
             client.setTimeout(30000);
             CHECK_EQ(client.getTimeout(), 30000);

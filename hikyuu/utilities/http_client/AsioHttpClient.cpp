@@ -191,7 +191,6 @@ AsioHttpClient::AsioHttpClient()
 
 AsioHttpClient::AsioHttpClient(const std::string& url, int32_t timeout)
 : m_url(url),
-  // 如果传入的超时时间小于等于 0，使用最大超时值（3 分钟）
   m_timeout(std::chrono::milliseconds(timeout <= 0 ? MAX_TIMEOUT_MS : timeout)),
   m_own_ctx(std::make_unique<net::io_context>()),
   m_ctx(m_own_ctx.get()),
@@ -220,7 +219,6 @@ AsioHttpClient::AsioHttpClient(const std::string& url, int32_t timeout)
 
 AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url, int32_t timeout)
 : m_url(url),
-  // 如果传入的超时时间小于等于 0，使用最大超时值（3 分钟）
   m_timeout(std::chrono::milliseconds(timeout <= 0 ? MAX_TIMEOUT_MS : timeout)),
   m_ctx(&ctx),  // 使用外部 io_context，不拥有所有权
   m_worker_thread(nullptr) {
@@ -267,7 +265,6 @@ void AsioHttpClient::setCaFile(const std::string& filename) {
 }
 
 void AsioHttpClient::setTimeout(int32_t ms) {
-    // 如果传入的超时时间小于等于 0，使用最大超时值（3 分钟）
     if (ms <= 0) {
         ms = MAX_TIMEOUT_MS;
     }
