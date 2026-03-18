@@ -52,7 +52,7 @@ public:
     explicit ResourceAsioPool(const Parameter &param)
     : m_count(0),
       m_idleCount(0),
-      m_resourceList(256),  // 初始队列大小
+      m_resourceList(128),  // 初始队列大小
       m_param(param) {}
 
     /**
@@ -239,11 +239,7 @@ public:
      * @param param 连接参数
      */
     explicit ResourceAsioVersionPool(const Parameter &param)
-    : m_count(0),
-      m_idleCount(0),
-      m_resourceList(256),  // 初始队列大小
-      m_param(param),
-      m_version(0) {}
+    : m_count(0), m_idleCount(0), m_param(param), m_resourceList(128), m_version(0) {}
 
     /**
      * 析构函数，释放所有缓存的资源

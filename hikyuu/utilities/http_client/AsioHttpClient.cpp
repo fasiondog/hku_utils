@@ -590,9 +590,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
             // 普通 HTTP 连接
             conn_ptr->socket.emplace(*m_ctx);
 
-            boost::system::error_code connect_ec;
             bool connected = false;
-
             for (const auto& endpoint : conn_ptr->endpoints) {
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
