@@ -83,7 +83,7 @@ TEST_CASE("test_AsioHttpClient_BasicRequest") {
             AsioHttpClient client(ctx, "http://httpbin.org");  // 使用外部 io_context
 
             // GET 请求
-            auto response = co_await client.get("/ip");
+            auto response = co_await client.async_get("/ip");
 
             if (response.status() == 200) {
                 auto data = response.json();
@@ -113,7 +113,7 @@ TEST_CASE("test_AsioHttpClient_BasicRequest") {
             AsioHttpClient client(ctx2, "https://httpbin.org");  // 使用外部 io_context
 
             // 简单的 GET 请求
-            auto response = co_await client.get("/ip");
+            auto response = co_await client.async_get("/ip");
 
             if (response.status() == 200) {
                 auto data = response.json();
@@ -144,7 +144,7 @@ TEST_CASE("test_AsioHttpClient_POST") {
 
             // POST JSON 数据
             json payload = {{"name", "test"}, {"value", 123}};
-            auto response = co_await client.post("/post", payload);
+            auto response = co_await client.async_post("/post", payload);
 
             if (response.status() == 200) {
                 auto result = response.json();
@@ -172,7 +172,7 @@ TEST_CASE("test_AsioHttpClient_POST") {
 
             // POST JSON 数据
             json payload = {{"name", "https_test"}, {"value", 456}};
-            auto response = co_await client.post("/post", payload);
+            auto response = co_await client.async_post("/post", payload);
 
             if (response.status() == 200) {
                 auto result = response.json();
@@ -204,7 +204,7 @@ TEST_CASE("test_AsioHttpClient_Timeout") {
             bool exception_occurred = false;
             try {
                 // /delay/5 会延迟 5 秒，肯定会超时
-                auto response = co_await client.get("/delay/5");
+                auto response = co_await client.async_get("/delay/5");
                 HKU_INFO("Request completed with status: {}", response.status());
                 // 如果没有超时（可能是网络极快），检查状态码
                 CHECK_GE(response.status(), 200);
@@ -240,7 +240,7 @@ TEST_CASE("test_AsioHttpClient_Timeout") {
 
             bool exception_occurred = false;
             try {
-                auto response = co_await client.get("/delay/5");
+                auto response = co_await client.async_get("/delay/5");
                 HKU_INFO("HTTPS request completed with status: {}", response.status());
                 CHECK_GE(response.status(), 200);
                 exception_occurred = true;
@@ -279,7 +279,7 @@ TEST_CASE("test_AsioHttpClient_Headers") {
             headers["Accept"] = "application/json";
             client.setDefaultHeaders(headers);
 
-            auto response = co_await client.get("/headers");
+            auto response = co_await client.async_get("/headers");
 
             if (response.status() == 200) {
                 auto result = response.json();
@@ -310,7 +310,7 @@ TEST_CASE("test_AsioHttpClient_Headers") {
             headers["Accept"] = "application/json";
             client.setDefaultHeaders(headers);
 
-            auto response = co_await client.get("/headers");
+            auto response = co_await client.async_get("/headers");
 
             if (response.status() == 200) {
                 auto result = response.json();
@@ -340,8 +340,8 @@ TEST_CASE("test_AsioHttpClient_SharedIOContext") {
             AsioHttpClient client2(ctx, "http://httpbin.org");
 
             // 并发请求
-            auto response1 = co_await client1.get("/ip");
-            auto response2 = co_await client2.get("/ip");
+            auto response1 = co_await client1.async_get("/ip");
+            auto response2 = co_await client2.async_get("/ip");
 
             HKU_INFO("Both HTTP requests completed");
             CHECK_GE(response1.status(), 200);
@@ -364,8 +364,8 @@ TEST_CASE("test_AsioHttpClient_SharedIOContext") {
             AsioHttpClient client2(ctx2, "https://httpbin.org");
 
             // 并发请求
-            auto response1 = co_await client1.get("/ip");
-            auto response2 = co_await client2.get("/ip");
+            auto response1 = co_await client1.async_get("/ip");
+            auto response2 = co_await client2.async_get("/ip");
 
             HKU_INFO("Both HTTPS requests completed");
             CHECK_GE(response1.status(), 200);
@@ -392,14 +392,14 @@ TEST_CASE("test_AsioHttpClient_StreamRequest") {
             auto collected_data = std::make_shared<std::string>();
 
             // 流式 GET 请求，使用回调函数处理数据块
-            auto response =
-              co_await client.getStream("/stream/5",  // httpbin 提供的流式接口
-                                        {}, [collected_data](const char* data, size_t size) {
-                                            // 回调函数：累积接收到的数据块
-                                            collected_data->append(data, size);
-                                            HKU_INFO("Received chunk: {} bytes, total: {} bytes",
-                                                     size, collected_data->size());
-                                        });
+            auto response = co_await client.async_getStream(
+              "/stream/5",  // httpbin 提供的流式接口
+              {}, [collected_data](const char* data, size_t size) {
+                  // 回调函数：累积接收到的数据块
+                  collected_data->append(data, size);
+                  HKU_INFO("Received chunk: {} bytes, total: {} bytes", size,
+                           collected_data->size());
+              });
 
             if (response.status() == 200) {
                 HKU_INFO("Stream response completed, total bytes: {}", response.totalBytesRead());
@@ -435,7 +435,7 @@ TEST_CASE("test_AsioHttpClient_StreamRequest") {
               std::make_shared<std::pair<size_t, size_t>>(0, 0);  // chunk_count, total_bytes
 
             // 流式 POST 请求
-            auto response = co_await client.postStream(
+            auto response = co_await client.async_postStream(
               "/post", {}, {}, request_body.data(), request_body.size(), "application/json",
               [counters](const char* data, size_t size) {
                   // 回调函数：统计接收到的数据块信息
@@ -539,7 +539,7 @@ TEST_CASE("test_AsioHttpClient_MultithreadedIOContext") {
                   AsioHttpClient client(io_ctx, "http://httpbin.org");
 
                   // GET 请求
-                  auto response = co_await client.get("/ip");
+                  auto response = co_await client.async_get("/ip");
 
                   if (response.status() == 200) {
                       auto data = response.json();
@@ -603,7 +603,7 @@ TEST_CASE("test_AsioHttpClient_MultithreadedConnectionPool") {
                   AsioHttpClient client(io_ctx, "http://httpbin.org");
 
                   // 使用不同的端点进行请求
-                  auto response = co_await client.get("/get");
+                  auto response = co_await client.async_get("/get");
 
                   if (response.status() == 200) {
                       success_count.fetch_add(1);
@@ -664,7 +664,7 @@ TEST_CASE("test_AsioHttpClient_MultithreadedHTTPS") {
               try {
                   AsioHttpClient client(io_ctx, "https://httpbin.org");
 
-                  auto response = co_await client.get("/ip");
+                  auto response = co_await client.async_get("/ip");
 
                   if (response.status() == 200) {
                       auto data = response.json();
@@ -737,7 +737,7 @@ TEST_CASE("test_AsioHttpClient_MultithreadedMixedRequests") {
           [&]() -> boost::asio::awaitable<void> {
               try {
                   AsioHttpClient client(io_ctx, "http://httpbin.org");
-                  auto response = co_await client.get("/ip");
+                  auto response = co_await client.async_get("/ip");
                   if (response.status() == 200) {
                       http_success.fetch_add(1);
                   }
@@ -760,7 +760,7 @@ TEST_CASE("test_AsioHttpClient_MultithreadedMixedRequests") {
           [&]() -> boost::asio::awaitable<void> {
               try {
                   AsioHttpClient client(io_ctx, "https://httpbin.org");
-                  auto response = co_await client.get("/ip");
+                  auto response = co_await client.async_get("/ip");
                   if (response.status() == 200) {
                       https_success.fetch_add(1);
                   }
@@ -809,19 +809,19 @@ TEST_CASE("test_AsioHttpClient_ResourceVersionPool_URLChange") {
     runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
         try {
             AsioHttpClient client(ctx, "http://httpbin.org");
-            
+
             // 初始请求
-            auto response1 = co_await client.get("/ip");
+            auto response1 = co_await client.async_get("/ip");
             HKU_INFO("Initial request status: {}", response1.status());
-            
+
             // 变更 URL，连接池应自动更新版本
             client.setUrl("http://example.com");
             CHECK_EQ(client.url(), "http://example.com");
-            
+
             // 新 URL 的请求（注意：example.com 可能没有/ip 路径）
-            auto response2 = co_await client.get("/");
+            auto response2 = co_await client.async_get("/");
             HKU_INFO("After URL change status: {}", response2.status());
-            
+
             co_return;
         } catch (const std::exception& e) {
             HKU_WARN("URL change test error (expected): {}", e.what());
@@ -837,15 +837,15 @@ TEST_CASE("test_AsioHttpClient_ResourceVersionPool_TimeoutChange") {
         try {
             AsioHttpClient client(ctx, "http://httpbin.org", std::chrono::milliseconds(5000));
             CHECK_EQ(client.getTimeout(), std::chrono::milliseconds(5000));
-            
+
             // 变更超时时间，连接池应自动更新版本
             client.setTimeout(std::chrono::milliseconds(10000));
             CHECK_EQ(client.getTimeout(), std::chrono::milliseconds(10000));
-            
+
             // 发送请求验证新超时时间生效
-            auto response = co_await client.get("/delay/1");  // 延迟 1 秒的响应
+            auto response = co_await client.async_get("/delay/1");  // 延迟 1 秒的响应
             HKU_INFO("Request with new timeout status: {}", response.status());
-            
+
             co_return;
         } catch (const std::exception& e) {
             HKU_WARN("Timeout change test error: {}", e.what());
@@ -860,23 +860,84 @@ TEST_CASE("test_AsioHttpClient_ConnectionReuse") {
     runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
         try {
             AsioHttpClient client(ctx, "http://httpbin.org");
-            
+
             // 连续发送多个请求，应该复用连接
             for (int i = 0; i < 3; ++i) {
-                auto response = co_await client.get("/ip");
+                auto response = co_await client.async_get("/ip");
                 HKU_INFO("Request {} status: {}", i + 1, response.status());
                 CHECK_EQ(response.status(), 200);
-                
+
                 // 短暂等待，模拟实际使用场景
                 auto timer = boost::asio::steady_timer(ctx, std::chrono::milliseconds(100));
                 co_await timer.async_wait(boost::asio::use_awaitable);
             }
-            
+
             co_return;
         } catch (const std::exception& e) {
             HKU_WARN("Connection reuse test error: {}", e.what());
         }
     });
+}
+
+TEST_CASE("test_AsioHttpClient_SyncAsync_API") {
+    // 测试同步和异步接口的正确使用
+
+    SUBCASE("test_sync_simple") {
+        // 最简单的同步测试
+        HKU_INFO("Entering test_sync_simple");
+        try {
+            AsioHttpClient client("http://httpbin.org");
+            HKU_INFO("Created client, now destroying immediately...");
+        } catch (const std::exception& e) {
+            HKU_WARN("Exception: {}", e.what());
+        }
+        HKU_INFO("Leaving test_sync_simple");
+    }
+
+    SUBCASE("test_sync_methods_exist") {
+        // 验证同步方法存在并可调用（直接在当前线程调用，无需协程环境）
+        HKU_INFO("Entering test_sync_methods_exist");
+        try {
+            AsioHttpClient client("http://httpbin.org");
+            HKU_INFO("Created sync HTTP client");
+
+            // 同步 GET 请求 - 直接调用，阻塞等待返回
+            auto response = client.get("/ip");
+            CHECK_GE(response.status(), 200);
+            HKU_INFO("Sync GET response status: {}", response.status());
+
+            // 同步 POST 请求 - 直接调用，阻塞等待返回
+            json payload = {{"key", "value"}};
+            auto post_response = client.post("/post", payload);
+            CHECK_GE(post_response.status(), 200);
+            HKU_INFO("Sync POST response status: {}", post_response.status());
+
+        } catch (const std::exception& e) {
+            HKU_WARN("Sync API test skipped: {}", e.what());
+        }
+        HKU_INFO("Leaving test_sync_methods_exist");
+    }
+
+    SUBCASE("test_sync_stream_methods") {
+        // 验证同步流式方法存在并可调用（直接在当前线程调用）
+        try {
+            AsioHttpClient client("http://httpbin.org");
+
+            size_t total_bytes = 0;
+            auto chunk_callback = [&total_bytes](const char* data, size_t size) {
+                total_bytes += size;
+            };
+
+            // 同步流式 GET 请求 - 直接调用，阻塞等待完成
+            auto response = client.getStream("/get", {}, {}, chunk_callback);
+            CHECK_GE(response.status(), 200);
+            CHECK_GT(total_bytes, 0);
+            HKU_INFO("Sync stream GET completed, total bytes: {}", total_bytes);
+
+        } catch (const std::exception& e) {
+            HKU_WARN("Sync stream API test skipped: {}", e.what());
+        }
+    }
 }
 
 #endif  // #if HKU_ENABLE_HTTP_CLIENT

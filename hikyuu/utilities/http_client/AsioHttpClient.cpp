@@ -215,7 +215,6 @@ AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds
         m_worker_thread = std::make_unique<std::thread>([this]() {
             HKU_INFO("Starting internal io_context thread");
             m_ctx->run();
-            HKU_INFO("Internal io_context thread stopped");
         });
     }
 }
@@ -248,22 +247,29 @@ AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url,
 
 AsioHttpClient::~AsioHttpClient() {
     if (m_own_ctx) {
+        HKU_INFO("Stopping internal io_context");
         // 1. 先释放 work_guard，允许 io_context 自然退出
         m_work_guard.reset();
+
+        HKU_INFO("Internal io_context stopped");
+
+        if (!m_own_ctx->stopped()) {
+            m_own_ctx->stop();
+        }
+
+        m_connection_pool.reset();
 
         // 2. 等待所有异步操作完成，让 io_context 自然处理完所有 pending 任务
         if (m_worker_thread && m_worker_thread->joinable()) {
             m_worker_thread->join();
         }
 
-        // 3. 如果线程还在（理论上不应该），才强制 stop
-        // 注意：正常情况下，release work_guard 后 io_context 会自然退出
-        // 这里保留 stop() 作为最后的保护措施
-        if (m_worker_thread && m_worker_thread->joinable()) {
-            m_own_ctx->stop();
-            m_worker_thread->join();
-        }
+        m_own_ctx.reset();
+        HKU_INFO("Internal io_context thread stopped");
     }
+
+    m_connection_pool.reset();
+    m_ctx = nullptr;
 }
 
 void AsioHttpClient::setCaFile(const std::string& filename) {
@@ -292,29 +298,29 @@ void AsioHttpClient::setTimeout(std::chrono::milliseconds ms) {
 
 void AsioHttpClient::setUrl(const std::string& url) {
     m_url = url;
-    
+
     // 保存旧的 host 和 port 用于比较
     std::string old_host = m_host;
     std::string old_port = m_port;
-    
+
     // 解析 URL
     _parseUrl();
-    
+
     // 如果解析失败，不更新连接池
     if (!m_is_valid_url) {
         return;
     }
-    
+
     // 检查 host 或 port 是否变化，如果变化则更新连接池参数（自动递增版本）
     bool host_changed = (old_host != m_host || old_port != m_port);
-    
+
     if (host_changed && m_connection_pool) {
         Parameter pool_param;
         pool_param.set("host", m_host);
         pool_param.set("port", m_port);
         pool_param.set("is_https", m_is_https);
         pool_param.set("timeout", m_timeout.count());
-        
+
         // 设置新参数，资源池会自动递增版本并释放空闲的旧版本连接
         m_connection_pool->setParameter(std::move(pool_param));
     }
@@ -832,7 +838,7 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
     co_return;
 }
 
-net::awaitable<AsioHttpResponse> AsioHttpClient::request(
+net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
   const std::string& method, const std::string& path, const HttpParams& params,
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type) {
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
@@ -1050,7 +1056,7 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::request(
     co_return response;
 }
 
-net::awaitable<AsioHttpStreamResponse> AsioHttpClient::requestStream(
+net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
   const std::string& method, const std::string& path, const HttpParams& params,
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type,
   const HttpChunkCallback& chunk_callback) {
@@ -1354,6 +1360,64 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::requestStream(
     }
 
     co_return response;
+}
+
+// ============================================================================
+// 同步方法实现 - 阻塞直到异步操作完成
+// ============================================================================
+
+AsioHttpResponse AsioHttpClient::request(const std::string& method, const std::string& path,
+                                         const HttpParams& params, const HttpHeaders& headers,
+                                         const char* body, size_t body_len,
+                                         const std::string& content_type) {
+    HKU_ASSERT(m_ctx);
+    if (m_ctx->stopped()) {
+        m_ctx->restart();
+    }
+
+    auto future =
+      co_spawn(*m_ctx, async_request(method, path, params, headers, body, body_len, content_type),
+               boost::asio::use_future);  // 使用use_future代替detached以更好地管理future
+
+    AsioHttpResponse res;
+    try {
+        res = future.get();
+    } catch (const std::exception& e) {
+        HKU_ERROR("Failed to add connection: {}", e.what());
+        return res;
+    }
+
+    return res;
+}
+
+AsioHttpStreamResponse AsioHttpClient::requestStream(
+  const std::string& method, const std::string& path, const HttpParams& params,
+  const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type,
+  const HttpChunkCallback& chunk_callback) {
+    // 使用 shared_ptr 包装 promise，确保生命周期安全
+    auto promise = std::make_shared<std::promise<AsioHttpStreamResponse>>();
+    auto future = promise->get_future();
+
+    // 在 io_context 上启动异步协程
+    net::co_spawn(
+      *m_ctx,
+      [promise, this, method, path, params, headers, body, body_len, content_type,
+       chunk_callback]() -> net::awaitable<void> {
+          try {
+              auto response = co_await async_requestStream(method, path, params, headers, body,
+                                                           body_len, content_type, chunk_callback);
+              promise->set_value(std::move(response));
+          } catch (...) {
+              promise->set_exception(std::current_exception());
+          }
+          co_return;
+      },
+      [](std::exception_ptr) {
+          // 捕获并忽略未处理的异常（已经在 promise 中处理）
+      });
+
+    // 阻塞等待结果
+    return future.get();
 }
 
 }  // namespace hku
