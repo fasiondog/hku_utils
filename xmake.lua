@@ -130,7 +130,7 @@ if has_config("http_client") or has_config("node") then
         add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
     end
     if has_config("http_client_ssl") then 
-        add_requires("openssl3")
+        add_requires("openssl3", {configs = {shared = true}})
     end
     if has_config("http_client_zip") then
         add_requires("gzip-hpp")
