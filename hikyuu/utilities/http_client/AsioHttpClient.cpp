@@ -290,6 +290,36 @@ void AsioHttpClient::setTimeout(std::chrono::milliseconds ms) {
     }
 }
 
+void AsioHttpClient::setUrl(const std::string& url) {
+    m_url = url;
+    
+    // 保存旧的 host 和 port 用于比较
+    std::string old_host = m_host;
+    std::string old_port = m_port;
+    
+    // 解析 URL
+    _parseUrl();
+    
+    // 如果解析失败，不更新连接池
+    if (!m_is_valid_url) {
+        return;
+    }
+    
+    // 检查 host 或 port 是否变化，如果变化则更新连接池参数（自动递增版本）
+    bool host_changed = (old_host != m_host || old_port != m_port);
+    
+    if (host_changed && m_connection_pool) {
+        Parameter pool_param;
+        pool_param.set("host", m_host);
+        pool_param.set("port", m_port);
+        pool_param.set("is_https", m_is_https);
+        pool_param.set("timeout", m_timeout.count());
+        
+        // 设置新参数，资源池会自动递增版本并释放空闲的旧版本连接
+        m_connection_pool->setParameter(std::move(pool_param));
+    }
+}
+
 void AsioHttpClient::_parseUrl() noexcept {
     size_t pos = m_url.find("://");
     if (pos == std::string::npos) {
@@ -331,24 +361,9 @@ void AsioHttpClient::_parseUrl() noexcept {
         host = host.substr(0, pos);
     }
 
-    // 检查 host、port 或 timeout 是否变化，如果变化则更新连接池参数（自动递增版本）
-    bool host_changed = (m_host != host || m_port != std::to_string(port));
-
     m_base_path = std::move(base_path);
     m_host = std::move(host);
     m_port = std::to_string(port);
-
-    // 如果 host、port 或 timeout 变化，更新连接池参数（自动递增版本号使旧连接失效）
-    if (host_changed && m_connection_pool) {
-        Parameter pool_param;
-        pool_param.set("host", m_host);
-        pool_param.set("port", m_port);
-        pool_param.set("is_https", m_is_https);
-        pool_param.set("timeout", m_timeout.count());
-
-        // 设置新参数，资源池会自动递增版本并释放空闲的旧版本连接
-        m_connection_pool->setParameter(std::move(pool_param));
-    }
 }
 
 // 异步 DNS 解析方法

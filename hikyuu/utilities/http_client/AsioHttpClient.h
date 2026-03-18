@@ -198,12 +198,7 @@ public:
         return m_url;
     }
 
-    void setUrl(const std::string& url) {
-        m_url = url;
-        _parseUrl();
-        // URL 变更时，_parseUrl() 会自动更新连接池参数并递增版本号
-    }
-
+    void setUrl(const std::string& url);
     void setTimeout(std::chrono::milliseconds ms);
 
     std::chrono::milliseconds getTimeout() const noexcept {
