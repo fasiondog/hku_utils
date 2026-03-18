@@ -62,9 +62,17 @@ TEST_CASE("test_AsioHttpClient_Constructors") {
     CHECK_EQ(client2.url(), "http://example.com");
 
     // 测试带超时构造
-    AsioHttpClient client3("http://example.com", std::chrono::milliseconds(5000));
+    AsioHttpClient client3("http://example.com", 5000);
     CHECK_UNARY(client3.valid());
-    CHECK_EQ(client3.getTimeout(), std::chrono::milliseconds(5000));
+    CHECK_EQ(client3.getTimeout(), 5000);
+
+    // 测试超时为 0 时使用默认最大值（3 分钟 = 180000 毫秒）
+    AsioHttpClient client_zero("http://example.com", 0);
+    CHECK_EQ(client_zero.getTimeout(), AsioHttpClient::MAX_TIMEOUT_MS);
+
+    // 测试超时为负数时使用默认最大值
+    AsioHttpClient client_negative("http://example.com", -1000);
+    CHECK_EQ(client_negative.getTimeout(), AsioHttpClient::MAX_TIMEOUT_MS);
 
     // 测试使用外部 io_context
     boost::asio::io_context external_ctx;
@@ -199,7 +207,7 @@ TEST_CASE("test_AsioHttpClient_Timeout") {
         try {
             // 设置极短的超时时间，应该会超时
             AsioHttpClient client(ctx, "http://httpbin.org",
-                                  std::chrono::milliseconds(100));  // 使用外部 io_context
+                                  100);  // 使用外部 io_context
 
             bool exception_occurred = false;
             try {
@@ -236,7 +244,7 @@ TEST_CASE("test_AsioHttpClient_Timeout") {
     runCoroutineTest(ctx2, [&ctx2]() -> boost::asio::awaitable<void> {
         try {
             AsioHttpClient client(ctx2, "https://httpbin.org",
-                                  std::chrono::milliseconds(100));  // 使用外部 io_context
+                                  100);  // 使用外部 io_context
 
             bool exception_occurred = false;
             try {
@@ -835,12 +843,12 @@ TEST_CASE("test_AsioHttpClient_ResourceVersionPool_TimeoutChange") {
 
     runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
         try {
-            AsioHttpClient client(ctx, "http://httpbin.org", std::chrono::milliseconds(5000));
-            CHECK_EQ(client.getTimeout(), std::chrono::milliseconds(5000));
+            AsioHttpClient client(ctx, "http://httpbin.org", 5000);
+            CHECK_EQ(client.getTimeout(), 5000);
 
             // 变更超时时间，连接池应自动更新版本
-            client.setTimeout(std::chrono::milliseconds(10000));
-            CHECK_EQ(client.getTimeout(), std::chrono::milliseconds(10000));
+            client.setTimeout(10000);
+            CHECK_EQ(client.getTimeout(), 10000);
 
             // 发送请求验证新超时时间生效
             auto response = co_await client.async_get("/delay/1");  // 延迟 1 秒的响应
@@ -849,6 +857,30 @@ TEST_CASE("test_AsioHttpClient_ResourceVersionPool_TimeoutChange") {
             co_return;
         } catch (const std::exception& e) {
             HKU_WARN("Timeout change test error: {}", e.what());
+        }
+    });
+
+    // 测试 setTimeout 传入 0 或负数时使用默认值
+    boost::asio::io_context ctx2;
+    runCoroutineTest(ctx2, [&ctx2]() -> boost::asio::awaitable<void> {
+        try {
+            AsioHttpClient client(ctx2, "http://httpbin.org", 5000);
+            
+            // 设置为 0，应该使用 MAX_TIMEOUT_MS
+            client.setTimeout(0);
+            CHECK_EQ(client.getTimeout(), AsioHttpClient::MAX_TIMEOUT_MS);
+            
+            // 设置为负数，应该使用 MAX_TIMEOUT_MS
+            client.setTimeout(-5000);
+            CHECK_EQ(client.getTimeout(), AsioHttpClient::MAX_TIMEOUT_MS);
+            
+            // 设置为正常值，应该生效
+            client.setTimeout(30000);
+            CHECK_EQ(client.getTimeout(), 30000);
+
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("Timeout default value test error: {}", e.what());
         }
     });
 }

@@ -176,11 +176,14 @@ class HKU_UTILS_API AsioHttpClient {
 public:
     using executor_type = net::any_io_executor;
 
+    // 默认超时时间常量定义
+    static constexpr int32_t DEFAULT_TIMEOUT_MS = 30000;  // 默认 30 秒
+    static constexpr int32_t MAX_TIMEOUT_MS = 60000;      // 最大 1 分钟（当传入<=0 时使用）
+
     AsioHttpClient();
-    explicit AsioHttpClient(const std::string& url,
-                            std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
+    explicit AsioHttpClient(const std::string& url, int32_t timeout = DEFAULT_TIMEOUT_MS);
     explicit AsioHttpClient(net::io_context& ctx, const std::string& url,
-                            std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
+                            int32_t timeout = DEFAULT_TIMEOUT_MS);
     virtual ~AsioHttpClient();
 
     AsioHttpClient(const AsioHttpClient&) = delete;
@@ -199,10 +202,15 @@ public:
     }
 
     void setUrl(const std::string& url);
-    void setTimeout(std::chrono::milliseconds ms);
 
-    std::chrono::milliseconds getTimeout() const noexcept {
-        return m_timeout;
+    /**
+     * @brief 设置超时时间
+     * @param ms 超时时间（毫秒）。若小于等于 0，则使用 MAX_TIMEOUT_MS（3 分钟）
+     */
+    void setTimeout(int32_t ms);
+
+    int32_t getTimeout() const noexcept {
+        return static_cast<int32_t>(m_timeout.count());
     }
 
     /**
@@ -504,7 +512,7 @@ private:
     std::string m_base_path;
     std::string m_host;
     std::string m_port;
-    std::chrono::milliseconds m_timeout{30000};
+    std::chrono::milliseconds m_timeout{DEFAULT_TIMEOUT_MS};
     std::map<std::string, std::string> m_default_headers;
     std::string m_ca_file;  // 自定义 CA 证书文件路径
 

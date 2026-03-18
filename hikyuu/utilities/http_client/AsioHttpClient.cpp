@@ -189,9 +189,10 @@ AsioHttpClient::AsioHttpClient()
     m_worker_thread = std::make_unique<std::thread>([this] { m_ctx->run(); });
 }
 
-AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds timeout)
+AsioHttpClient::AsioHttpClient(const std::string& url, int32_t timeout)
 : m_url(url),
-  m_timeout(timeout),
+  // 如果传入的超时时间小于等于 0，使用最大超时值（3 分钟）
+  m_timeout(std::chrono::milliseconds(timeout <= 0 ? MAX_TIMEOUT_MS : timeout)),
   m_own_ctx(std::make_unique<net::io_context>()),
   m_ctx(m_own_ctx.get()),
   m_worker_thread(nullptr) {
@@ -217,10 +218,10 @@ AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds
     }
 }
 
-AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url,
-                               std::chrono::milliseconds timeout)
+AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url, int32_t timeout)
 : m_url(url),
-  m_timeout(timeout),
+  // 如果传入的超时时间小于等于 0，使用最大超时值（3 分钟）
+  m_timeout(std::chrono::milliseconds(timeout <= 0 ? MAX_TIMEOUT_MS : timeout)),
   m_ctx(&ctx),  // 使用外部 io_context，不拥有所有权
   m_worker_thread(nullptr) {
     _parseUrl();
@@ -265,9 +266,14 @@ void AsioHttpClient::setCaFile(const std::string& filename) {
 #endif
 }
 
-void AsioHttpClient::setTimeout(std::chrono::milliseconds ms) {
-    if (m_timeout != ms) {
-        m_timeout = ms;
+void AsioHttpClient::setTimeout(int32_t ms) {
+    // 如果传入的超时时间小于等于 0，使用最大超时值（3 分钟）
+    if (ms <= 0) {
+        ms = MAX_TIMEOUT_MS;
+    }
+    auto new_timeout = std::chrono::milliseconds(ms);
+    if (m_timeout != new_timeout) {
+        m_timeout = new_timeout;
         // 超时时间变更时更新连接池参数，自动递增版本号
         if (m_connection_pool) {
             Parameter pool_param;
@@ -1373,7 +1379,7 @@ AsioHttpStreamResponse AsioHttpClient::requestStream(
                                    chunk_callback),
                boost::asio::use_future);  // 使用use_future代替detached以更好地管理future
 
-     return future.get();
+    return future.get();
 }
 
 }  // namespace hku
