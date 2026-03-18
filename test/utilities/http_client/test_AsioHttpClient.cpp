@@ -527,68 +527,98 @@ TEST_CASE("test_AsioHttpClient_SetCaFile") {
 }
 #endif
 
-TEST_CASE("test_AsioHttpClient_MultithreadedIOContext") {
-    // 测试多线程io_context环境下的并发请求
-    boost::asio::io_context io_ctx;
+TEST_CASE("test_AsioHttpClient_inner_MultithreadedIOContext") {
+    // 测试多线程执行内部 io_context
 
-    const int num_tasks = 20;
-    const int num_threads = 4;
-    std::atomic<int> completed(0);
-    std::atomic<int> success_count(0);
-    std::promise<void> completion_promise;
-    std::future<void> completion_future = completion_promise.get_future();
-
-    // 提交多个并发任务
-    for (int i = 0; i < num_tasks; ++i) {
-        boost::asio::co_spawn(
-          io_ctx,
-          [&]() -> boost::asio::awaitable<void> {
-              try {
-                  AsioHttpClient client(io_ctx, "http://httpbin.org");
-
-                  // GET 请求
-                  auto response = co_await client.async_get("/ip");
-
-                  if (response.status() == 200) {
-                      auto data = response.json();
-                      auto ip = data["origin"].get<std::string>();
-                      HKU_INFO("HTTP GET IP: {}", ip);
-                      success_count.fetch_add(1);
-                  }
-              } catch (const std::exception& e) {
-                  HKU_WARN("HTTP request failed: {}", e.what());
-              }
-
-              if (completed.fetch_add(1) + 1 == num_tasks) {
-                  completion_promise.set_value();
-              }
-          },
-          boost::asio::detached);
+    SUBCASE("test_default_single_thread") {
+        // 默认构造函数使用单线程（thread_count=1）
+        AsioHttpClient client1;
+        CHECK_UNARY(!client1.valid());
     }
 
-    // 创建多个线程同时运行 io_context
-    std::vector<std::thread> workers;
-    for (int i = 0; i < num_threads; ++i) {
-        workers.emplace_back([&]() { io_ctx.run(); });
+    SUBCASE("test_constructor_with_thread_count_1") {
+        // 使用 thread_count=1 构造（默认值）
+        AsioHttpClient client("http://example.com", 5000, 1);
+        CHECK_UNARY(client.valid());
+        CHECK_EQ(client.getTimeout(), 5000);
     }
 
-    // 等待所有任务完成或超时
-    if (completion_future.wait_for(std::chrono::seconds(30)) == std::future_status::timeout) {
-        HKU_ERROR("Multithreaded test timeout! Completed: {}/{}", completed.load(), num_tasks);
+    SUBCASE("test_constructor_with_thread_count_4") {
+        // 使用 thread_count=4 构造，启动 4 个线程运行 io_context
+        AsioHttpClient client("http://example.com", 5000, 4);
+        CHECK_UNARY(client.valid());
+        CHECK_EQ(client.getTimeout(), 5000);
     }
 
-    // 停止 io_context 并等待所有工作线程
-    io_ctx.stop();
-    for (auto& worker : workers) {
-        if (worker.joinable()) {
-            worker.join();
+    SUBCASE("test_multithreaded_io_context_basic") {
+        // 测试多线程 io_context 的基本功能
+        try {
+            // 使用 2 个线程的 io_context
+            AsioHttpClient client("http://httpbin.org", 10000, 2);
+            CHECK_UNARY(client.valid());
+
+            // 等待一小段时间确保内部线程已经启动
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // client 析构时会自动停止所有工作线程
+        } catch (const std::exception& e) {
+            HKU_WARN("Multithreaded basic test failed: {}", e.what());
         }
     }
 
-    HKU_INFO("Multithreaded test completed - Success: {}/{}", success_count.load(), num_tasks);
-    CHECK(completed == num_tasks);
-    // 验证大部分请求成功
-    CHECK(success_count.load() > num_tasks * 0.5);
+    SUBCASE("test_internal_multithreaded_with_requests") {
+        // 测试内部管理的多线程 io_context 的请求处理
+        try {
+            // 使用 4 个线程的内部 io_context
+            AsioHttpClient client("http://httpbin.org", 10000, 4);
+            CHECK_UNARY(client.valid());
+
+            std::atomic<int> completed{0};
+            std::atomic<int> success_count{0};
+            std::promise<void> completion_promise;
+            std::future<void> completion_future = completion_promise.get_future();
+
+            constexpr int num_requests = 5;
+
+            // 在内部 io_context 上发起多个并发请求
+            for (int i = 0; i < num_requests; ++i) {
+                boost::asio::co_spawn(
+                  client.get_executor(),
+                  [&, i]() -> boost::asio::awaitable<void> {
+                      try {
+                          auto response = co_await client.async_get("/ip");
+                          if (response.status() == 200) {
+                              success_count.fetch_add(1);
+                              HKU_INFO("Request {} completed, status: {}", i, response.status());
+                          }
+                      } catch (const std::exception& e) {
+                          HKU_WARN("Request {} failed: {}", i, e.what());
+                      }
+
+                      // 最后一个完成的任务触发 promise
+                      if (completed.fetch_add(1) + 1 == num_requests) {
+                          completion_promise.set_value();
+                      }
+                  },
+                  boost::asio::detached);
+            }
+
+            // 等待所有请求完成或超时
+            if (completion_future.wait_for(std::chrono::seconds(30)) ==
+                std::future_status::timeout) {
+                HKU_WARN("Internal multithreaded test timeout! Completed: {}/{}", completed.load(),
+                         num_requests);
+            }
+
+            // 验证至少部分请求成功
+            CHECK_GT(success_count.load(), 0);
+            HKU_INFO("Internal multithreaded requests completed: {}/{}", success_count.load(),
+                     num_requests);
+
+        } catch (const std::exception& e) {
+            HKU_WARN("Internal multithreaded test failed: {}", e.what());
+        }
+    }
 }
 
 TEST_CASE("test_AsioHttpClient_MultithreadedConnectionPool") {

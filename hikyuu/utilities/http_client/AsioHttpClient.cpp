@@ -172,7 +172,7 @@ struct AsioHttpClient::SslContext {
 };
 #endif
 
-AsioHttpClient::AsioHttpClient()
+AsioHttpClient::AsioHttpClient(int32_t thread_count)
 : m_own_ctx(std::make_unique<net::io_context>()), m_ctx(m_own_ctx.get()) {
     // 创建工作守护，防止 io_context 在无任务时退出
     m_work_guard = std::make_unique<net::executor_work_guard<net::io_context::executor_type>>(
@@ -185,16 +185,18 @@ AsioHttpClient::AsioHttpClient()
     // 初始化连接池
     m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(Parameter());
 
-    // 使用内部 io_context，启动工作线程运行事件循环
-    m_worker_thread = std::make_unique<std::thread>([this] { m_ctx->run(); });
+    // 使用内部 io_context，启动工作线程池运行事件循环
+    m_worker_threads.reserve(thread_count);
+    for (int32_t i = 0; i < thread_count; ++i) {
+        m_worker_threads.emplace_back([this] { m_ctx->run(); });
+    }
 }
 
-AsioHttpClient::AsioHttpClient(const std::string& url, int32_t timeout)
+AsioHttpClient::AsioHttpClient(const std::string& url, int32_t timeout, int32_t thread_count)
 : m_url(url),
   m_timeout(std::chrono::milliseconds(timeout <= 0 ? MAX_TIMEOUT_MS : timeout)),
   m_own_ctx(std::make_unique<net::io_context>()),
-  m_ctx(m_own_ctx.get()),
-  m_worker_thread(nullptr) {
+  m_ctx(m_own_ctx.get()) {
     _parseUrl();
 
     if (m_is_valid_url && m_ctx) {
@@ -209,11 +211,14 @@ AsioHttpClient::AsioHttpClient(const std::string& url, int32_t timeout)
         // 初始化连接池参数
         m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(Parameter());
 
-        // 启动后台线程运行 io_context
-        m_worker_thread = std::make_unique<std::thread>([this]() {
-            HKU_TRACE("Starting internal io_context thread");
-            m_ctx->run();
-        });
+        // 启动后台线程池运行 io_context
+        m_worker_threads.reserve(thread_count);
+        for (int32_t i = 0; i < thread_count; ++i) {
+            m_worker_threads.emplace_back([this]() {
+                HKU_TRACE("Starting internal io_context thread");
+                m_ctx->run();
+            });
+        }
     }
 }
 
@@ -221,7 +226,7 @@ AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url, int
 : m_url(url),
   m_timeout(std::chrono::milliseconds(timeout <= 0 ? MAX_TIMEOUT_MS : timeout)),
   m_ctx(&ctx),  // 使用外部 io_context，不拥有所有权
-  m_worker_thread(nullptr) {
+  m_worker_threads() {
     _parseUrl();
 
     if (m_is_valid_url && m_ctx) {
@@ -244,8 +249,11 @@ AsioHttpClient::~AsioHttpClient() {
 
         m_connection_pool.reset();
 
-        if (m_worker_thread && m_worker_thread->joinable()) {
-            m_worker_thread->join();
+        // 等待所有工作线程结束
+        for (auto& thread : m_worker_threads) {
+            if (thread.joinable()) {
+                thread.join();
+            }
         }
 
         m_own_ctx.reset();

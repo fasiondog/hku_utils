@@ -180,8 +180,9 @@ public:
     static constexpr int32_t DEFAULT_TIMEOUT_MS = 30000;  // 默认 30 秒
     static constexpr int32_t MAX_TIMEOUT_MS = 60000;      // 最大 1 分钟（当传入<=0 时使用）
 
-    AsioHttpClient();
-    explicit AsioHttpClient(const std::string& url, int32_t timeout = DEFAULT_TIMEOUT_MS);
+    explicit AsioHttpClient(int32_t thread_count = 1);
+    explicit AsioHttpClient(const std::string& url, int32_t timeout = DEFAULT_TIMEOUT_MS,
+                            int32_t thread_count = 1);
     explicit AsioHttpClient(net::io_context& ctx, const std::string& url,
                             int32_t timeout = DEFAULT_TIMEOUT_MS);
     virtual ~AsioHttpClient();
@@ -520,9 +521,9 @@ private:
     std::unique_ptr<ResourceAsioVersionPool<HttpConnection>> m_connection_pool;  // 带版本的连接池
 
     // io_context 管理
-    std::unique_ptr<net::io_context> m_own_ctx;    // 内部 io_context
-    net::io_context* m_ctx{nullptr};               // 当前使用的 io_context
-    std::unique_ptr<std::thread> m_worker_thread;  // 后台运行 io_context 的线程
+    std::unique_ptr<net::io_context> m_own_ctx;  // 内部 io_context
+    net::io_context* m_ctx{nullptr};             // 当前使用的 io_context
+    std::vector<std::thread> m_worker_threads;   // 后台运行 io_context 的线程池
     std::unique_ptr<net::executor_work_guard<net::io_context::executor_type>>
       m_work_guard;  // 防止 io_context 在无任务时退出
 };
