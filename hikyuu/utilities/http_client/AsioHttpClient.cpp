@@ -36,16 +36,44 @@ namespace hku {
 namespace ssl = net::ssl;
 #endif
 
+AsioHttpResponse::AsioHttpResponse(AsioHttpResponse&& rhs)
+: m_status(rhs.m_status),
+  m_reason(std::move(rhs.m_reason)),
+  m_body(std::move(rhs.m_body)),
+  m_headers(std::move(rhs.m_headers)) {}
+
+AsioHttpResponse& AsioHttpResponse::operator=(AsioHttpResponse&& rhs) noexcept {
+    if (this != &rhs) {
+        m_status = rhs.m_status;
+        m_reason = std::move(rhs.m_reason);
+        m_body = std::move(rhs.m_body);
+        m_headers = std::move(rhs.m_headers);
+    }
+    return *this;
+}
+
+AsioHttpStreamResponse::AsioHttpStreamResponse(AsioHttpStreamResponse&& rhs)
+: m_status(rhs.m_status),
+  m_reason(std::move(rhs.m_reason)),
+  m_headers(std::move(rhs.m_headers)),
+  m_total_bytes_read(rhs.m_total_bytes_read) {}
+
+AsioHttpStreamResponse& AsioHttpStreamResponse::operator=(AsioHttpStreamResponse&& rhs) noexcept {
+    if (this != &rhs) {
+        m_status = rhs.m_status;
+        m_reason = std::move(rhs.m_reason);
+        m_headers = std::move(rhs.m_headers);
+        m_total_bytes_read = rhs.m_total_bytes_read;
+    }
+    return *this;
+}
+
 // HttpConnection 类定义 - 用于连接池的可复用连接
 struct HttpConnection : public AsyncResourceWithVersion {
     using SocketType = tcp::socket;
 
-    std::string host;
-    std::string port;
-    bool is_https{false};
     std::vector<tcp::endpoint> endpoints;                  // DNS 解析结果缓存
     std::chrono::steady_clock::time_point last_used_time;  // 最后使用时间
-    // 版本号由基类 AsyncResourceWithVersion 的 m_version 管理
 
     // socket 在连接被获取时创建
     std::optional<SocketType> socket;
@@ -53,12 +81,7 @@ struct HttpConnection : public AsyncResourceWithVersion {
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     std::optional<ssl::stream<tcp::socket>> ssl_socket;
 
-    HttpConnection(const Parameter& params) {
-        host = params.have("host") ? params.get<std::string>("host") : "";
-        port = params.have("port") ? params.get<std::string>("port") : "";
-        is_https = params.have("is_https") ? params.get<bool>("is_https") : false;
-        last_used_time = std::chrono::steady_clock::now();
-    }
+    HttpConnection(const Parameter& params) : last_used_time(std::chrono::steady_clock::now()) {}
 
     ~HttpConnection() {
         close();
@@ -96,11 +119,7 @@ struct HttpConnection : public AsyncResourceWithVersion {
     }
 #else
     HttpConnection(const Parameter& params) {
-        host = params.have("host") ? params.get<std::string>("host") : "";
-        port = params.have("port") ? params.get<std::string>("port") : "";
-        is_https = params.have("is_https") ? params.get<bool>("is_https") : false;
         last_used_time = std::chrono::steady_clock::now();
-        // version 由基类 AsyncResourceWithVersion 管理，默认为 0
     }
 
     ~HttpConnection() {
@@ -130,10 +149,9 @@ struct HttpConnection : public AsyncResourceWithVersion {
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
 struct AsioHttpClient::SslContext {
-    net::ssl::context ssl_ctx;  // SSL 上下文
+    net::ssl::context ssl_ctx;
 
     SslContext() : ssl_ctx(net::ssl::context::tls_client) {
-        // 配置 SSL 上下文
         ssl_ctx.set_default_verify_paths();
         ssl_ctx.set_options(net::ssl::context::default_workarounds | net::ssl::context::no_sslv2 |
                             net::ssl::context::no_sslv3 | net::ssl::context::no_tlsv1 |
@@ -161,26 +179,14 @@ AsioHttpClient::AsioHttpClient()
       m_own_ctx->get_executor());
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-    // 初始化 SSL 上下文
     m_ssl_ctx = std::make_unique<SslContext>();
 #endif
 
-    // 初始化连接池参数
-    Parameter pool_param;
-    pool_param.set("host", m_host);
-    pool_param.set("port", m_port);
-    pool_param.set("is_https", m_is_https);
-    pool_param.set("timeout", m_timeout.count());
-
-    // 创建连接池（协程环境下不需要资源数量限制）
-    m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(pool_param);
+    // 初始化连接池
+    m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(Parameter());
 
     // 使用内部 io_context，启动工作线程运行事件循环
-    m_worker_thread = std::make_unique<std::thread>([this] {
-        HKU_INFO("Starting internal io_context thread");
-        m_ctx->run();
-        HKU_INFO("Internal io_context thread stopped");
-    });
+    m_worker_thread = std::make_unique<std::thread>([this] { m_ctx->run(); });
 }
 
 AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds timeout)
@@ -190,10 +196,9 @@ AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds
   m_ctx(m_own_ctx.get()),
   m_worker_thread(nullptr) {
     _parseUrl();
-    // 在 _parseUrl() 之后初始化连接池，确保 m_host 和 m_port 已经设置好
+
     if (m_is_valid_url && m_ctx) {
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-        // 初始化 SSL 上下文
         m_ssl_ctx = std::make_unique<SslContext>();
 #endif
 
@@ -202,18 +207,11 @@ AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds
           m_own_ctx->get_executor());
 
         // 初始化连接池参数
-        Parameter pool_param;
-        pool_param.set("host", m_host);
-        pool_param.set("port", m_port);
-        pool_param.set("is_https", m_is_https);
-        pool_param.set("timeout", m_timeout.count());
-
-        // 创建连接池（协程环境下不需要资源数量限制）
-        m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(pool_param);
+        m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(Parameter());
 
         // 启动后台线程运行 io_context
         m_worker_thread = std::make_unique<std::thread>([this]() {
-            HKU_INFO("Starting internal io_context thread");
+            HKU_TRACE("Starting internal io_context thread");
             m_ctx->run();
         });
     }
@@ -229,29 +227,17 @@ AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url,
 
     if (m_is_valid_url && m_ctx) {
 #if HKU_ENABLE_HTTP_CLIENT_SSL
-        // 初始化 SSL 上下文
         m_ssl_ctx = std::make_unique<SslContext>();
 #endif
 
         // 初始化连接池参数
-        Parameter pool_param;
-        pool_param.set("host", m_host);
-        pool_param.set("port", m_port);
-        pool_param.set("is_https", m_is_https);
-        pool_param.set("timeout", m_timeout.count());
-
-        // 创建连接池（协程环境下不需要资源数量限制）
-        m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(pool_param);
+        m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(Parameter());
     }
 }
 
 AsioHttpClient::~AsioHttpClient() {
     if (m_own_ctx) {
-        HKU_INFO("Stopping internal io_context");
-        // 1. 先释放 work_guard，允许 io_context 自然退出
         m_work_guard.reset();
-
-        HKU_INFO("Internal io_context stopped");
 
         if (!m_own_ctx->stopped()) {
             m_own_ctx->stop();
@@ -259,13 +245,11 @@ AsioHttpClient::~AsioHttpClient() {
 
         m_connection_pool.reset();
 
-        // 2. 等待所有异步操作完成，让 io_context 自然处理完所有 pending 任务
         if (m_worker_thread && m_worker_thread->joinable()) {
             m_worker_thread->join();
         }
 
         m_own_ctx.reset();
-        HKU_INFO("Internal io_context thread stopped");
     }
 
     m_connection_pool.reset();
@@ -286,11 +270,7 @@ void AsioHttpClient::setTimeout(std::chrono::milliseconds ms) {
         m_timeout = ms;
         // 超时时间变更时更新连接池参数，自动递增版本号
         if (m_connection_pool) {
-            hku::Parameter pool_param;
-            pool_param.set("host", m_host);
-            pool_param.set("port", m_port);
-            pool_param.set("is_https", m_is_https);
-            pool_param.set("timeout", m_timeout.count());
+            Parameter pool_param;
             m_connection_pool->setParameter(std::move(pool_param));
         }
     }
@@ -316,11 +296,6 @@ void AsioHttpClient::setUrl(const std::string& url) {
 
     if (host_changed && m_connection_pool) {
         Parameter pool_param;
-        pool_param.set("host", m_host);
-        pool_param.set("port", m_port);
-        pool_param.set("is_https", m_is_https);
-        pool_param.set("timeout", m_timeout.count());
-
         // 设置新参数，资源池会自动递增版本并释放空闲的旧版本连接
         m_connection_pool->setParameter(std::move(pool_param));
     }
@@ -374,7 +349,7 @@ void AsioHttpClient::_parseUrl() noexcept {
 
 // 异步 DNS 解析方法
 net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
-    HKU_INFO("Starting DNS resolve for {}:{} (https={})", m_host, m_port, m_is_https);
+    HKU_TRACE("Starting DNS resolve for {}:{} (https={})", m_host, m_port, m_is_https);
 
 #if HKU_OS_OSX || HKU_OS_IOS
     // macOS 使用原生 getaddrinfo 方式（beast 解析存在已知问题会卡死）
@@ -405,7 +380,7 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
 
     freeaddrinfo(res);
 
-    HKU_INFO("Native DNS resolve success, found {} endpoints", dns_endpoints.size());
+    HKU_TRACE("Native DNS resolve success, found {} endpoints", dns_endpoints.size());
 
     if (dns_endpoints.empty()) {
         HKU_THROW("No valid endpoints from DNS resolve");
@@ -466,7 +441,7 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
         dns_endpoints.push_back(ep.endpoint());
     }
 
-    HKU_INFO("ASIO DNS resolve success, found {} endpoints", dns_endpoints.size());
+    HKU_TRACE("ASIO DNS resolve success, found {} endpoints", dns_endpoints.size());
 
     if (dns_endpoints.empty()) {
         HKU_THROW("No valid endpoints from DNS resolve");
@@ -478,7 +453,7 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
 
 // 从连接池获取已连接的连接（带 DNS 缓存）
 net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient::_getConnection() {
-    HKU_CHECK(m_connection_pool != nullptr, "Connection pool not initialized");
+    HKU_ASSERT(m_connection_pool != nullptr);
 
     // 从池中获取连接（资源池自动进行版本检查，旧版本连接会被自动淘汰）
     auto conn_ptr = co_await m_connection_pool->get();
@@ -490,7 +465,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
     if (!conn_ptr->is_open()) {
         // 连接已关闭，需要重新创建
         is_new_connection = true;
-        HKU_INFO("Creating new connection - socket closed");
+        HKU_TRACE("Creating new connection - socket closed");
 
         // 如果 DNS 缓存为空或超时（5 分钟），重新解析 DNS
         auto now = std::chrono::steady_clock::now();
@@ -546,14 +521,14 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 };
 
                 ConnectOp connect_op{&conn_ptr->ssl_socket->next_layer(), endpoint};
-                HKU_INFO("Trying to connect to {}:{}", endpoint.address().to_string(),
-                         endpoint.port());
+                HKU_TRACE("Trying to connect to {}:{}", endpoint.address().to_string(),
+                          endpoint.port());
                 auto connect_result = co_await connect_op.run();
-                HKU_INFO("Connect result: ec={}, socket.is_open={}", connect_result.message(),
-                         conn_ptr->socket->is_open());
+                HKU_TRACE("Connect result: ec={}, socket.is_open={}", connect_result.message(),
+                          conn_ptr->socket->is_open());
 
                 if (!timer.cancel()) {
-                    HKU_INFO("Timer expired, trying next endpoint");
+                    HKU_TRACE("Timer expired, trying next endpoint");
                     continue;
                 }
 
@@ -572,7 +547,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
             conn_ptr->ssl_socket->lowest_layer().set_option(tcp::no_delay(true));
 
             // SSL 握手
-            HKU_INFO("Performing SSL handshake with {}", m_host);
+            HKU_TRACE("Performing SSL handshake with {}", m_host);
             auto timer = net::steady_timer{*m_ctx};
             timer.expires_after(m_timeout);
 
@@ -597,7 +572,8 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 HKU_THROW("SSL handshake failed: {}", handshake_result.message());
             }
 
-            HKU_INFO("SSL handshake successful");
+            HKU_TRACE("SSL handshake successful");
+
         } else {
 #endif
             // 普通 HTTP 连接
@@ -627,28 +603,28 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 };
 
                 ConnectOp connect_op{&conn_ptr->socket.value(), endpoint};
-                HKU_INFO("Trying to connect to {}:{}", endpoint.address().to_string(),
-                         endpoint.port());
+                HKU_TRACE("Trying to connect to {}:{}", endpoint.address().to_string(),
+                          endpoint.port());
                 auto connect_result = co_await connect_op.run();
-                HKU_INFO("Connect result: ec={}, socket.is_open={}", connect_result.message(),
-                         conn_ptr->socket->is_open());
+                HKU_TRACE("Connect result: ec={}, socket.is_open={}", connect_result.message(),
+                          conn_ptr->socket->is_open());
 
                 // 先检查连接是否成功
                 if (!connect_result && conn_ptr->socket->is_open()) {
                     connected = true;
-                    HKU_INFO("Connected successfully");
+                    HKU_TRACE("Connected successfully");
                     break;
                 }
 
                 // 连接失败，检查是否超时
                 if (!timer.cancel()) {
-                    HKU_INFO("Timer expired, trying next endpoint");
+                    HKU_TRACE("Timer expired, trying next endpoint");
                     // 超时后不再尝试其他 endpoint
                     break;
                 }
 
                 // 连接失败但未超时，继续尝试下一个 endpoint
-                HKU_INFO("Connect failed, trying next endpoint");
+                HKU_TRACE("Connect failed, trying next endpoint");
 
                 // 连接失败，关闭 socket 以便下一次尝试
                 boost::system::error_code ec;
@@ -792,7 +768,7 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     // 如果是 HTTPS，进行 SSL 握手（带超时）
     if (m_is_https) {
-        HKU_INFO("Performing SSL handshake with {}", m_host);
+        HKU_TRACE("Performing SSL handshake with {}", m_host);
 
         // 移动到 SSL socket
 #if HKU_ENABLE_HTTP_CLIENT_SSL
@@ -831,7 +807,7 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
             HKU_THROW("SSL handshake failed: {}", handshake_result.message());
         }
 
-        HKU_INFO("SSL handshake successful");
+        HKU_TRACE("SSL handshake successful");
     }
 #endif
 
@@ -1379,45 +1355,25 @@ AsioHttpResponse AsioHttpClient::request(const std::string& method, const std::s
       co_spawn(*m_ctx, async_request(method, path, params, headers, body, body_len, content_type),
                boost::asio::use_future);  // 使用use_future代替detached以更好地管理future
 
-    AsioHttpResponse res;
-    try {
-        res = future.get();
-    } catch (const std::exception& e) {
-        HKU_ERROR("Failed to add connection: {}", e.what());
-        return res;
-    }
-
-    return res;
+    return future.get();
 }
 
 AsioHttpStreamResponse AsioHttpClient::requestStream(
   const std::string& method, const std::string& path, const HttpParams& params,
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type,
   const HttpChunkCallback& chunk_callback) {
-    // 使用 shared_ptr 包装 promise，确保生命周期安全
-    auto promise = std::make_shared<std::promise<AsioHttpStreamResponse>>();
-    auto future = promise->get_future();
+    HKU_ASSERT(m_ctx);
+    if (m_ctx->stopped()) {
+        m_ctx->restart();
+    }
 
-    // 在 io_context 上启动异步协程
-    net::co_spawn(
-      *m_ctx,
-      [promise, this, method, path, params, headers, body, body_len, content_type,
-       chunk_callback]() -> net::awaitable<void> {
-          try {
-              auto response = co_await async_requestStream(method, path, params, headers, body,
-                                                           body_len, content_type, chunk_callback);
-              promise->set_value(std::move(response));
-          } catch (...) {
-              promise->set_exception(std::current_exception());
-          }
-          co_return;
-      },
-      [](std::exception_ptr) {
-          // 捕获并忽略未处理的异常（已经在 promise 中处理）
-      });
+    auto future =
+      co_spawn(*m_ctx,
+               async_requestStream(method, path, params, headers, body, body_len, content_type,
+                                   chunk_callback),
+               boost::asio::use_future);  // 使用use_future代替detached以更好地管理future
 
-    // 阻塞等待结果
-    return future.get();
+     return future.get();
 }
 
 }  // namespace hku

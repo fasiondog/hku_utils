@@ -66,11 +66,11 @@ public:
     AsioHttpResponse() = default;
     ~AsioHttpResponse() = default;
 
-    AsioHttpResponse(const AsioHttpResponse&) = delete;
-    AsioHttpResponse& operator=(const AsioHttpResponse&) = delete;
+    AsioHttpResponse(const AsioHttpResponse&) = default;
+    AsioHttpResponse& operator=(const AsioHttpResponse&) = default;
 
-    AsioHttpResponse(AsioHttpResponse&& rhs) = default;
-    AsioHttpResponse& operator=(AsioHttpResponse&& rhs) = default;
+    AsioHttpResponse(AsioHttpResponse&& rhs);
+    AsioHttpResponse& operator=(AsioHttpResponse&& rhs) noexcept;
 
     const std::string& body() const noexcept {
         return m_body;
@@ -125,11 +125,11 @@ public:
     AsioHttpStreamResponse() = default;
     ~AsioHttpStreamResponse() = default;
 
-    AsioHttpStreamResponse(const AsioHttpStreamResponse&) = delete;
-    AsioHttpStreamResponse& operator=(const AsioHttpStreamResponse&) = delete;
+    AsioHttpStreamResponse(const AsioHttpStreamResponse&) = default;
+    AsioHttpStreamResponse& operator=(const AsioHttpStreamResponse&) = default;
 
-    AsioHttpStreamResponse(AsioHttpStreamResponse&& rhs) = default;
-    AsioHttpStreamResponse& operator=(AsioHttpStreamResponse&& rhs) = default;
+    AsioHttpStreamResponse(AsioHttpStreamResponse&& rhs);
+    AsioHttpStreamResponse& operator=(AsioHttpStreamResponse&& rhs) noexcept;
 
     int status() const noexcept {
         return m_status;
@@ -232,52 +232,56 @@ public:
     }
 
     // 异步请求方法 - 返回 net::awaitable
-    net::awaitable<AsioHttpResponse> async_request(const std::string& method, const std::string& path,
-                                             const HttpParams& params, const HttpHeaders& headers,
-                                             const char* body, size_t body_len,
-                                             const std::string& content_type);
+    net::awaitable<AsioHttpResponse> async_request(const std::string& method,
+                                                   const std::string& path,
+                                                   const HttpParams& params,
+                                                   const HttpHeaders& headers, const char* body,
+                                                   size_t body_len,
+                                                   const std::string& content_type);
 
-    net::awaitable<AsioHttpResponse> async_get(const std::string& path, const HttpHeaders& headers = {}) {
+    net::awaitable<AsioHttpResponse> async_get(const std::string& path,
+                                               const HttpHeaders& headers = {}) {
         co_return co_await async_request("GET", path, {}, headers, nullptr, 0, "");
     }
 
     net::awaitable<AsioHttpResponse> async_get(const std::string& path, const HttpParams& params,
-                                         const HttpHeaders& headers) {
+                                               const HttpHeaders& headers) {
         co_return co_await async_request("GET", path, params, headers, nullptr, 0, "");
     }
 
     net::awaitable<AsioHttpResponse> async_post(const std::string& path, const HttpParams& params,
-                                          const HttpHeaders& headers, const char* body, size_t len,
-                                          const std::string& content_type) {
+                                                const HttpHeaders& headers, const char* body,
+                                                size_t len, const std::string& content_type) {
         co_return co_await async_request("POST", path, params, headers, body, len, content_type);
     }
 
     net::awaitable<AsioHttpResponse> async_post(const std::string& path, const HttpHeaders& headers,
-                                          const char* body, size_t len,
-                                          const std::string& content_type) {
+                                                const char* body, size_t len,
+                                                const std::string& content_type) {
         co_return co_await async_request("POST", path, {}, headers, body, len, content_type);
     }
 
     net::awaitable<AsioHttpResponse> async_post(const std::string& path, const HttpParams& params,
-                                          const HttpHeaders& headers, const std::string& content,
-                                          const std::string& content_type = "text/plain") {
+                                                const HttpHeaders& headers,
+                                                const std::string& content,
+                                                const std::string& content_type = "text/plain") {
         co_return co_await async_post(path, params, headers, content.data(), content.size(),
-                                content_type);
+                                      content_type);
     }
 
     net::awaitable<AsioHttpResponse> async_post(const std::string& path, const HttpHeaders& headers,
-                                          const std::string& content,
-                                          const std::string& content_type = "text/plain") {
+                                                const std::string& content,
+                                                const std::string& content_type = "text/plain") {
         co_return co_await async_post(path, {}, headers, content, content_type);
     }
 
     net::awaitable<AsioHttpResponse> async_post(const std::string& path, const HttpParams& params,
-                                          const HttpHeaders& headers, const json& body) {
+                                                const HttpHeaders& headers, const json& body) {
         co_return co_await async_post(path, params, headers, body.dump(), "application/json");
     }
 
     net::awaitable<AsioHttpResponse> async_post(const std::string& path, const HttpHeaders& headers,
-                                          const json& body) {
+                                                const json& body) {
         co_return co_await async_post(path, {}, headers, body);
     }
 
@@ -315,18 +319,18 @@ public:
      * @param chunk_callback 数据块回调函数
      * @return AsioHttpStreamResponse 流式响应对象
      */
-    net::awaitable<AsioHttpStreamResponse> async_getStream(const std::string& path,
-                                                     const HttpParams& params,
-                                                     const HttpHeaders& headers,
-                                                     const HttpChunkCallback& chunk_callback) {
+    net::awaitable<AsioHttpStreamResponse> async_getStream(
+      const std::string& path, const HttpParams& params, const HttpHeaders& headers,
+      const HttpChunkCallback& chunk_callback) {
         co_return co_await async_requestStream("GET", path, params, headers, nullptr, 0, "",
-                                         chunk_callback);
+                                               chunk_callback);
     }
 
-    net::awaitable<AsioHttpStreamResponse> async_getStream(const std::string& path,
-                                                     const HttpHeaders& headers,
-                                                     const HttpChunkCallback& chunk_callback) {
-        co_return co_await async_requestStream("GET", path, {}, headers, nullptr, 0, "", chunk_callback);
+    net::awaitable<AsioHttpStreamResponse> async_getStream(
+      const std::string& path, const HttpHeaders& headers,
+      const HttpChunkCallback& chunk_callback) {
+        co_return co_await async_requestStream("GET", path, {}, headers, nullptr, 0, "",
+                                               chunk_callback);
     }
 
     /**
@@ -341,71 +345,64 @@ public:
      * @param chunk_callback 数据块回调函数
      * @return AsioHttpStreamResponse 流式响应对象
      */
-    net::awaitable<AsioHttpStreamResponse> async_postStream(const std::string& path,
-                                                      const HttpParams& params,
-                                                      const HttpHeaders& headers, const char* body,
-                                                      size_t body_len,
-                                                      const std::string& content_type,
-                                                      const HttpChunkCallback& chunk_callback) {
+    net::awaitable<AsioHttpStreamResponse> async_postStream(
+      const std::string& path, const HttpParams& params, const HttpHeaders& headers,
+      const char* body, size_t body_len, const std::string& content_type,
+      const HttpChunkCallback& chunk_callback) {
         co_return co_await async_requestStream("POST", path, params, headers, body, body_len,
-                                         content_type, chunk_callback);
+                                               content_type, chunk_callback);
     }
 
-    net::awaitable<AsioHttpStreamResponse> async_postStream(const std::string& path,
-                                                      const HttpHeaders& headers, const char* body,
-                                                      size_t body_len,
-                                                      const std::string& content_type,
-                                                      const HttpChunkCallback& chunk_callback) {
-        co_return co_await async_requestStream("POST", path, {}, headers, body, body_len, content_type,
-                                         chunk_callback);
+    net::awaitable<AsioHttpStreamResponse> async_postStream(
+      const std::string& path, const HttpHeaders& headers, const char* body, size_t body_len,
+      const std::string& content_type, const HttpChunkCallback& chunk_callback) {
+        co_return co_await async_requestStream("POST", path, {}, headers, body, body_len,
+                                               content_type, chunk_callback);
     }
 
     // 同步请求方法 - 阻塞直到完成
     AsioHttpResponse request(const std::string& method, const std::string& path,
-                            const HttpParams& params, const HttpHeaders& headers,
-                            const char* body, size_t body_len,
-                            const std::string& content_type);
+                             const HttpParams& params, const HttpHeaders& headers, const char* body,
+                             size_t body_len, const std::string& content_type);
 
     AsioHttpResponse get(const std::string& path, const HttpHeaders& headers = {}) {
         return request("GET", path, {}, headers, nullptr, 0, "");
     }
 
     AsioHttpResponse get(const std::string& path, const HttpParams& params,
-                        const HttpHeaders& headers) {
+                         const HttpHeaders& headers) {
         return request("GET", path, params, headers, nullptr, 0, "");
     }
 
     AsioHttpResponse post(const std::string& path, const HttpParams& params,
-                         const HttpHeaders& headers, const char* body, size_t len,
-                         const std::string& content_type) {
+                          const HttpHeaders& headers, const char* body, size_t len,
+                          const std::string& content_type) {
         return request("POST", path, params, headers, body, len, content_type);
     }
 
-    AsioHttpResponse post(const std::string& path, const HttpHeaders& headers,
-                         const char* body, size_t len,
-                         const std::string& content_type) {
+    AsioHttpResponse post(const std::string& path, const HttpHeaders& headers, const char* body,
+                          size_t len, const std::string& content_type) {
         return request("POST", path, {}, headers, body, len, content_type);
     }
 
     AsioHttpResponse post(const std::string& path, const HttpParams& params,
-                         const HttpHeaders& headers, const std::string& content,
-                         const std::string& content_type = "text/plain") {
+                          const HttpHeaders& headers, const std::string& content,
+                          const std::string& content_type = "text/plain") {
         return post(path, params, headers, content.data(), content.size(), content_type);
     }
 
     AsioHttpResponse post(const std::string& path, const HttpHeaders& headers,
-                         const std::string& content,
-                         const std::string& content_type = "text/plain") {
+                          const std::string& content,
+                          const std::string& content_type = "text/plain") {
         return post(path, {}, headers, content, content_type);
     }
 
     AsioHttpResponse post(const std::string& path, const HttpParams& params,
-                         const HttpHeaders& headers, const json& body) {
+                          const HttpHeaders& headers, const json& body) {
         return post(path, params, headers, body.dump(), "application/json");
     }
 
-    AsioHttpResponse post(const std::string& path, const HttpHeaders& headers,
-                         const json& body) {
+    AsioHttpResponse post(const std::string& path, const HttpHeaders& headers, const json& body) {
         return post(path, {}, headers, body);
     }
 
@@ -429,10 +426,11 @@ public:
      * @param chunk_callback 数据块回调函数，每次接收到数据时调用
      * @return AsioHttpStreamResponse 流式响应对象
      */
-    AsioHttpStreamResponse requestStream(
-      const std::string& method, const std::string& path, const HttpParams& params,
-      const HttpHeaders& headers, const char* body, size_t body_len,
-      const std::string& content_type, const HttpChunkCallback& chunk_callback);
+    AsioHttpStreamResponse requestStream(const std::string& method, const std::string& path,
+                                         const HttpParams& params, const HttpHeaders& headers,
+                                         const char* body, size_t body_len,
+                                         const std::string& content_type,
+                                         const HttpChunkCallback& chunk_callback);
 
     /**
      * @brief 同步流式 GET 请求
@@ -443,16 +441,14 @@ public:
      * @param chunk_callback 数据块回调函数
      * @return AsioHttpStreamResponse 流式响应对象
      */
-    AsioHttpStreamResponse getStream(const std::string& path,
-                                    const HttpParams& params,
-                                    const HttpHeaders& headers,
-                                    const HttpChunkCallback& chunk_callback) {
+    AsioHttpStreamResponse getStream(const std::string& path, const HttpParams& params,
+                                     const HttpHeaders& headers,
+                                     const HttpChunkCallback& chunk_callback) {
         return requestStream("GET", path, params, headers, nullptr, 0, "", chunk_callback);
     }
 
-    AsioHttpStreamResponse getStream(const std::string& path,
-                                    const HttpHeaders& headers,
-                                    const HttpChunkCallback& chunk_callback) {
+    AsioHttpStreamResponse getStream(const std::string& path, const HttpHeaders& headers,
+                                     const HttpChunkCallback& chunk_callback) {
         return requestStream("GET", path, {}, headers, nullptr, 0, "", chunk_callback);
     }
 
@@ -468,21 +464,20 @@ public:
      * @param chunk_callback 数据块回调函数
      * @return AsioHttpStreamResponse 流式响应对象
      */
-    AsioHttpStreamResponse postStream(const std::string& path,
-                                     const HttpParams& params,
-                                     const HttpHeaders& headers, const char* body,
-                                     size_t body_len,
-                                     const std::string& content_type,
-                                     const HttpChunkCallback& chunk_callback) {
-        return requestStream("POST", path, params, headers, body, body_len, content_type, chunk_callback);
+    AsioHttpStreamResponse postStream(const std::string& path, const HttpParams& params,
+                                      const HttpHeaders& headers, const char* body, size_t body_len,
+                                      const std::string& content_type,
+                                      const HttpChunkCallback& chunk_callback) {
+        return requestStream("POST", path, params, headers, body, body_len, content_type,
+                             chunk_callback);
     }
 
-    AsioHttpStreamResponse postStream(const std::string& path,
-                                     const HttpHeaders& headers, const char* body,
-                                     size_t body_len,
-                                     const std::string& content_type,
-                                     const HttpChunkCallback& chunk_callback) {
-        return requestStream("POST", path, {}, headers, body, body_len, content_type, chunk_callback);
+    AsioHttpStreamResponse postStream(const std::string& path, const HttpHeaders& headers,
+                                      const char* body, size_t body_len,
+                                      const std::string& content_type,
+                                      const HttpChunkCallback& chunk_callback) {
+        return requestStream("POST", path, {}, headers, body, body_len, content_type,
+                             chunk_callback);
     }
 
 private:
