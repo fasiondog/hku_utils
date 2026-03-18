@@ -37,16 +37,15 @@ namespace ssl = net::ssl;
 #endif
 
 // HttpConnection 类定义 - 用于连接池的可复用连接
-struct HttpConnection {
+struct HttpConnection : public AsyncResourceWithVersion {
     using SocketType = tcp::socket;
 
-    Parameter params;
     std::string host;
     std::string port;
     bool is_https{false};
     std::vector<tcp::endpoint> endpoints;                  // DNS 解析结果缓存
     std::chrono::steady_clock::time_point last_used_time;  // 最后使用时间
-    int version{0};                                        // 版本号，用于检测参数是否更新
+    // 版本号由基类 AsyncResourceWithVersion 的 m_version 管理
 
     // socket 在连接被获取时创建
     std::optional<SocketType> socket;
@@ -54,7 +53,7 @@ struct HttpConnection {
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     std::optional<ssl::stream<tcp::socket>> ssl_socket;
 
-    HttpConnection(const Parameter& p) : params(p) {
+    HttpConnection(const Parameter& params) {
         host = params.have("host") ? params.get<std::string>("host") : "";
         port = params.have("port") ? params.get<std::string>("port") : "";
         is_https = params.have("is_https") ? params.get<bool>("is_https") : false;
@@ -96,11 +95,12 @@ struct HttpConnection {
         HKU_THROW("Socket not initialized");
     }
 #else
-    HttpConnection(const Parameter& p) : params(p) {
+    HttpConnection(const Parameter& params) {
         host = params.have("host") ? params.get<std::string>("host") : "";
         port = params.have("port") ? params.get<std::string>("port") : "";
         is_https = params.have("is_https") ? params.get<bool>("is_https") : false;
         last_used_time = std::chrono::steady_clock::now();
+        // version 由基类 AsyncResourceWithVersion 管理，默认为 0
     }
 
     ~HttpConnection() {
@@ -173,7 +173,7 @@ AsioHttpClient::AsioHttpClient()
     pool_param.set("timeout", m_timeout.count());
 
     // 创建连接池（协程环境下不需要资源数量限制）
-    m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param);
+    m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(pool_param);
 
     // 使用内部 io_context，启动工作线程运行事件循环
     m_worker_thread = std::make_unique<std::thread>([this] {
@@ -209,7 +209,7 @@ AsioHttpClient::AsioHttpClient(const std::string& url, std::chrono::milliseconds
         pool_param.set("timeout", m_timeout.count());
 
         // 创建连接池（协程环境下不需要资源数量限制）
-        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param);
+        m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(pool_param);
 
         // 启动后台线程运行 io_context
         m_worker_thread = std::make_unique<std::thread>([this]() {
@@ -242,7 +242,7 @@ AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url,
         pool_param.set("timeout", m_timeout.count());
 
         // 创建连接池（协程环境下不需要资源数量限制）
-        m_connection_pool = std::make_unique<ResourceAsioPool<HttpConnection>>(pool_param);
+        m_connection_pool = std::make_unique<ResourceAsioVersionPool<HttpConnection>>(pool_param);
     }
 }
 
@@ -273,6 +273,21 @@ void AsioHttpClient::setCaFile(const std::string& filename) {
         m_ssl_ctx->setCaFile(filename);
     }
 #endif
+}
+
+void AsioHttpClient::setTimeout(std::chrono::milliseconds ms) {
+    if (m_timeout != ms) {
+        m_timeout = ms;
+        // 超时时间变更时更新连接池参数，自动递增版本号
+        if (m_connection_pool) {
+            hku::Parameter pool_param;
+            pool_param.set("host", m_host);
+            pool_param.set("port", m_port);
+            pool_param.set("is_https", m_is_https);
+            pool_param.set("timeout", m_timeout.count());
+            m_connection_pool->setParameter(std::move(pool_param));
+        }
+    }
 }
 
 void AsioHttpClient::_parseUrl() noexcept {
@@ -316,26 +331,23 @@ void AsioHttpClient::_parseUrl() noexcept {
         host = host.substr(0, pos);
     }
 
-    // 检查 host 或 port 是否变化，如果变化则递增版本号
+    // 检查 host、port 或 timeout 是否变化，如果变化则更新连接池参数（自动递增版本）
     bool host_changed = (m_host != host || m_port != std::to_string(port));
 
     m_base_path = std::move(base_path);
     m_host = std::move(host);
     m_port = std::to_string(port);
 
-    // 如果 host 或 port 变化，递增版本号使旧连接失效
+    // 如果 host、port 或 timeout 变化，更新连接池参数（自动递增版本号使旧连接失效）
     if (host_changed && m_connection_pool) {
-        m_connection_version.fetch_add(1);
-
-        // 更新连接池参数
         Parameter pool_param;
         pool_param.set("host", m_host);
         pool_param.set("port", m_port);
         pool_param.set("is_https", m_is_https);
         pool_param.set("timeout", m_timeout.count());
 
-        // 释放旧连接池中的空闲连接
-        m_connection_pool->releaseIdleResource();
+        // 设置新参数，资源池会自动递增版本并释放空闲的旧版本连接
+        m_connection_pool->setParameter(std::move(pool_param));
     }
 }
 
@@ -443,23 +455,21 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
 #endif
 }
 
-// 从连接池获取已连接的连接（带版本检查和 DNS 缓存）
+// 从连接池获取已连接的连接（带 DNS 缓存）
 net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient::_getConnection() {
     HKU_CHECK(m_connection_pool != nullptr, "Connection pool not initialized");
 
-    // 从池中获取连接
+    // 从池中获取连接（资源池自动进行版本检查，旧版本连接会被自动淘汰）
     auto conn_ptr = co_await m_connection_pool->get();
     HKU_CHECK(conn_ptr != nullptr, "Failed to get connection from pool");
 
-    int current_version = m_connection_version.load();
     bool is_new_connection = false;
 
     // 检查连接是否需要重新创建
-    if (!conn_ptr->is_open() || conn_ptr->version != current_version) {
-        // 连接已关闭或版本不匹配，需要重新创建
+    if (!conn_ptr->is_open()) {
+        // 连接已关闭，需要重新创建
         is_new_connection = true;
-        HKU_INFO("Creating new connection - is_open={}, version_mismatch={}", conn_ptr->is_open(),
-                 conn_ptr->version != current_version);
+        HKU_INFO("Creating new connection - socket closed");
 
         // 如果 DNS 缓存为空或超时（5 分钟），重新解析 DNS
         auto now = std::chrono::steady_clock::now();
@@ -635,130 +645,16 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
         }
 #endif
 
-        // 更新版本号和使用时间
-        conn_ptr->version = current_version;
-        conn_ptr->last_used_time = now;
-    } else {
-        // 复用已有连接，更新时间并检查连接是否有效
-        auto now = std::chrono::steady_clock::now();
-
-        // 检查连接是否仍然打开
-        if (!conn_ptr->is_open()) {
-            HKU_INFO("Connection closed, need reconnect");
-
-            // 连接已关闭，需要重新创建 - 直接在这里处理重连
-            conn_ptr->close();
-
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-            if (m_is_https) {
-                conn_ptr->ssl_socket.emplace(*m_ctx, m_ssl_ctx->ssl_ctx);
-#else
-            {
-#endif
-
-                struct ConnectOp {
-                    tcp::socket* socket;
-                    tcp::endpoint endpoint;
-
-                    net::awaitable<boost::system::error_code> run() {
-                        auto [ec] = co_await socket->async_connect(
-                          endpoint, net::as_tuple(net::use_awaitable));
-                        co_return ec
-                          ? ec
-                          : (socket->is_open()
-                               ? boost::system::errc::make_error_code(boost::system::errc::success)
-                               : boost::system::errc::make_error_code(
-                                   boost::system::errc::not_connected));
-                    }
-                };
-
-                bool connected = false;
-                for (const auto& endpoint : conn_ptr->endpoints) {
-                    auto timer = net::steady_timer{*m_ctx};
-                    timer.expires_after(m_timeout);
-
-                    ConnectOp connect_op{
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-                      m_is_https ? &conn_ptr->ssl_socket->next_layer() :
-#endif
-                                 &conn_ptr->socket.value(),
-                      endpoint};
-                    auto connect_result = co_await connect_op.run();
-
-                    if (!timer.cancel()) {
-                        continue;
-                    }
-
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-                    if (!connect_result &&
-                        (m_is_https ? conn_ptr->ssl_socket->lowest_layer().is_open()
-                                    : conn_ptr->socket->is_open())) {
-#else
-                    if (!connect_result && conn_ptr->socket->is_open()) {
-#endif
-                        connected = true;
-                        break;
-                    }
-                }
-
-                if (!connected) {
-                    HKU_THROW_EXCEPTION(HttpTimeoutException, "Reconnect timeout to {}:{}", m_host,
-                                        m_port);
-                }
-
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-                if (m_is_https) {
-                    conn_ptr->ssl_socket->lowest_layer().set_option(tcp::no_delay(true));
-
-                    // SSL 握手
-                    auto timer = net::steady_timer{*m_ctx};
-                    timer.expires_after(m_timeout);
-
-                    struct SslHandshakeOp {
-                        ssl::stream<tcp::socket>* stream;
-
-                        net::awaitable<boost::system::error_code> run() {
-                            auto [ec] = co_await stream->async_handshake(
-                              ssl::stream_base::client, net::as_tuple(net::use_awaitable));
-                            co_return ec;
-                        }
-                    };
-
-                    SslHandshakeOp handshake_op{&conn_ptr->ssl_socket.value()};
-                    auto handshake_result = co_await handshake_op.run();
-
-                    if (!timer.cancel()) {
-                        HKU_THROW_EXCEPTION(HttpTimeoutException, "SSL handshake timeout");
-                    }
-
-                    if (handshake_result) {
-                        HKU_THROW("SSL handshake failed: {}", handshake_result.message());
-                    }
-                } else {
-                    conn_ptr->socket->set_option(tcp::no_delay(true));
-                }
-#else
-                conn_ptr->socket->set_option(tcp::no_delay(true));
-#endif
-            }
-
-            conn_ptr->version = current_version;
-        }
-
-        conn_ptr->last_used_time = now;
+        // 更新最后使用时间
+        conn_ptr->last_used_time = std::chrono::steady_clock::now();
     }
+    // 复用已有连接，无需额外操作，连接池会自动管理其生命周期
+    // 只需在每次使用后更新 last_used_time 即可
+    conn_ptr->last_used_time = std::chrono::steady_clock::now();
 
-    // 设置 socket 选项以确保连接活跃
-    if (conn_ptr->socket) {
-        boost::system::error_code ec;
-        conn_ptr->socket->set_option(tcp::no_delay(true), ec);
-    }
-#if HKU_ENABLE_HTTP_CLIENT_SSL
-    if (conn_ptr->ssl_socket) {
-        boost::system::error_code ec;
-        conn_ptr->ssl_socket->lowest_layer().set_option(tcp::no_delay(true), ec);
-    }
-#endif
+    // 复用的连接不需要在此处再次设置 socket 选项，
+    // 因为它们在 _connect 或之前的连接建立时已经设置过。
+    // 如果连接被复用，其 socket 状态是保持的。
 
     co_return std::make_pair(conn_ptr, is_new_connection);
 }

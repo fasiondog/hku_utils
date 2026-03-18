@@ -22,8 +22,8 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include "hikyuu/utilities/Log.h"
+#include "hikyuu/utilities/Parameter.h"
 #include "HttpException.h"
-#include "hikyuu/utilities/ResourceAsioPool.h"
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API
@@ -54,6 +54,10 @@ class HKU_UTILS_API AsioHttpClient;
 
 // HttpConnection 前向声明
 struct HttpConnection;
+
+// 连接池类型前向声明（避免在头文件中暴露完整模板定义）
+template <typename T>
+class ResourceAsioVersionPool;
 
 class HKU_UTILS_API AsioHttpResponse final {
     friend class HKU_UTILS_API AsioHttpClient;
@@ -197,19 +201,10 @@ public:
     void setUrl(const std::string& url) {
         m_url = url;
         _parseUrl();
-        // URL 变更时递增版本号，使旧连接失效
-        if (m_connection_pool) {
-            m_connection_version.fetch_add(1);
-        }
+        // URL 变更时，_parseUrl() 会自动更新连接池参数并递增版本号
     }
 
-    void setTimeout(std::chrono::milliseconds ms) {
-        m_timeout = ms;
-        // 超时时间变更时递增版本号
-        if (m_connection_pool) {
-            m_connection_version.fetch_add(1);
-        }
-    }
+    void setTimeout(std::chrono::milliseconds ms);
 
     std::chrono::milliseconds getTimeout() const noexcept {
         return m_timeout;
@@ -399,8 +394,7 @@ private:
     std::string m_ca_file;  // 自定义 CA 证书文件路径
 
     // 连接池相关成员
-    std::atomic<int> m_connection_version{0};  // 连接版本号，用于参数更新时淘汰旧连接
-    std::unique_ptr<ResourceAsioPool<HttpConnection>> m_connection_pool;  // 连接池
+    std::unique_ptr<ResourceAsioVersionPool<HttpConnection>> m_connection_pool;  // 带版本的连接池
 
     // io_context 管理
     std::unique_ptr<net::io_context> m_own_ctx;    // 内部 io_context

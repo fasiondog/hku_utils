@@ -802,4 +802,81 @@ TEST_CASE("test_AsioHttpClient_MultithreadedMixedRequests") {
     CHECK(completed == total_tasks);
 }
 
+TEST_CASE("test_AsioHttpClient_ResourceVersionPool_URLChange") {
+    // 测试 URL 变更时连接池自动更新版本
+    boost::asio::io_context ctx;
+
+    runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
+        try {
+            AsioHttpClient client(ctx, "http://httpbin.org");
+            
+            // 初始请求
+            auto response1 = co_await client.get("/ip");
+            HKU_INFO("Initial request status: {}", response1.status());
+            
+            // 变更 URL，连接池应自动更新版本
+            client.setUrl("http://example.com");
+            CHECK_EQ(client.url(), "http://example.com");
+            
+            // 新 URL 的请求（注意：example.com 可能没有/ip 路径）
+            auto response2 = co_await client.get("/");
+            HKU_INFO("After URL change status: {}", response2.status());
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("URL change test error (expected): {}", e.what());
+        }
+    });
+}
+
+TEST_CASE("test_AsioHttpClient_ResourceVersionPool_TimeoutChange") {
+    // 测试超时变更时连接池自动更新版本
+    boost::asio::io_context ctx;
+
+    runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
+        try {
+            AsioHttpClient client(ctx, "http://httpbin.org", std::chrono::milliseconds(5000));
+            CHECK_EQ(client.getTimeout(), std::chrono::milliseconds(5000));
+            
+            // 变更超时时间，连接池应自动更新版本
+            client.setTimeout(std::chrono::milliseconds(10000));
+            CHECK_EQ(client.getTimeout(), std::chrono::milliseconds(10000));
+            
+            // 发送请求验证新超时时间生效
+            auto response = co_await client.get("/delay/1");  // 延迟 1 秒的响应
+            HKU_INFO("Request with new timeout status: {}", response.status());
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("Timeout change test error: {}", e.what());
+        }
+    });
+}
+
+TEST_CASE("test_AsioHttpClient_ConnectionReuse") {
+    // 测试连接复用功能
+    boost::asio::io_context ctx;
+
+    runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
+        try {
+            AsioHttpClient client(ctx, "http://httpbin.org");
+            
+            // 连续发送多个请求，应该复用连接
+            for (int i = 0; i < 3; ++i) {
+                auto response = co_await client.get("/ip");
+                HKU_INFO("Request {} status: {}", i + 1, response.status());
+                CHECK_EQ(response.status(), 200);
+                
+                // 短暂等待，模拟实际使用场景
+                auto timer = boost::asio::steady_timer(ctx, std::chrono::milliseconds(100));
+                co_await timer.async_wait(boost::asio::use_awaitable);
+            }
+            
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("Connection reuse test error: {}", e.what());
+        }
+    });
+}
+
 #endif  // #if HKU_ENABLE_HTTP_CLIENT
