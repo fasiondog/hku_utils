@@ -324,7 +324,11 @@ void AsioHttpClient::_parseUrl() noexcept {
         port = 80;
     } else if (proto == "https") {
         port = 443;
+#if HKU_ENABLE_HTTP_CLIENT_SSL
         m_is_https = true;
+#else
+        HKU_ERROR("Not support https protocol, please enable http_client_ssl feature!");
+#endif
     } else {
         m_is_valid_url = false;
         HKU_ERROR("Invalid protocol: {}", proto);
@@ -493,16 +497,14 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
         // 关闭旧连接（如果有）
         conn_ptr->close();
 
-        // 创建新 socket 并连接
-#if HKU_ENABLE_HTTP_CLIENT_SSL
         if (m_is_https) {
-            conn_ptr->ssl_socket.emplace(*m_ctx, m_ssl_ctx->ssl_ctx);
-            SSL_set_tlsext_host_name(conn_ptr->ssl_socket->native_handle(), m_host.c_str());
-
+#if HKU_ENABLE_HTTP_CLIENT_SSL
             // 连接到服务器
             bool connected = false;
-
             for (const auto& endpoint : conn_ptr->endpoints) {
+                conn_ptr->ssl_socket.emplace(*m_ctx, m_ssl_ctx->ssl_ctx);
+                SSL_set_tlsext_host_name(conn_ptr->ssl_socket->native_handle(), m_host.c_str());
+
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
 
@@ -532,13 +534,13 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 // 启动定时器和连接操作
                 timer.async_wait(
                   [&timer, &connect_completed, &conn_ptr](const boost::system::error_code& ec) {
-                      if (!ec && !connect_completed && conn_ptr->socket.has_value()) {
-                          conn_ptr->socket->cancel();
+                      if (!ec && !connect_completed && conn_ptr->ssl_socket.has_value()) {
+                          conn_ptr->ssl_socket->lowest_layer().cancel();
                       }
                   });
 
-                ConnectOp connect_op{&conn_ptr->socket.value(), endpoint, connect_completed,
-                                     captured_ec};
+                ConnectOp connect_op{&conn_ptr->ssl_socket->next_layer(), endpoint,
+                                     connect_completed, captured_ec};
                 co_await connect_op.run();
 
                 // 取消定时器
@@ -557,8 +559,6 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
 
                 // 连接失败，重置并继续尝试下一个 endpoint
                 conn_ptr->ssl_socket.reset();
-                conn_ptr->ssl_socket.emplace(*m_ctx, m_ssl_ctx->ssl_ctx);
-                SSL_set_tlsext_host_name(conn_ptr->ssl_socket->native_handle(), m_host.c_str());
             }
 
             if (!connected) {
@@ -614,14 +614,14 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 if (captured_ec) {
                     HKU_THROW("SSL handshake failed: {}", captured_ec.message());
                 }
-
-                }
+            }
+#endif
         } else {
-            // 普通 HTTP 连接（SSL 已启用但当前使用 HTTP）
-            conn_ptr->socket.emplace(*m_ctx);
-
             bool connected = false;
             for (const auto& endpoint : conn_ptr->endpoints) {
+                // 普通 HTTP 连接（SSL 已启用但当前使用 HTTP）
+                conn_ptr->socket.emplace(*m_ctx);
+
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
 
@@ -680,9 +680,6 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 boost::system::error_code ec;
                 conn_ptr->socket->close(ec);
                 conn_ptr->socket.reset();
-
-                // 重新创建 socket
-                conn_ptr->socket.emplace(*m_ctx);
             }
 
             if (!connected) {
@@ -693,77 +690,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
             // 设置 socket 选项
             conn_ptr->socket->set_option(tcp::no_delay(true));
         }
-#else
-        // SSL 被禁用，只支持普通 HTTP 连接
-        conn_ptr->socket.emplace(*m_ctx);
 
-        bool connected = false;
-        for (const auto& endpoint : conn_ptr->endpoints) {
-            auto timer = net::steady_timer{*m_ctx};
-            timer.expires_after(m_timeout);
-
-            bool connect_completed = false;
-            boost::system::error_code captured_ec;
-
-            struct ConnectOp {
-                tcp::socket* socket;
-                tcp::endpoint endpoint;
-                bool& completed_flag;
-                boost::system::error_code& captured_ec;
-
-                net::awaitable<boost::system::error_code> run() {
-                    auto [ec] = co_await socket->async_connect(
-                      endpoint, net::as_tuple(net::use_awaitable));
-                    completed_flag = true;
-                    captured_ec = ec;
-                    co_return ec
-                      ? ec
-                      : (socket->is_open()
-                           ? boost::system::errc::make_error_code(boost::system::errc::success)
-                           : boost::system::errc::make_error_code(
-                               boost::system::errc::not_connected));
-                }
-            };
-
-            // 启动定时器和连接操作
-            timer.async_wait(
-              [&timer, &connect_completed, &conn_ptr](const boost::system::error_code& ec) {
-                  if (!ec && !connect_completed && conn_ptr->socket.has_value()) {
-                      conn_ptr->socket->cancel();
-                  }
-              });
-
-            ConnectOp connect_op{&conn_ptr->socket.value(), endpoint, connect_completed,
-                                 captured_ec};
-            co_await connect_op.run();
-
-            // 取消定时器
-            timer.cancel();
-
-            // 检查是否因超时而取消
-            if (captured_ec == boost::asio::error::operation_aborted) {
-                break;  // 超时后不再尝试其他 endpoint
-            }
-
-            // 检查连接是否成功
-            if (!captured_ec && conn_ptr->socket->is_open()) {
-                connected = true;
-                break;
-            }
-
-            // 连接失败，重置并继续尝试下一个 endpoint
-            conn_ptr->socket.reset();
-            conn_ptr->socket.emplace(*m_ctx);
-        }
-
-        if (!connected) {
-            HKU_THROW_EXCEPTION(HttpTimeoutException, "Connect timeout to {}:{}", m_host,
-                                m_port);
-        }
-
-        // 设置 socket 选项
-        conn_ptr->socket->set_option(tcp::no_delay(true));
-#endif
         // 更新最后使用时间
         conn_ptr->last_used_time = std::chrono::steady_clock::now();
     }
@@ -911,7 +838,6 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     // 如果是 HTTPS，进行 SSL 握手（带超时）
     if (m_is_https) {
-    
         // 移动到 SSL socket
         socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_ssl_ctx->ssl_ctx);
         socket_variant.plain.reset();
