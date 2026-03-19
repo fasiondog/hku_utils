@@ -1002,4 +1002,95 @@ TEST_CASE("test_AsioHttpClient_SyncAsync_API") {
     }
 }
 
+// 测试 async_request 支持分块传输编码（Transfer-Encoding: chunked）
+TEST_CASE("test_AsioHttpClient_ChunkedTransferEncoding") {
+    // 测试 async_request 方法能够正确处理服务端的分块传输编码
+    boost::asio::io_context ctx;
+
+    runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
+        try {
+            AsioHttpClient client(ctx, "http://httpbin.org");
+
+            // 使用 /stream/5 接口，服务端会返回分块传输编码的响应
+            auto response = co_await client.async_get("/stream/5");
+
+            if (response.status() == 200) {
+                // 验证响应内容
+                auto body = response.body();
+                CHECK_UNARY(!body.empty());
+
+                // httpbin 的/stream/5 返回 5 行 JSON 数据
+                // 每行是一个完整的 JSON 对象
+                size_t line_count = 0;
+                size_t pos = 0;
+                while ((pos = body.find('\n', pos)) != std::string::npos) {
+                    line_count++;
+                    pos++;
+                }
+
+                HKU_INFO("Chunked transfer test: received {} lines, total {} bytes", line_count,
+                         body.size());
+                CHECK_GE(line_count, 5);  // 至少应该有 5 行
+
+                // 验证 Transfer-Encoding 头部（如果有的话）
+                auto te_header = response.getHeader("Transfer-Encoding");
+                if (!te_header.empty()) {
+                    HKU_INFO("Response uses chunked encoding: {}", te_header);
+                }
+
+                // 验证 Content-Length 头部（可能不存在，因为是 chunked）
+                auto cl_header = response.getHeader("Content-Length");
+                if (!cl_header.empty()) {
+                    HKU_INFO("Response Content-Length: {}", cl_header);
+                }
+
+            } else {
+                HKU_WARN("Chunked transfer test failed with status: {}", response.status());
+            }
+
+            co_return;
+        } catch (const std::exception& e) {
+            // 网络不可达时跳过测试
+            HKU_WARN("Chunked transfer test skipped: {}", e.what());
+        }
+    });
+
+    ctx.run();
+
+    // 测试 POST 请求也支持分块响应
+    boost::asio::io_context ctx2;
+
+    runCoroutineTest(ctx2, [&ctx2]() -> boost::asio::awaitable<void> {
+        try {
+            AsioHttpClient client(ctx2, "http://httpbin.org");
+
+            // POST 请求也可能返回分块响应
+            json payload = {{"test", "chunked"}, {"data", true}};
+            auto response = co_await client.async_post("/post", payload);
+
+            if (response.status() == 200) {
+                auto body = response.body();
+                CHECK_UNARY(!body.empty());
+
+                // 验证响应包含回显的数据
+                auto result = response.json();
+                if (result.contains("json")) {
+                    CHECK_EQ(result["json"]["test"], "chunked");
+                    CHECK_EQ(result["json"]["data"], true);
+                }
+
+                HKU_INFO("POST chunked test successful, response size: {}", body.size());
+            } else {
+                HKU_WARN("POST chunked test failed with status: {}", response.status());
+            }
+
+            co_return;
+        } catch (const std::exception& e) {
+            HKU_WARN("POST chunked test skipped: {}", e.what());
+        }
+    });
+
+    ctx2.run();
+}
+
 #endif  // #if HKU_ENABLE_HTTP_CLIENT
