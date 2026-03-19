@@ -397,7 +397,7 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
     co_return dns_endpoints;
 
 #else
-    // 其他平台使用 Boost.ASIO 异步 DNS 解析
+    // 其他平台使用 Boost.ASIO 异步 DNS解析
     auto resolver = tcp::resolver{*m_ctx};
 
     struct ResolveOp {
@@ -409,42 +409,42 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
 
         ResolveOp(tcp::resolver& r, const std::string& h, const std::string& p)
         : resolver(r), host(h), port(p) {}
+
+        net::awaitable<boost::system::error_code> run() {
+            auto [e, eps] =
+              co_await resolver.async_resolve(host, port, net::as_tuple(net::use_awaitable));
+            ec = e;
+            endpoints = std::move(eps);
+            done = true;
+            co_return e;
+        }
     };
 
     auto op = std::make_shared<ResolveOp>(resolver, m_host, m_port);
 
-    // 启动定时器和 DNS 解析
+    // 启动定时器和 DNS解析
     auto timer = net::steady_timer{*m_ctx};
     timer.expires_after(m_timeout);
 
-    timer.async_wait([&timer, &op](const boost::system::error_code& ec) {
+    timer.async_wait([&resolver, &op](const boost::system::error_code& ec) {
         if (!ec && !op->done) {
             // 超时后取消 resolver 的所有异步操作
-            timer.get_executor().context().stop();
+            resolver.cancel();
         }
     });
 
-    resolver.async_resolve(
-      op->host, op->port,
-      [op](const boost::system::error_code& e, tcp::resolver::results_type eps) {
-          op->ec = e;
-          op->endpoints = std::move(eps);
-          op->done = true;
-      });
-
-    // 等待完成（由 async_wait 或 async_resolve 触发）
-    co_await net::post(net::use_awaitable);
+    auto resolve_result = co_await op->run();
 
     // 取消定时器
     timer.cancel();
 
-    // 检查是否超时
-    if (!op->done) {
+    // 检查是否因超时而取消（operation_aborted 表示被 cancel() 取消）
+    if (resolve_result == boost::asio::error::operation_aborted) {
         HKU_THROW_EXCEPTION(HttpTimeoutException, "DNS resolve timeout");
     }
 
-    if (op->ec) {
-        HKU_THROW("DNS resolve failed: {}", op->ec.message());
+    if (resolve_result) {
+        HKU_THROW("DNS resolve failed: {}", resolve_result.message());
     }
 
     // 转换为 endpoint 列表
