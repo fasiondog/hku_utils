@@ -32,6 +32,7 @@ option("async_log", {description = "Use async log.", default = false})
 option("leak_check", {description = "Enable leak check for test", default = false})
 option("ini_parser", {description = "Enable ini parser.", default = true})
 option("http_client", {description = "use http client", default = true})
+option("http_client_asio", {description = "enable aiso http client", default = true})
 option("http_client_ssl", {description = "enable https support for http client", default = false})
 option("http_client_zip", {description = "enable http support gzip", default = false})
 option("node", {description = "enable node reqrep server/client", default = true})
@@ -129,12 +130,17 @@ if has_config("http_client") or has_config("node") then
     else
         add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
     end
+end
+
+if has_config("http_client_asio") then 
+    add_requires("nlohmann_json")
     if has_config("http_client_ssl") then 
         add_requires("openssl3", {configs = {shared = true}})
     end
-    if has_config("http_client_zip") then
-        add_requires("gzip-hpp")
-    end
+end
+
+if has_config("http_client_zip") then
+    add_requires("gzip-hpp")
 end
 
 target("hku_utils")
@@ -166,6 +172,7 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_STACK_TRACE", has_config("stacktrace") and 1 or 0)
     set_configvar("HKU_CLOSE_SPEND_TIME", has_config("spend_time") and 0 or 1)
     set_configvar("HKU_ENABLE_HTTP_CLIENT", has_config("http_client") and 1 or 0)
+    set_configvar("HKU_ENABLE_AISO_HTTP_CLIENT", has_config("http_client") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_SSL", has_config("http_client_ssl") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_ZIP", has_config("http_client_zip") and 1 or 0)
     set_configvar("HKU_ENABLE_NODE", has_config("node") and 1 or 0)
@@ -202,8 +209,11 @@ target("hku_utils")
         add_packages("nng", "nlohmann_json")
     end
 
-    if has_config("http_client_ssl") then
-        add_packages("openssl3")
+    if has_config("http_client_asio") then 
+        add_packages("nlohmann_json")
+        if has_config("http_client_ssl") then
+            add_packages("openssl3")
+        end        
     end
 
     if has_config("http_client_zip") then
@@ -269,7 +279,13 @@ target("hku_utils")
     end
 
     if has_config("http_client") then
-        add_files("hikyuu/utilities/http_client/*.cpp")
+        add_files("hikyuu/utilities/http_client/HttpClient.cpp")
+        add_files("hikyuu/utilities/http_client/url.cpp")
+    end
+
+    if has_config("http_client_asio") then
+        add_files("hikyuu/utilities/http_client/AsioHttpClient.cpp")
+        add_files("hikyuu/utilities/http_client/url.cpp")
     end
 
     before_build(function(target)
