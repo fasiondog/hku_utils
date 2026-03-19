@@ -45,11 +45,17 @@ target("unit-test")
 
     if has_config("http_client") or has_config("node") then
         add_packages("nng", "nlohmann_json")
+        
+        if has_config("http_client_ssl") then
+            add_packages("openssl")
+        end
     end
 
     if has_config("http_client_zip") then
         add_packages("gzip-hpp")
     end
+
+    add_defines("BOOST_ASIO_HAS_CO_AWAIT=1", "BOOST_ASIO_HAS_CXX20_COROUTINES=1", "DBOOST_ASIO_DISABLE_DEPRECATED=1")
 
     add_includedirs("..", ".")
 
@@ -64,6 +70,8 @@ target("unit-test")
 
     if is_plat("windows") then
         add_cxflags("-wd4996", "-wd4251")
+    elseif is_plat("linux", "cross") then
+        add_cxflags("-fcoroutines")
     end
 
     add_files("test_main.cpp")
@@ -96,7 +104,11 @@ target("unit-test")
     end
 
     if has_config("http_client") then
-        add_files("utilities/http_client/**.cpp")
+        add_files("utilities/http_client/test_HttpClient.cpp")
+    end
+
+    if has_config("http_client_asio") then
+        add_files("utilities/http_client/test_AsioHttpClient.cpp")
     end
 
     if has_config("node") then
