@@ -1,5 +1,11 @@
 # 版本发布说明
 
+## 1.3.5 - 2026年3月19日
+
+1. refactor(thread): 优化线程池submit函数参数传递，提高性能避免不必要的拷贝操作
+2. feat(thread): 新增co_run函数，用于在指定executor上异步执行函数
+3. feat(asio_http_client): 新增 AsioHttpClient，用与协程支持
+
 ## 1.3.4 - 2026年3月13日
 
 1. 并行算法添加协程便携封装函数支持，以便封装传统数据库IO等非异步实现
