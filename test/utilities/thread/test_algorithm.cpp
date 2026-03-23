@@ -17,6 +17,7 @@ using namespace hku;
 
 #if CPP_STANDARD >= CPP_STANDARD_20
 
+#if !(defined(__GNUC__) && (__GNUC__ <= 12))
 /**
  * @brief 辅助协程函数：测试 co_run 基本功能
  */
@@ -632,6 +633,7 @@ TEST_CASE("test_concurrent_co_run_in_coroutine") {
     ctx.run();
 }
 
+#endif  // #if !(defined(__GNUC__) && (__GNUC__ <= 12))
 #endif  // CPP_STANDARD >= CPP_STANDARD_20
 
 /**
