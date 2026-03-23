@@ -24,7 +24,7 @@ static asio::awaitable<void> test_co_run_basic_helper(ThreadPool& pool) {
     // 测试有返回值的情况
     int result = co_await co_run(pool.executor(), []() -> int { return 42; });
     CHECK_EQ(result, 42);
-    
+
     // 测试 void 返回类型
     bool executed = false;
     co_await co_run(pool.executor(), [&]() { executed = true; });
@@ -38,6 +38,7 @@ TEST_CASE("test_co_run_basic") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 基本功能（error_code 模式）
  */
@@ -45,7 +46,7 @@ static asio::awaitable<void> test_co_run_ec_basic_helper(ThreadPool& pool) {
     // 测试有返回值的情况
     int result = co_await co_run_ec(pool.executor(), []() -> int { return 42; });
     CHECK_EQ(result, 42);
-    
+
     // 测试 void 返回类型
     bool executed = false;
     co_await co_run_ec(pool.executor(), [&]() { executed = true; });
@@ -58,6 +59,7 @@ TEST_CASE("test_co_run_ec_basic") {
     asio::co_spawn(ctx, test_co_run_ec_basic_helper(pool), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试延迟执行
@@ -82,6 +84,7 @@ TEST_CASE("test_co_run_delayed_wait") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 的延迟执行
  */
@@ -104,6 +107,7 @@ TEST_CASE("test_co_run_ec_delayed_wait") {
     asio::co_spawn(ctx, test_co_run_ec_delayed_helper(pool), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 的异常处理（通过 error_code）
@@ -139,6 +143,7 @@ TEST_CASE("test_co_run_exception") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 的异常处理（通过 error_code）
  */
@@ -172,6 +177,7 @@ TEST_CASE("test_co_run_ec_exception") {
     asio::co_spawn(ctx, test_co_run_ec_exception_helper(pool), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 的异常穿透（非 void 类型）
@@ -179,7 +185,7 @@ TEST_CASE("test_co_run_ec_exception") {
 static asio::awaitable<void> test_co_run_non_void_helper(ThreadPool& pool) {
     // 测试异常情况 - 应该能够捕获原始异常类型
     bool exception_caught = false;
-    
+
     try {
         int result = co_await co_run(pool.executor(), []() -> int {
             throw std::runtime_error("Test exception from co_run");
@@ -193,9 +199,9 @@ static asio::awaitable<void> test_co_run_non_void_helper(ThreadPool& pool) {
     } catch (...) {
         HKU_ERROR("Caught unexpected exception type");
     }
-    
+
     CHECK(exception_caught);
-    
+
     // 测试正常情况（没有异常）
     try {
         int result = co_await co_run(pool.executor(), []() -> int { return 42; });
@@ -218,11 +224,10 @@ TEST_CASE("test_co_run_non_void") {
  */
 static asio::awaitable<void> test_co_run_void_helper(ThreadPool& pool) {
     bool exception_caught = false;
-    
+
     try {
-        co_await co_run(pool.executor(), []() {
-            throw std::logic_error("Void function exception from co_run");
-        });
+        co_await co_run(pool.executor(),
+                        []() { throw std::logic_error("Void function exception from co_run"); });
         CHECK_FALSE("Should have thrown exception");
     } catch (const std::logic_error& e) {
         exception_caught = true;
@@ -231,14 +236,12 @@ static asio::awaitable<void> test_co_run_void_helper(ThreadPool& pool) {
     } catch (...) {
         HKU_ERROR("Caught unexpected exception type");
     }
-    
+
     CHECK(exception_caught);
-    
+
     // 测试正常情况（没有异常）
     bool executed = false;
-    co_await co_run(pool.executor(), [&executed]() {
-        executed = true;
-    });
+    co_await co_run(pool.executor(), [&executed]() { executed = true; });
     CHECK_UNARY(executed);
     HKU_INFO("Normal void case passed");
 }
@@ -250,6 +253,7 @@ TEST_CASE("test_co_run_void") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 的 lambda 捕获
  */
@@ -272,6 +276,7 @@ TEST_CASE("test_co_run_ec_lambda_capture") {
     asio::co_spawn(ctx, test_co_run_ec_lambda_capture_helper(pool), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 返回字符串
@@ -293,6 +298,7 @@ TEST_CASE("test_co_run_string_return") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 返回字符串
  */
@@ -312,6 +318,7 @@ TEST_CASE("test_co_run_ec_string_return") {
     asio::co_spawn(ctx, test_co_run_ec_string_return_helper(pool), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 返回复杂类型
@@ -339,6 +346,7 @@ TEST_CASE("test_co_run_complex_type") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 返回复杂类型
  */
@@ -364,6 +372,7 @@ TEST_CASE("test_co_run_ec_complex_type") {
     asio::co_spawn(ctx, test_co_run_ec_complex_type_helper(pool), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 返回仅移动类型
@@ -384,6 +393,7 @@ TEST_CASE("test_co_run_move_only_type") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 返回仅移动类型
  */
@@ -402,6 +412,7 @@ TEST_CASE("test_co_run_ec_move_only_type") {
     asio::co_spawn(ctx, test_co_run_ec_move_only_type_helper(pool), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 使用多个执行器
@@ -428,18 +439,19 @@ TEST_CASE("test_co_run_multiple_executors") {
     ctx.run();
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 使用多个执行器
  */
 static asio::awaitable<void> test_co_run_ec_multiple_executors_helper(ThreadPool& pool1,
-                                                                   ThreadPool& pool2) {
+                                                                      ThreadPool& pool2) {
     std::atomic<int> counter{0};
 
     co_await co_run_ec(pool1.executor(),
-                    [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
+                       [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
 
     co_await co_run_ec(pool2.executor(),
-                    [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
+                       [&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
 
     CHECK_EQ(counter.load(), 2);
 }
@@ -452,6 +464,7 @@ TEST_CASE("test_co_run_ec_multiple_executors") {
     asio::co_spawn(ctx, test_co_run_ec_multiple_executors_helper(pool1, pool2), asio::detached);
     ctx.run();
 }
+#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 压力测试

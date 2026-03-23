@@ -779,6 +779,7 @@ auto co_run(Executor exec, Func&& func) -> asio::awaitable<typename std::invoke_
     }
 }
 
+#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 在指定 executor 上异步执行函数，异常会转换为 boost::system::error_code
  *
@@ -870,6 +871,7 @@ auto co_run_ec(Executor exec, Func&& func) -> asio::awaitable<typename std::invo
           boost::asio::use_awaitable);
     }
 }
+#endif  // #if defined(__GNUC__) && (__GNUC__ > 12)
 
 #endif  // CPP_STANDARD >= CPP_STANDARD_20
 
