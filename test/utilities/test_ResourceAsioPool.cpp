@@ -414,3 +414,152 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_executor_stress") {
 
     CHECK(completed == num_tasks);
 }
+
+TEST_CASE("test_ResourceAsioPool_max_count_limit") {
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    const size_t max_count = 3;
+    ResourceAsioPool<TestResource> pool(param, max_count);
+
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          // 创建达到最大数量的资源
+          auto r1 = co_await pool.get();
+          auto r2 = co_await pool.get();
+          auto r3 = co_await pool.get();
+
+          REQUIRE(pool.count() == 3);
+
+          // 尝试获取第4个资源但设置较短超时，应该超时
+          bool timeout_occurred = false;
+          try {
+              auto r4 = co_await pool.get(std::chrono::milliseconds(100));
+          } catch (const std::exception& e) {
+              // 应该捕获超时异常
+              timeout_occurred = true;
+          }
+
+          CHECK(timeout_occurred);
+
+          // 释放第一个资源
+          r1.reset();
+
+          // 现在应该可以获取新的资源了
+          auto r5 = co_await pool.get(std::chrono::milliseconds(100));
+          CHECK(pool.count() == 3);
+
+          r2.reset();
+          r3.reset();
+          r5.reset();
+      },
+      boost::asio::detached);
+
+    io_ctx.run();
+    io_ctx.restart();
+}
+
+TEST_CASE("test_ResourceAsioPool_no_max_limit") {
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    ResourceAsioPool<TestResource> pool(param, 0);  // 无限制
+
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          // 可以创建任意数量的资源
+          std::vector<ResourceAsioPool<TestResource>::ResourcePtr> resources;
+          for (int i = 0; i < 10; ++i) {
+              auto r = co_await pool.get();
+              resources.push_back(std::move(r));
+          }
+
+          CHECK(pool.count() == 10);
+
+          // 释放所有资源
+          resources.clear();
+      },
+      boost::asio::detached);
+
+    io_ctx.run();
+    io_ctx.restart();
+}
+
+TEST_CASE("test_ResourceAsioPool_get_timeout") {
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    const size_t max_count = 2;
+    ResourceAsioPool<TestResource> pool(param, max_count);
+
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          // 创建达到最大数量的资源
+          auto r1 = co_await pool.get();
+          auto r2 = co_await pool.get();
+
+          REQUIRE(pool.count() == 2);
+
+          // 尝试获取第3个资源，应该超时
+          bool caught_exception = false;
+          try {
+              auto r3 = co_await pool.get(std::chrono::milliseconds(50));
+          } catch (const std::exception& e) {
+              caught_exception = true;
+              std::string msg = e.what();
+              CHECK(msg.find("timeout") != std::string::npos);
+          }
+
+          CHECK(caught_exception);
+
+          r1.reset();
+          r2.reset();
+      },
+      boost::asio::detached);
+
+    io_ctx.run();
+    io_ctx.restart();
+}
+
+TEST_CASE("test_ResourceAsioPool_get_with_timeout_success") {
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    const size_t max_count = 2;
+    ResourceAsioPool<TestResource> pool(param, max_count);
+
+    std::atomic<bool> test_passed{false};
+
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          // 创建达到最大数量的资源
+          auto r1 = co_await pool.get();
+          auto r2 = co_await pool.get();
+          REQUIRE(pool.count() == 2);
+
+          // 延迟释放第一个资源
+          co_spawn(
+            io_ctx,
+            [&]() -> boost::asio::awaitable<void> {
+                co_await boost::asio::steady_timer(co_await boost::asio::this_coro::executor,
+                                                   std::chrono::milliseconds(50))
+                  .async_wait(boost::asio::use_awaitable);
+                r1.reset();
+            },
+            boost::asio::detached);
+
+          // 等待第一个资源释放后，应该可以成功获取
+          auto r3 = co_await pool.get(std::chrono::milliseconds(200));
+          CHECK(r3 != nullptr);
+
+          r2.reset();
+          r3.reset();
+          test_passed.store(true);
+      },
+      boost::asio::detached);
+
+    io_ctx.run();
+    io_ctx.restart();
+
+    CHECK(test_passed.load());
+}
