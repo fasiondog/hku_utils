@@ -1093,4 +1093,19 @@ TEST_CASE("test_AsioHttpClient_ChunkedTransferEncoding") {
     ctx2.run();
 }
 
+#if 0
+TEST_CASE("test_tianxingapi_ipquery") {
+    AsioHttpClient cli("https://apis.tianapi.com", 8000);  // 8 seconds
+    HttpParams params;
+    params.emplace("key", "0d57e7ec6ebaf52059f0647184face23");
+    params.emplace("ip", "101.133.146.4");
+    params.emplace("full", "1");
+    auto res = cli.get("ipquery/index", params, HttpHeaders());
+    HKU_CHECK(res.status() == 200, "err: response status: {}", res.status());
+
+    json j = res.json();
+    std::cout << j.dump(4) << std::endl;
+}
+#endif
+
 #endif  // #if HKU_ENABLE_HTTP_CLIENT
