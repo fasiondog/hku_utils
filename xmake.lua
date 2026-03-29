@@ -1,7 +1,7 @@
 set_xmakever("3.0.0")
 
 -- config version
-set_version("1.3.6", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.3.7", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 -- set_warnings("all", "error")
@@ -249,7 +249,7 @@ target("hku_utils")
 
     if is_plat("linux", "cross") then
         add_cxflags("-fcoroutines")
-    end    
+    end
 
     if is_plat("windows") then
         add_cxflags("-wd4996", "-wd4251")

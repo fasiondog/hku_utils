@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.3.7 - 2026年3月29日
+
+fixed AsioHttpClient Uri 解析错误
+
 ## 1.3.6 - 2026年3月29日
 
 1. 改进 ResourceAsioPool，增加最大资源控制更符合协程需求
