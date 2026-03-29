@@ -924,8 +924,40 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
         if (m_base_path.back() != '/' && path.front() != '/') {
             uri_stream << '/';
         }
-        // 对 path 进行 URL 编码（但不编码已经编码的部分）
-        uri_stream << url_escape(path.c_str());
+        // 对 path 进行分段 URL 编码（保持 / 作为路径分隔符不编码）
+        // 例如："/api/v1/users" → 分别编码 "api", "v1", "users"，保留 "/"
+        std::string_view path_view = path;
+        size_t pos = 0;
+
+        while (pos < path_view.size()) {
+            // 找到下一个 / 的位置
+            size_t slash_pos = path_view.find('/', pos);
+
+            if (slash_pos == std::string_view::npos) {
+                // 最后一个段（或整个 path 没有 /）
+                std::string segment = std::string(path_view.substr(pos));
+                if (!segment.empty()) {
+                    uri_stream << url_escape(segment.c_str());
+                }
+                break;
+            } else {
+                // 添加路径分隔符 /
+                uri_stream << '/';
+
+                // 提取并编码当前段
+                if (slash_pos > pos) {
+                    std::string segment = std::string(path_view.substr(pos, slash_pos - pos));
+                    uri_stream << url_escape(segment.c_str());
+                }
+
+                pos = slash_pos + 1;
+            }
+        }
+
+        // 处理末尾的 /
+        if (!path.empty() && path.back() == '/') {
+            uri_stream << '/';
+        }
     }
 
     // 添加查询参数
@@ -1230,8 +1262,40 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
         if (m_base_path.back() != '/' && path.front() != '/') {
             uri_stream << '/';
         }
-        // 对 path 进行 URL 编码（但不编码已经编码的部分）
-        uri_stream << url_escape(path.c_str());
+        // 对 path 进行分段 URL 编码（保持 / 作为路径分隔符不编码）
+        // 例如："/api/v1/users" → 分别编码 "api", "v1", "users"，保留 "/"
+        std::string_view path_view = path;
+        size_t pos = 0;
+
+        while (pos < path_view.size()) {
+            // 找到下一个 / 的位置
+            size_t slash_pos = path_view.find('/', pos);
+
+            if (slash_pos == std::string_view::npos) {
+                // 最后一个段（或整个 path 没有 /）
+                std::string segment = std::string(path_view.substr(pos));
+                if (!segment.empty()) {
+                    uri_stream << url_escape(segment.c_str());
+                }
+                break;
+            } else {
+                // 添加路径分隔符 /
+                uri_stream << '/';
+
+                // 提取并编码当前段
+                if (slash_pos > pos) {
+                    std::string segment = std::string(path_view.substr(pos, slash_pos - pos));
+                    uri_stream << url_escape(segment.c_str());
+                }
+
+                pos = slash_pos + 1;
+            }
+        }
+
+        // 处理末尾的 /
+        if (!path.empty() && path.back() == '/') {
+            uri_stream << '/';
+        }
     }
 
     // 添加查询参数
@@ -1268,7 +1332,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
 
         req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
         req.set(http::field::host, m_host);
-        req.set(http::field::connection, "close");
+        // 注意：不使用 "close"，允许连接复用
 
         if (body != nullptr && body_len > 0) {
 #if HKU_ENABLE_HTTP_CLIENT_ZIP
