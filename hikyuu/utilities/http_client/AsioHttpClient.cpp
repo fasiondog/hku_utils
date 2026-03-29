@@ -9,6 +9,7 @@
 #include "hikyuu/utilities/Log.h"
 #include "hikyuu/utilities/os.h"
 #include "hikyuu/utilities/ResourceAsioPool.h"
+#include "url.h"
 
 #include <sstream>
 #include <boost/beast/core.hpp>
@@ -923,13 +924,16 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
         if (m_base_path.back() != '/' && path.front() != '/') {
             uri_stream << '/';
         }
-        uri_stream << path;
+        // 对 path 进行 URL 编码（但不编码已经编码的部分）
+        uri_stream << url_escape(path.c_str());
     }
 
     // 添加查询参数
     bool first = true;
     for (const auto& [key, value] : params) {
-        uri_stream << (first ? "?" : "&") << key << "=" << value;
+        uri_stream << (first ? "?" : "&");
+        // 对 key 和 value 分别进行 URL 编码
+        uri_stream << url_escape(key.c_str()) << "=" << url_escape(value.c_str());
         first = false;
     }
 
@@ -1226,13 +1230,16 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
         if (m_base_path.back() != '/' && path.front() != '/') {
             uri_stream << '/';
         }
-        uri_stream << path;
+        // 对 path 进行 URL 编码（但不编码已经编码的部分）
+        uri_stream << url_escape(path.c_str());
     }
 
     // 添加查询参数
     bool first = true;
     for (const auto& [key, value] : params) {
-        uri_stream << (first ? "?" : "&") << key << "=" << value;
+        uri_stream << (first ? "?" : "&");
+        // 对 key 和 value 分别进行 URL 编码
+        uri_stream << url_escape(key.c_str()) << "=" << url_escape(value.c_str());
         first = false;
     }
 
