@@ -656,7 +656,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
 
                 // 启动定时器和连接操作
                 timer.async_wait(
-                  [&timer, &connect_completed, &conn_ptr](const boost::system::error_code& ec) {
+                  [&connect_completed, &conn_ptr](const boost::system::error_code& ec) {
                       if (!ec && !connect_completed && conn_ptr->socket.has_value()) {
                           conn_ptr->socket->cancel();
                       }
@@ -803,7 +803,7 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
 
             // 启动定时器和连接操作
             timer.async_wait(
-              [&timer, &connect_completed, &socket_variant](const boost::system::error_code& ec) {
+              [&connect_completed, &socket_variant](const boost::system::error_code& ec) {
                   if (!ec && !connect_completed && socket_variant.plain.has_value()) {
                       socket_variant.plain->cancel();
                   }
@@ -1080,12 +1080,11 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 };
 
                 // 启动定时器和写操作
-                timer.async_wait(
-                  [&timer, &write_completed, &conn](const boost::system::error_code& ec) {
-                      if (!ec && !write_completed) {
-                          conn->lowest_layer().cancel();
-                      }
-                  });
+                timer.async_wait([&write_completed, &conn](const boost::system::error_code& ec) {
+                    if (!ec && !write_completed) {
+                        conn->lowest_layer().cancel();
+                    }
+                });
 
                 auto write_op = WriteOp{conn->socket.value(), req, write_completed};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
@@ -1176,12 +1175,11 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 };
 
                 // 启动定时器和读操作
-                timer.async_wait(
-                  [&timer, &read_completed, &conn](const boost::system::error_code& ec) {
-                      if (!ec && !read_completed) {
-                          conn->lowest_layer().cancel();
-                      }
-                  });
+                timer.async_wait([&read_completed, &conn](const boost::system::error_code& ec) {
+                    if (!ec && !read_completed) {
+                        conn->lowest_layer().cancel();
+                    }
+                });
 
                 auto read_op =
                   ReadOp{conn->socket.value(), buffer, res, read_completed, captured_ec};
@@ -1437,7 +1435,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 timer.expires_after(m_timeout);
 
                 // 启动定时器，超时则取消底层 socket
-                timer.async_wait([&timer, &conn](const boost::system::error_code& ec) {
+                timer.async_wait([&conn](const boost::system::error_code& ec) {
                     if (!ec) {
                         conn->lowest_layer().cancel();
                     }
@@ -1512,7 +1510,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 timer.expires_after(m_timeout);
 
                 // 启动定时器，超时则取消底层 socket
-                timer.async_wait([&timer, &conn](const boost::system::error_code& ec) {
+                timer.async_wait([&conn](const boost::system::error_code& ec) {
                     if (!ec) {
                         conn->lowest_layer().cancel();
                     }
