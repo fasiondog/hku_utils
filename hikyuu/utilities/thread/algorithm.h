@@ -187,7 +187,7 @@ auto parallel_for_index_single(size_t start, size_t end, FunctionType f, size_t 
 // 前面 parallel_for 系列每次都会创建独立线程池。
 // note: 程序内全局，初始化一次即可，重复初始化被忽略
 //----------------------------------------------------------------
-extern std::unique_ptr<GlobalStealThreadPool> global_steal_thread_pool;
+extern HKU_UTILS_API std::unique_ptr<GlobalStealThreadPool> global_steal_thread_pool;
 
 void HKU_UTILS_API init_global_task_group(size_t work_num = 0);
 
@@ -245,7 +245,7 @@ void wait_for_all_non_blocking(GlobalStealThreadPool& pool, FutureContainer& fut
 
 /** 使用global_submit_task提交的任务，必须使用global_wait_task，global_wake_up 配合 */
 template <typename FunctionType>
-auto global_submit_task(FunctionType f) {
+auto global_submit_task(FunctionType&& f) {
     auto* tg = get_global_task_group();
     HKU_CHECK(tg, "Global task group is not initialized!");
     return tg->submit(f);
@@ -290,8 +290,8 @@ void global_wait_task(FutureType& future) {
 }
 
 template <typename FunctionType>
-auto global_parallel_for_index_void(size_t start, size_t end, FunctionType f, size_t threshold = 2,
-                                    bool enable_nested = true) {
+auto global_parallel_for_index_void(size_t start, size_t end, FunctionType&& f,
+                                    size_t threshold = 2, bool enable_nested = true) {
     HKU_IF_RETURN(start >= end, void());
 
     // 如果任务数量小于阈值，或者当前是工作线程且禁止嵌套, 则直接执行
@@ -330,7 +330,7 @@ auto global_parallel_for_index_void(size_t start, size_t end, FunctionType f, si
 }
 
 template <typename FunctionType>
-auto global_parallel_for_index(size_t start, size_t end, FunctionType f, size_t threshold = 2,
+auto global_parallel_for_index(size_t start, size_t end, FunctionType&& f, size_t threshold = 2,
                                bool enable_nested = true) {
     std::vector<typename std::invoke_result<FunctionType, size_t>::type> ret;
     HKU_IF_RETURN(start >= end, ret);
@@ -380,7 +380,7 @@ auto global_parallel_for_index(size_t start, size_t end, FunctionType f, size_t 
 }
 
 template <typename FunctionType>
-void global_parallel_for_index_void_single(size_t start, size_t end, FunctionType f,
+void global_parallel_for_index_void_single(size_t start, size_t end, FunctionType&& f,
                                            size_t threshold = 1, bool enable_nested = true) {
     HKU_IF_RETURN(start >= end, void());
 
@@ -410,7 +410,7 @@ void global_parallel_for_index_void_single(size_t start, size_t end, FunctionTyp
 }
 
 template <typename FunctionType>
-auto global_parallel_for_index_single(size_t start, size_t end, FunctionType f,
+auto global_parallel_for_index_single(size_t start, size_t end, FunctionType&& f,
                                       size_t threshold = 1, bool enable_nested = true) {
     std::vector<typename std::invoke_result<FunctionType, size_t>::type> ret;
     HKU_IF_RETURN(start >= end, ret);
