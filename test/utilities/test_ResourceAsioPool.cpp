@@ -187,7 +187,8 @@ TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_io_context") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 多线程场景使用 std::mutex
+    ResourceAsioPool<TestResource, std::mutex> pool(param);
 
     const int num_tasks = 50;
     std::atomic<int> completed(0);
@@ -236,7 +237,8 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_io_context") {
 TEST_CASE("test_ResourceAsioPool_stress_test") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 多线程场景使用 std::mutex
+    ResourceAsioPool<TestResource, std::mutex> pool(param);
 
     const int num_tasks = 200;
     std::atomic<int> completed(0);
@@ -284,7 +286,8 @@ TEST_CASE("test_ResourceAsioPool_stress_test") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_executor") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 多线程场景使用 std::mutex
+    ResourceAsioPool<TestResource, std::mutex> pool(param);
 
     const int num_tasks = 50;
     const int num_threads = 4;
@@ -345,7 +348,8 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_executor") {
 TEST_CASE("test_ResourceAsioPool_multithreaded_executor_stress") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 多线程场景使用 std::mutex
+    ResourceAsioPool<TestResource, std::mutex> pool(param);
 
     const int num_tasks = 100;
     const int num_threads = 8;

@@ -256,6 +256,7 @@ TEST_CASE("test_ResourceAsioVersionPool_ConcurrentAccess") {
     
     // 在协程中创建池
     boost::asio::co_spawn(io_ctx, [&]() -> boost::asio::awaitable<void> {
+        // 单线程场景使用默认 NullLock
         ResourceAsioVersionPool<VersionTestResource> pool(param);
 
         for (int i = 0; i < num_tasks; ++i) {
@@ -311,6 +312,7 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionConcurrency") {
     param.set<std::string>("test_param", "v1");
 
     boost::asio::co_spawn(io_ctx, [&]() -> boost::asio::awaitable<void> {
+        // 单线程场景使用默认 NullLock
         ResourceAsioVersionPool<VersionTestResource> pool(param);
 
         // 先获取一些资源
@@ -379,7 +381,8 @@ TEST_CASE("test_ResourceAsioVersionPool_MultithreadedAccess") {
     param.set<std::string>("test_param", "multithread_test");
 
     boost::asio::co_spawn(io_ctx, [&]() -> boost::asio::awaitable<void> {
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+        // 多线程场景使用 std::mutex
+        ResourceAsioVersionPool<VersionTestResource, std::mutex> pool(param);
 
         for (int i = 0; i < num_tasks; ++i) {
             boost::asio::co_spawn(io_ctx, [&, i]() -> boost::asio::awaitable<void> {

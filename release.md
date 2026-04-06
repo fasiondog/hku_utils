@@ -1,5 +1,11 @@
 # 版本发布说明
 
+## 1.3.8 - 2026年
+
+* feat(ResourceAsioPool): 添加模板参数支持可配置互斥锁类型，以便使用io_context单/多线程不同场景
+* feat(thread): 优化全局任务组实现
+* fix(http_client): 添加GCC编译器警告抑制指令避免-Wsubobject-linkage警告
+
 ## 1.3.7 - 2026年3月29日
 
 fixed AsioHttpClient Uri 解析错误
