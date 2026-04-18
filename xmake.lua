@@ -135,7 +135,7 @@ end
 if has_config("http_client_asio") then 
     add_requires("nlohmann_json")
     if has_config("http_client_ssl") then 
-        add_requires("openssl3", {configs = {shared = true}})
+        add_requires("openssl3")
     end
 end
 
