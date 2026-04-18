@@ -32,7 +32,6 @@ option("async_log", {description = "Use async log.", default = false})
 option("leak_check", {description = "Enable leak check for test", default = false})
 option("ini_parser", {description = "Enable ini parser.", default = true})
 option("http_client", {description = "use http client", default = true})
-option("http_client_asio", {description = "enable aiso http client", default = true})
 option("http_client_ssl", {description = "enable https support for http client", default = false})
 option("http_client_zip", {description = "enable http support gzip", default = false})
 option("node", {description = "enable node reqrep server/client", default = true})
@@ -122,7 +121,7 @@ if get_config("duckdb") then
     add_requires("duckdb", {system = false, configs = {shared = true}})
 end
 
-if has_config("http_client") or has_config("node") then
+if has_config("node") then
     add_requires("nlohmann_json")
     if is_kind("shared") then
         add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl"), cxflags = "-fPIC"}})
@@ -132,15 +131,14 @@ if has_config("http_client") or has_config("node") then
     end
 end
 
-if has_config("http_client_asio") then 
+if has_config("http_client") then 
     add_requires("nlohmann_json")
     if has_config("http_client_ssl") then 
-        add_requires("openssl3")
+        add_requires("openssl3", {system = false})
     end
-end
-
-if has_config("http_client_zip") then
-    add_requires("gzip-hpp")
+    if has_config("http_client_zip") then
+        add_requires("gzip-hpp", {system = false})
+    end    
 end
 
 target("hku_utils")
@@ -172,7 +170,6 @@ target("hku_utils")
     set_configvar("HKU_ENABLE_STACK_TRACE", has_config("stacktrace") and 1 or 0)
     set_configvar("HKU_CLOSE_SPEND_TIME", has_config("spend_time") and 0 or 1)
     set_configvar("HKU_ENABLE_HTTP_CLIENT", has_config("http_client") and 1 or 0)
-    set_configvar("HKU_ENABLE_AISO_HTTP_CLIENT", has_config("http_client") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_SSL", has_config("http_client_ssl") and 1 or 0)
     set_configvar("HKU_ENABLE_HTTP_CLIENT_ZIP", has_config("http_client_zip") and 1 or 0)
     set_configvar("HKU_ENABLE_NODE", has_config("node") and 1 or 0)
@@ -205,19 +202,18 @@ target("hku_utils")
         add_files("hikyuu/utilities/db_connect/duckdb/*.cpp")
     end
 
-    if has_config("http_client") or has_config("node") then
+    if has_config("node") then
         add_packages("nng", "nlohmann_json")
     end
 
-    if has_config("http_client_asio") then 
+    if has_config("http_client") then 
         add_packages("nlohmann_json")
         if has_config("http_client_ssl") then
             add_packages("openssl3")
         end        
-    end
-
-    if has_config("http_client_zip") then
-        add_packages("gzip-hpp")
+        if has_config("http_client_zip") then
+            add_packages("gzip-hpp")
+        end
     end
  
     if is_plat("linux", "cross") then 
@@ -279,11 +275,6 @@ target("hku_utils")
     end
 
     if has_config("http_client") then
-        add_files("hikyuu/utilities/http_client/HttpClient.cpp")
-        add_files("hikyuu/utilities/http_client/url.cpp")
-    end
-
-    if has_config("http_client_asio") then
         add_files("hikyuu/utilities/http_client/AsioHttpClient.cpp")
         add_files("hikyuu/utilities/http_client/url.cpp")
     end
