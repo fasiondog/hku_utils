@@ -134,7 +134,7 @@ end
 if has_config("http_client") then 
     add_requires("nlohmann_json")
     if has_config("http_client_ssl") then 
-        add_requires("openssl3", {system = false})
+        add_requires("openssl3")
     end
     if has_config("http_client_zip") then
         add_requires("gzip-hpp", {system = false})
