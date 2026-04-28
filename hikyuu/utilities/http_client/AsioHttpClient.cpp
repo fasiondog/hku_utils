@@ -1577,16 +1577,30 @@ AsioHttpResponse AsioHttpClient::request(const std::string& method, const std::s
                                          const HttpParams& params, const HttpHeaders& headers,
                                          const char* body, size_t body_len,
                                          const std::string& content_type) {
+    // 提前验证 URL，避免进入异步协程后才发现问题
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
     HKU_ASSERT(m_ctx);
+    
+    // 确保 io_context 处于运行状态
     if (m_ctx->stopped()) {
         m_ctx->restart();
     }
 
+    // 使用 use_future 将协程结果转换为 std::future
     auto future =
       co_spawn(*m_ctx, async_request(method, path, params, headers, body, body_len, content_type),
-               boost::asio::use_future);  // 使用use_future代替detached以更好地管理future
+               boost::asio::use_future);
 
+    // 带超时保护的等待，防止因 URL 非法或其他原因导致的永久阻塞
+    // 超时时间设置为当前超时时间的 1.5 倍，给异步操作留出足够时间
+    auto timeout_duration = m_timeout * 3 / 2;
+    if (future.wait_for(timeout_duration) == std::future_status::timeout) {
+        HKU_THROW_EXCEPTION(HttpTimeoutException, 
+                           "HTTP request timed out after {} ms (possibly due to invalid URL or network issues)",
+                           std::chrono::duration_cast<std::chrono::milliseconds>(timeout_duration).count());
+    }
+
+    // 获取结果，如果协程中抛出了异常，这里会重新抛出
     return future.get();
 }
 
@@ -1594,18 +1608,32 @@ AsioHttpStreamResponse AsioHttpClient::requestStream(
   const std::string& method, const std::string& path, const HttpParams& params,
   const HttpHeaders& headers, const char* body, size_t body_len, const std::string& content_type,
   const HttpChunkCallback& chunk_callback) {
+    // 提前验证 URL 和回调函数
     HKU_CHECK(m_is_valid_url, "Invalid url: {}", m_url);
+    HKU_CHECK(chunk_callback != nullptr, "Chunk callback must not be null");
     HKU_ASSERT(m_ctx);
+    
+    // 确保 io_context 处于运行状态
     if (m_ctx->stopped()) {
         m_ctx->restart();
     }
 
+    // 使用 use_future 将协程结果转换为 std::future
     auto future =
       co_spawn(*m_ctx,
                async_requestStream(method, path, params, headers, body, body_len, content_type,
                                    chunk_callback),
-               boost::asio::use_future);  // 使用use_future代替detached以更好地管理future
+               boost::asio::use_future);
 
+    // 带超时保护的等待
+    auto timeout_duration = m_timeout * 3 / 2;
+    if (future.wait_for(timeout_duration) == std::future_status::timeout) {
+        HKU_THROW_EXCEPTION(HttpTimeoutException, 
+                           "HTTP stream request timed out after {} ms (possibly due to invalid URL or network issues)",
+                           std::chrono::duration_cast<std::chrono::milliseconds>(timeout_duration).count());
+    }
+
+    // 获取结果，如果协程中抛出了异常，这里会重新抛出
     return future.get();
 }
 
