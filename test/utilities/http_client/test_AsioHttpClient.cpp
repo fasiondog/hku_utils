@@ -109,8 +109,6 @@ TEST_CASE("test_AsioHttpClient_BasicRequest") {
         }
     });
 
-    ctx.run();
-
 // 测试 HTTPS GET 请求
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     boost::asio::io_context ctx2;
@@ -137,8 +135,6 @@ TEST_CASE("test_AsioHttpClient_BasicRequest") {
             HKU_WARN("HTTPS network test skipped: {}", e.what());
         }
     });
-
-    ctx2.run();
 #endif
 }
 
@@ -168,8 +164,6 @@ TEST_CASE("test_AsioHttpClient_POST") {
         }
     });
 
-    ctx.run();
-
 // HTTPS POST 测试
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     boost::asio::io_context ctx2;
@@ -195,8 +189,6 @@ TEST_CASE("test_AsioHttpClient_POST") {
             HKU_WARN("HTTPS POST test skipped: {}", e.what());
         }
     });
-
-    ctx2.run();
 #endif
 }
 
@@ -236,8 +228,6 @@ TEST_CASE("test_AsioHttpClient_Timeout") {
         }
     });
 
-    ctx.run();
-
 // HTTPS 超时测试
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     boost::asio::io_context ctx2;
@@ -269,8 +259,6 @@ TEST_CASE("test_AsioHttpClient_Timeout") {
             FAIL("Test failed with exception: {}", e.what());
         }
     });
-
-    ctx2.run();
 #endif
 }
 
@@ -303,8 +291,6 @@ TEST_CASE("test_AsioHttpClient_Headers") {
         }
     });
 
-    ctx.run();
-
 // HTTPS Headers 测试
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     boost::asio::io_context ctx2;
@@ -333,8 +319,6 @@ TEST_CASE("test_AsioHttpClient_Headers") {
             HKU_WARN("HTTPS Headers test skipped: {}", e.what());
         }
     });
-
-    ctx2.run();
 #endif
 }
 
@@ -361,9 +345,7 @@ TEST_CASE("test_AsioHttpClient_SharedIOContext") {
         }
     });
 
-    ctx.run();
-
-// 测试多个客户端共享同一个 io_context - HTTPS
+    // 测试多个客户端共享同一个 io_context - HTTPS
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     boost::asio::io_context ctx2;
     runCoroutineTest(ctx2, [&ctx2]() -> boost::asio::awaitable<void> {
@@ -427,8 +409,6 @@ TEST_CASE("test_AsioHttpClient_StreamRequest") {
         }
     });
 
-    ctx.run();
-
     // 测试流式 POST 请求
     boost::asio::io_context ctx2;
     runCoroutineTest(ctx2, [&ctx2]() -> boost::asio::awaitable<void> {
@@ -467,8 +447,6 @@ TEST_CASE("test_AsioHttpClient_StreamRequest") {
             HKU_WARN("HTTP stream POST test skipped: {}", e.what());
         }
     });
-
-    ctx2.run();
 }
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
@@ -522,8 +500,6 @@ TEST_CASE("test_AsioHttpClient_SetCaFile") {
             FAIL("setCaFile test should not throw exception");
         }
     });
-
-    ctx.run();
 }
 #endif
 
@@ -842,27 +818,28 @@ TEST_CASE("test_AsioHttpClient_MultithreadedMixedRequests") {
 
 TEST_CASE("test_AsioHttpClient_InvalidURLTimeout") {
     // 测试 URL 地址不对时的超时行为
-    
+
     SUBCASE("test_invalid_domain_timeout") {
         // 测试不存在的域名，应该触发 DNS 解析超时
         boost::asio::io_context ctx;
-        
+
         runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
             try {
                 // 使用明显不存在的域名
                 AsioHttpClient client(ctx, "http://this-domain-does-not-exist-12345.invalid", 2000);
-                
+
                 bool timeout_occurred = false;
                 std::string error_msg;
-                
+
                 try {
                     auto response = co_await client.async_get("/");
-                    HKU_WARN("Unexpected success with invalid domain, status: {}", response.status());
+                    HKU_WARN("Unexpected success with invalid domain, status: {}",
+                             response.status());
                 } catch (const std::exception& e) {
                     timeout_occurred = true;
                     error_msg = e.what();
                     HKU_INFO("Expected error for invalid domain: {}", error_msg);
-                    
+
                     // 验证错误信息包含相关关键词
                     CHECK_UNARY(error_msg.find("timeout") != std::string::npos ||
                                 error_msg.find("Timeout") != std::string::npos ||
@@ -873,7 +850,7 @@ TEST_CASE("test_AsioHttpClient_InvalidURLTimeout") {
                                 error_msg.find("host") != std::string::npos ||
                                 error_msg.find("Host") != std::string::npos);
                 }
-                
+
                 CHECK_UNARY(timeout_occurred);
                 co_return;
             } catch (const std::exception& e) {
@@ -881,22 +858,20 @@ TEST_CASE("test_AsioHttpClient_InvalidURLTimeout") {
                 FAIL("Test failed with exception: {}", e.what());
             }
         });
-        
-        ctx.run();
     }
-    
+
     SUBCASE("test_invalid_port_timeout") {
         // 测试无法连接的端口，应该触发连接超时
         boost::asio::io_context ctx;
-        
+
         runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
             try {
                 // 使用本地回环地址和一个不太可能被监听的端口
                 AsioHttpClient client(ctx, "http://127.0.0.1:59999", 2000);
-                
+
                 bool timeout_occurred = false;
                 std::string error_msg;
-                
+
                 try {
                     auto response = co_await client.async_get("/");
                     HKU_WARN("Unexpected success with invalid port, status: {}", response.status());
@@ -904,7 +879,7 @@ TEST_CASE("test_AsioHttpClient_InvalidURLTimeout") {
                     timeout_occurred = true;
                     error_msg = e.what();
                     HKU_INFO("Expected error for invalid port: {}", error_msg);
-                    
+
                     // 验证错误信息包含相关关键词
                     CHECK_UNARY(error_msg.find("timeout") != std::string::npos ||
                                 error_msg.find("Timeout") != std::string::npos ||
@@ -913,7 +888,7 @@ TEST_CASE("test_AsioHttpClient_InvalidURLTimeout") {
                                 error_msg.find("refused") != std::string::npos ||
                                 error_msg.find("Refused") != std::string::npos);
                 }
-                
+
                 CHECK_UNARY(timeout_occurred);
                 co_return;
             } catch (const std::exception& e) {
@@ -921,25 +896,24 @@ TEST_CASE("test_AsioHttpClient_InvalidURLTimeout") {
                 FAIL("Test failed with exception: {}", e.what());
             }
         });
-        
-        ctx.run();
     }
-    
+
     SUBCASE("test_malformed_url_handling") {
         // 测试格式错误的 URL
         boost::asio::io_context ctx;
-        
+
         runCoroutineTest(ctx, [&ctx]() -> boost::asio::awaitable<void> {
             try {
                 // 创建客户端时使用格式错误的 URL
                 AsioHttpClient client(ctx, "not-a-valid-url", 2000);
-                
+
                 // 如果客户端仍然有效（可能解析失败但有默认值），尝试请求应该失败
                 if (client.valid()) {
                     bool error_occurred = false;
                     try {
                         auto response = co_await client.async_get("/");
-                        HKU_WARN("Unexpected success with malformed URL, status: {}", response.status());
+                        HKU_WARN("Unexpected success with malformed URL, status: {}",
+                                 response.status());
                     } catch (const std::exception& e) {
                         error_occurred = true;
                         HKU_INFO("Expected error for malformed URL: {}", e.what());
@@ -949,15 +923,13 @@ TEST_CASE("test_AsioHttpClient_InvalidURLTimeout") {
                     // 客户端无效也是合理的结果
                     HKU_INFO("Client is invalid for malformed URL (expected)");
                 }
-                
+
                 co_return;
             } catch (const std::exception& e) {
                 HKU_ERROR("Test error: {}", e.what());
                 FAIL("Test failed with exception: {}", e.what());
             }
         });
-        
-        ctx.run();
     }
 }
 
@@ -1124,15 +1096,15 @@ TEST_CASE("test_AsioHttpClient_SyncAsync_API") {
 
     SUBCASE("test_sync_invalid_url_timeout") {
         // 测试同步接口在无效URL时的超时行为
-        
+
         // 测试1：无效域名
         HKU_INFO("Testing sync API with invalid domain...");
         try {
             AsioHttpClient client("http://this-domain-does-not-exist-12345.invalid", 2000);
-            
+
             bool error_occurred = false;
             std::string error_msg;
-            
+
             try {
                 auto response = client.get("/");
                 HKU_WARN("Unexpected success with invalid domain, status: {}", response.status());
@@ -1140,7 +1112,7 @@ TEST_CASE("test_AsioHttpClient_SyncAsync_API") {
                 error_occurred = true;
                 error_msg = e.what();
                 HKU_INFO("Expected error for invalid domain: {}", error_msg);
-                
+
                 // 验证错误信息包含相关关键词
                 CHECK_UNARY(error_msg.find("timeout") != std::string::npos ||
                             error_msg.find("Timeout") != std::string::npos ||
@@ -1151,21 +1123,21 @@ TEST_CASE("test_AsioHttpClient_SyncAsync_API") {
                             error_msg.find("host") != std::string::npos ||
                             error_msg.find("Host") != std::string::npos);
             }
-            
+
             CHECK_UNARY(error_occurred);
         } catch (const std::exception& e) {
             HKU_ERROR("Test error: {}", e.what());
             FAIL("Test failed with exception: {}", e.what());
         }
-        
+
         // 测试2：无效端口
         HKU_INFO("Testing sync API with invalid port...");
         try {
             AsioHttpClient client("http://127.0.0.1:59999", 2000);
-            
+
             bool error_occurred = false;
             std::string error_msg;
-            
+
             try {
                 auto response = client.get("/");
                 HKU_WARN("Unexpected success with invalid port, status: {}", response.status());
@@ -1173,7 +1145,7 @@ TEST_CASE("test_AsioHttpClient_SyncAsync_API") {
                 error_occurred = true;
                 error_msg = e.what();
                 HKU_INFO("Expected error for invalid port: {}", error_msg);
-                
+
                 // 验证错误信息包含相关关键词
                 CHECK_UNARY(error_msg.find("timeout") != std::string::npos ||
                             error_msg.find("Timeout") != std::string::npos ||
@@ -1182,35 +1154,36 @@ TEST_CASE("test_AsioHttpClient_SyncAsync_API") {
                             error_msg.find("refused") != std::string::npos ||
                             error_msg.find("Refused") != std::string::npos);
             }
-            
+
             CHECK_UNARY(error_occurred);
         } catch (const std::exception& e) {
             HKU_ERROR("Test error: {}", e.what());
             FAIL("Test failed with exception: {}", e.what());
         }
-        
+
         // 测试3：同步 POST 请求的无效URL
         HKU_INFO("Testing sync POST API with invalid URL...");
         try {
             AsioHttpClient client("http://invalid-host-test.local", 2000);
-            
+
             bool error_occurred = false;
-            
+
             try {
                 json payload = {{"test", "data"}};
                 auto response = client.post("/post", payload);
-                HKU_WARN("Unexpected success with invalid URL in POST, status: {}", response.status());
+                HKU_WARN("Unexpected success with invalid URL in POST, status: {}",
+                         response.status());
             } catch (const std::exception& e) {
                 error_occurred = true;
                 HKU_INFO("Expected error for invalid URL in POST: {}", e.what());
             }
-            
+
             CHECK_UNARY(error_occurred);
         } catch (const std::exception& e) {
             HKU_ERROR("Test error: {}", e.what());
             FAIL("Test failed with exception: {}", e.what());
         }
-        
+
         HKU_INFO("Sync invalid URL timeout tests completed");
     }
 }
@@ -1268,8 +1241,6 @@ TEST_CASE("test_AsioHttpClient_ChunkedTransferEncoding") {
         }
     });
 
-    ctx.run();
-
     // 测试 POST 请求也支持分块响应
     boost::asio::io_context ctx2;
 
@@ -1302,8 +1273,6 @@ TEST_CASE("test_AsioHttpClient_ChunkedTransferEncoding") {
             HKU_WARN("POST chunked test skipped: {}", e.what());
         }
     });
-
-    ctx2.run();
 }
 
 #if 0
