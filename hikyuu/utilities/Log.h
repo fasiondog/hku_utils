@@ -216,25 +216,12 @@ std::shared_ptr<spdlog::logger> HKU_UTILS_API getHikyuuLogger();
                                          HKU_FUNCTION, __FILE__, __LINE__));                     \
     } while (0)
 
-#define HKU_THROW_IF(expr, ...)                                                                  \
-    if (expr) {                                                                                  \
-        throw hku::exception(fmt::format("EXCEPTION: {} [{}] ({}:{})", fmt::format(__VA_ARGS__), \
-                                         HKU_FUNCTION, __FILE__, __LINE__));                     \
-    }
-
 /** 抛出指定异常及传入信息 */
 #define HKU_THROW_EXCEPTION(except, ...)                                                 \
     do {                                                                                 \
         throw except(fmt::format("EXCEPTION: {} [{}] ({}:{})", fmt::format(__VA_ARGS__), \
                                  HKU_FUNCTION, __FILE__, __LINE__));                     \
     } while (0)
-
-/** 抛出指定异常及传入信息 */
-#define HKU_THROW_EXCEPTION_IF(expr, except, ...)                                        \
-    if (expr) {                                                                          \
-        throw except(fmt::format("EXCEPTION: {} [{}] ({}:{})", fmt::format(__VA_ARGS__), \
-                                 HKU_FUNCTION, __FILE__, __LINE__));                     \
-    }
 
 #else
 #define HKU_THROW(...)                                                                          \
@@ -245,14 +232,6 @@ std::shared_ptr<spdlog::logger> HKU_UTILS_API getHikyuuLogger();
           fmt::format("EXCEPTION: {} [{}] ({}:{})", errmsg, HKU_FUNCTION, __FILE__, __LINE__)); \
     } while (0)
 
-#define HKU_THROW_IF(expr, ...)                                                                 \
-    if (expr) {                                                                                 \
-        std::string errmsg(fmt::format("{}\n {}", fmt::format(__VA_ARGS__),                     \
-                                       to_string(boost::stacktrace::stacktrace())));            \
-        throw hku::exception(                                                                   \
-          fmt::format("EXCEPTION: {} [{}] ({}:{})", errmsg, HKU_FUNCTION, __FILE__, __LINE__)); \
-    }
-
 #define HKU_THROW_EXCEPTION(except, ...)                                                        \
     do {                                                                                        \
         std::string errmsg(fmt::format("{}\n {}", fmt::format(__VA_ARGS__),                     \
@@ -260,14 +239,6 @@ std::shared_ptr<spdlog::logger> HKU_UTILS_API getHikyuuLogger();
         throw except(                                                                           \
           fmt::format("EXCEPTION: {} [{}] ({}:{})", errmsg, HKU_FUNCTION, __FILE__, __LINE__)); \
     } while (0)
-
-#define HKU_THROW_EXCEPTION(expr, except, ...)                                                  \
-    if (expr) {                                                                                 \
-        std::string errmsg(fmt::format("{}\n {}", fmt::format(__VA_ARGS__),                     \
-                                       to_string(boost::stacktrace::stacktrace())));            \
-        throw except(                                                                           \
-          fmt::format("EXCEPTION: {} [{}] ({}:{})", errmsg, HKU_FUNCTION, __FILE__, __LINE__)); \
-    }
 #endif  // #if !HKU_ENABLE_STACK_TRACE
 
 /**
