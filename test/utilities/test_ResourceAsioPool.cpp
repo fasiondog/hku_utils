@@ -58,7 +58,6 @@ TEST_CASE("test_ResourceAsioPool_basic") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 }
 
 TEST_CASE("test_ResourceAsioPool_reuse") {
@@ -84,7 +83,6 @@ TEST_CASE("test_ResourceAsioPool_reuse") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 }
 
 TEST_CASE("test_ResourceAsioPool_concurrent") {
@@ -112,7 +110,6 @@ TEST_CASE("test_ResourceAsioPool_concurrent") {
     }
 
     io_ctx.run();
-    io_ctx.restart();
 
     CHECK(completed == num_tasks);
 }
@@ -146,7 +143,6 @@ TEST_CASE("test_ResourceAsioPool_releaseIdleResource") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 }
 
 TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
@@ -181,7 +177,6 @@ TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 }
 
 TEST_CASE("test_ResourceAsioPool_multithreaded_io_context") {
@@ -460,7 +455,6 @@ TEST_CASE("test_ResourceAsioPool_max_count_limit") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 }
 
 TEST_CASE("test_ResourceAsioPool_no_max_limit") {
@@ -486,7 +480,6 @@ TEST_CASE("test_ResourceAsioPool_no_max_limit") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 }
 
 TEST_CASE("test_ResourceAsioPool_get_timeout") {
@@ -522,7 +515,6 @@ TEST_CASE("test_ResourceAsioPool_get_timeout") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 }
 
 TEST_CASE("test_ResourceAsioPool_get_with_timeout_success") {
@@ -563,7 +555,6 @@ TEST_CASE("test_ResourceAsioPool_get_with_timeout_success") {
       boost::asio::detached);
 
     io_ctx.run();
-    io_ctx.restart();
 
     CHECK(test_passed.load());
 }

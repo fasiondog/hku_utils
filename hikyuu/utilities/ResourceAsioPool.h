@@ -99,8 +99,6 @@ public:
      */
     awaitable<ResourcePtr> get(
       std::chrono::steady_clock::duration timeout = std::chrono::seconds(3)) {
-        auto executor = co_await this_coro::executor;
-
         // 1. 尝试从空闲队列获取资源
         ResourceType *p = nullptr;
         if (m_resourceList.pop(p)) {
@@ -130,6 +128,7 @@ public:
         }
 
         // 3. 已达上限 → 进入等待队列
+        auto executor = co_await this_coro::executor;
         auto timer = std::make_shared<boost::asio::steady_timer>(executor);
         timer->expires_after(timeout);
 
@@ -271,9 +270,9 @@ private:
         }
     }
 
-    MutexType m_closer_mutex;                                         // 保护 closer_set 的互斥锁
+    MutexType m_closer_mutex;                                          // 保护 closer_set 的互斥锁
     std::unordered_set<ResourceCloser *> m_closer_set;                 // 占用资源的 closer
-    MutexType m_waiterMutex;                                          // 保护等待队列的互斥锁
+    MutexType m_waiterMutex;                                           // 保护等待队列的互斥锁
     std::queue<std::shared_ptr<boost::asio::steady_timer>> m_waiters;  // 等待队列
 };
 
@@ -634,11 +633,11 @@ private:
         }
     }
 
-    MutexType m_closer_mutex;                                         // 保护 closer_set 的互斥锁
+    MutexType m_closer_mutex;                                          // 保护 closer_set 的互斥锁
     std::unordered_set<ResourceCloser *> m_closer_set;                 // 占用资源的 closer
-    mutable MutexType m_mutex;                                        // 保护参数访问的互斥锁
+    mutable MutexType m_mutex;                                         // 保护参数访问的互斥锁
     std::atomic<size_t> m_maxCount;                                    // 最大资源上限
-    MutexType m_waiterMutex;                                          // 保护等待队列的互斥锁
+    MutexType m_waiterMutex;                                           // 保护等待队列的互斥锁
     std::queue<std::shared_ptr<boost::asio::steady_timer>> m_waiters;  // 等待队列
 };
 
