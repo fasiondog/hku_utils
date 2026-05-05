@@ -11,7 +11,6 @@
 #define HKU_UTILS_RESOURCE_ASIO_POOL_H
 
 #include <boost/lockfree/queue.hpp>
-#include <boost/unordered/concurrent_node_map.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
