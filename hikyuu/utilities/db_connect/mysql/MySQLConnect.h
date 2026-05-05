@@ -14,11 +14,8 @@
 #include "../DBConnectBase.h"
 #include "MySQLStatement.h"
 
-#if defined(_MSC_VER)
-#include <mysql.h>
-#else
-#include <mysql/mysql.h>
-#endif
+#include <boost/mysql.hpp>
+#include <boost/asio.hpp>
 
 namespace hku {
 
@@ -42,8 +39,12 @@ public:
     virtual void rollback() noexcept override;
 
 public:
-    MYSQL *getRawMYSQL() const noexcept {
-        return m_mysql;
+    boost::mysql::tcp_connection* getRawConnection() const noexcept {
+        return m_conn.get();
+    }
+    
+    boost::asio::io_context& getIoContext() noexcept {
+        return m_io_context;
     }
 
 private:
@@ -52,7 +53,9 @@ private:
     void close();
 
 private:
-    MYSQL *m_mysql;
+    boost::asio::io_context m_io_context;
+    std::unique_ptr<boost::mysql::tcp_connection> m_conn;
+    boost::mysql::results m_results;
 };
 
 }  // namespace hku

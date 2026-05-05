@@ -30,7 +30,8 @@ target("unit-test")
     add_packages("doctest", "spdlog")
 
     if get_config("mysql") then
-        add_packages("mysql")
+        -- MySQL 使用 boost.mysql，需要 OpenSSL 支持
+        add_packages("openssl3")
     end
 
     if get_config("duckdb") then
@@ -96,6 +97,10 @@ target("unit-test")
 
     if get_config("duckdb") then
         add_files("utilities/db_connect/duckdb/*.cpp")
+    end
+
+    if get_config("mysql") then
+        add_files("utilities/db_connect/test_mysql.cpp")
     end
 
     if get_config("tdengine") then

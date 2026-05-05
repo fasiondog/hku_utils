@@ -10,15 +10,9 @@
 #include "hikyuu/utilities/config.h"
 #include "MySQLConnect.h"
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsign-compare"
-#endif
-
 namespace hku {
 
-MySQLConnect::MySQLConnect(const Parameter& param) : DBConnectBase(param), m_mysql(nullptr) {
-    close();
+MySQLConnect::MySQLConnect(const Parameter& param) : DBConnectBase(param) {
     connect();
 }
 
@@ -40,41 +34,44 @@ bool MySQLConnect::tryConnect() noexcept {
 
 void MySQLConnect::connect() {
     try {
-        m_mysql = new MYSQL;
-        HKU_CHECK(mysql_init(m_mysql) != NULL, "Initial MySQL handle error!");
-
         std::string host = tryGetParam<std::string>("host", "127.0.0.1");
         std::string usr = tryGetParam<std::string>("usr", "root");
         std::string pwd = tryGetParam<std::string>("pwd", "");
         std::string database = tryGetParam<std::string>("db", "");
-        unsigned int port = tryGetParam<int>("port", 3306);
-        // HKU_TRACE("MYSQL host: {}", host);
-        // HKU_TRACE("MYSQL port: {}", port);
-        // HKU_TRACE("MYSQL database: {}", database);
+        unsigned short port = static_cast<unsigned short>(tryGetParam<int>("port", 3306));
 
-#if MYSQL_VERSION_ID < 80034
-        // mysql 后续不再支持自动重连选项
-        // see: https://dev.mysql.com/doc/c-api/8.2/en/c-api-auto-reconnect.html
-        my_bool reconnect = 1;
-        SQL_CHECK(mysql_options(m_mysql, MYSQL_OPT_RECONNECT, &reconnect) == 0,
-                  mysql_errno(m_mysql), "Failed set reconnect options, {}", mysql_error(m_mysql));
-#endif
-
-#if MYSQL_VERSION_ID >= 80000
-        my_bool opt_true = 1;
-        mysql_options(m_mysql, MYSQL_OPT_GET_SERVER_PUBLIC_KEY, &opt_true);
-#endif
-
-        SQL_CHECK(mysql_real_connect(m_mysql, host.c_str(), usr.c_str(), pwd.c_str(),
-                                     database.c_str(), port, NULL, CLIENT_MULTI_STATEMENTS) != NULL,
-                  mysql_errno(m_mysql), "Failed to connect to database! {}", mysql_error(m_mysql));
-        SQL_CHECK(mysql_set_character_set(m_mysql, "utf8") == 0, mysql_errno(m_mysql),
-                  "mysql_set_character_set error! {}", mysql_error(m_mysql));
-
-    } catch (std::bad_alloc& e) {
-        close();
-        HKU_ERROR(e.what());
-        HKU_THROW("Failed alloc MySQLConnect! {}", e.what());
+        // 创建 IO context 和连接
+        m_conn = std::make_unique<boost::mysql::tcp_connection>(m_io_context);
+        
+        // 设置连接参数
+        boost::mysql::handshake_params params(
+            usr,           // username
+            pwd,           // password
+            database       // database name
+        );
+        
+        // 连接到 MySQL 服务器
+        boost::mysql::error_code ec;
+        boost::mysql::diagnostics diag;
+        m_conn->connect(
+            boost::asio::ip::tcp::endpoint(
+                boost::asio::ip::make_address(host), 
+                port
+            ),
+            params,
+            ec,
+            diag
+        );
+        
+        if (ec) {
+            HKU_THROW("Failed to connect to MySQL database! Error: {}", ec.message());
+        }
+        
+        // 设置字符集为 utf8
+        m_conn->execute("SET NAMES utf8", m_results, ec, diag);
+        if (ec) {
+            HKU_THROW("Failed to set character set to utf8! Error: {}", ec.message());
+        }
 
     } catch (const hku::exception& e) {
         close();
@@ -95,67 +92,59 @@ void MySQLConnect::connect() {
 }
 
 void MySQLConnect::close() {
-    if (m_mysql) {
-        mysql_close(m_mysql);
-        delete m_mysql;
-        m_mysql = nullptr;
+    if (m_conn) {
+        m_conn->close();
+        m_conn.reset();
     }
 }
 
 bool MySQLConnect::ping() {
-    HKU_ERROR_IF_RETURN(!m_mysql && !tryConnect(), false, "Failed connect to mysql!");
-    auto ret = mysql_ping(m_mysql);
-    HKU_ERROR_IF_RETURN(ret && !tryConnect(), false, "mysql_ping error code: {}, msg: {}", ret,
-                        mysql_error(m_mysql));
-    return true;
+    if (!m_conn) {
+        return tryConnect();
+    }
+    
+    try {
+        boost::mysql::error_code ec;
+        boost::mysql::diagnostics diag;
+        m_conn->execute("SELECT 1", m_results, ec, diag);
+        if (ec) {
+            // ping 失败，尝试重连
+            return tryConnect();
+        }
+        return true;
+    } catch (...) {
+        // 异常时也尝试重连
+        return tryConnect();
+    }
 }
 
 int64_t MySQLConnect::exec(const std::string& sql_string) {
 #if HKU_SQL_TRACE
     HKU_DEBUG(sql_string);
 #endif
-    if (!m_mysql) {
-        HKU_CHECK(!tryConnect(), "Failed connect to mysql!");
+    
+    if (!m_conn) {
+        HKU_CHECK(tryConnect(), "Failed connect to mysql!");
     }
 
-    int ret = mysql_query(m_mysql, sql_string.c_str());
-    if (ret) {
-        // 尝试重新连接
+    boost::mysql::error_code ec;
+    boost::mysql::diagnostics diag;
+    m_conn->execute(sql_string, m_results, ec, diag);
+    
+    if (ec) {
+        // 执行失败，尝试重连后再次执行
         if (ping()) {
-            ret = mysql_query(m_mysql, sql_string.c_str());
-        } else {
-            SQL_THROW(ret, "SQL error: {}! error msg: {}", sql_string, mysql_error(m_mysql));
+            m_conn->execute(sql_string, m_results, ec, diag);
+        }
+        
+        if (ec) {
+            SQL_THROW(ec.value(), "SQL error: {}! error msg: {}", sql_string, ec.message());
         }
     }
 
-    if (ret) {
-        SQL_THROW(ret, "SQL error: {}! error msg: {}", sql_string, mysql_error(m_mysql));
-    }
-
-    int64_t affect_rows = mysql_affected_rows(m_mysql);
-    if (affect_rows == (my_ulonglong)-1) {
-        affect_rows = 0;
-    }
-
-    do {
-        MYSQL_RES* result = mysql_store_result(m_mysql);
-        if (result) {
-            // auto num_fields = mysql_num_fields(result);
-            // HKU_TRACE("num_fields: {}", num_fields);
-            mysql_num_fields(result);
-            mysql_free_result(result);
-        } else {
-            if (mysql_field_count(m_mysql) == 0) {
-#if defined(_DEBUG) || defined(DEBUG)
-                auto num_rows = mysql_affected_rows(m_mysql);
-                HKU_TRACE("num_rows: {}", num_rows);
-#endif
-            } else {
-                SQL_THROW(ret, "mysql_field_count error：{}! error msg: {}", sql_string,
-                          mysql_error(m_mysql));
-            }
-        }
-    } while (!mysql_next_result(m_mysql));
+    // 获取受影响的行数
+    int64_t affect_rows = m_results.affected_rows();
+    
     return affect_rows;
 }
 
@@ -200,7 +189,3 @@ void MySQLConnect::rollback() noexcept {
 }
 
 }  // namespace hku
-
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif

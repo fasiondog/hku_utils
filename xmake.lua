@@ -14,7 +14,7 @@ add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 set_objectdir("$(builddir)/$(mode)/$(plat)/$(arch)/.objs")
 set_targetdir("$(builddir)/$(mode)/$(plat)/$(arch)/lib")
 
-option("mysql", {description = "Enable sqlite driver.", default = false})
+option("mysql", {description = "Enable mysql driver.", default = false})
 option("sqlite", {description = "Enable sqlite driver.", default = true})
 option("duckdb", {description = "Enable duckdb driver.", default = false})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
@@ -95,8 +95,15 @@ add_requires("boost", {
       system = false,
       python = false,
       cmake = false,
+      openssl = has_config("mysql"),
+      mysql = has_config("mysql"),
+      charconv = has_config("mysql"),  -- boost.mysql 需要 charconv
     },
   })
+
+if has_config("mysql") then 
+    add_requires("openssl3")
+end  
 
 -- 使用 sqlcipher 时，忽略 sqlite3
 if has_config("sqlcipher") then
@@ -193,7 +200,7 @@ target("hku_utils")
     end
 
     if has_config("mysql") then
-        add_packages("mysql")
+        add_packages("openssl3")
     end
 
     if has_config("duckdb") then

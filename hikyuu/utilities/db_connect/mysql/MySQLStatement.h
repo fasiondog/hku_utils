@@ -16,15 +16,7 @@
 #include <boost/any.hpp>
 #include "../SQLStatementBase.h"
 
-#if defined(_MSC_VER)
-#include <mysql.h>
-#else
-#include <mysql/mysql.h>
-#endif
-
-#if MYSQL_VERSION_ID >= 80000
-typedef bool my_bool;
-#endif
+#include <boost/mysql.hpp>
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API
@@ -60,27 +52,20 @@ public:
     virtual void sub_getColumnAsBlob(int idx, std::vector<char> &item) override;
 
 private:
-    void _prepare(DBConnectBase *driver);
+    void _prepare();
     void _reset();
-    void _bindResult();
 
 private:
-    MYSQL *m_db;
-    MYSQL_STMT *m_stmt;
-    MYSQL_RES *m_meta_result;
-    bool m_needs_reset;
-    bool m_has_bind_result;
-    std::vector<MYSQL_BIND> m_param_bind;
-    std::vector<MYSQL_BIND> m_result_bind;
-    std::vector<boost::any> m_param_buffer;
-    std::vector<boost::any> m_result_buffer;
-    std::vector<unsigned long> m_result_length;
-    std::vector<char> m_result_is_null;
-    std::vector<char> m_result_error;
+    boost::mysql::tcp_connection* m_conn;
+    boost::mysql::statement m_stmt;
+    boost::mysql::results m_results;
+    std::vector<boost::mysql::field> m_params;
+    bool m_has_result;
+    size_t m_current_row;
 };
 
 inline uint64_t MySQLStatement::sub_getLastRowid() {
-    return mysql_stmt_insert_id(m_stmt);
+    return m_results.last_insert_id();
 }
 
 }  // namespace hku
