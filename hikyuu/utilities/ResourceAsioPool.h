@@ -86,12 +86,17 @@ public:
             m_waiters.clear();
         }
 
+        // 先复制出所有 closer 指针，避免在持有锁的情况下调用 unbind()
+        std::vector<ResourceCloser *> closers;
         {
             std::lock_guard<MutexType> lock(m_closer_mutex);
-            for (auto *closer : m_closer_set) {
-                if (closer) {
-                    closer->unbind();
-                }
+            closers.assign(m_closer_set.begin(), m_closer_set.end());
+        }
+
+        // 在锁外调用 unbind()，避免潜在的死锁风险
+        for (auto *closer : closers) {
+            if (closer) {
+                closer->unbind();
             }
         }
 
@@ -359,12 +364,17 @@ public:
             }
         }
 
+        // 先复制出所有 closer 指针，避免在持有锁的情况下调用 unbind()
+        std::vector<ResourceCloser *> closers;
         {
             std::lock_guard<MutexType> lock(m_closer_mutex);
-            for (auto *closer : m_closer_set) {
-                if (closer) {
-                    closer->unbind();
-                }
+            closers.assign(m_closer_set.begin(), m_closer_set.end());
+        }
+
+        // 在锁外调用 unbind()，避免潜在的死锁风险
+        for (auto *closer : closers) {
+            if (closer) {
+                closer->unbind();
             }
         }
 
