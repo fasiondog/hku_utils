@@ -139,7 +139,7 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionUpdate") {
         // 更新参数（实际值变化）
         pool.setParam<std::string>("test_param", "v2");
         CHECK_EQ(pool.getVersion(), 1);
-        
+
         // 空闲资源被释放，使用中的资源不变
         CHECK_EQ(pool.count(), 2);
         CHECK_EQ(pool.idleCount(), 0);
@@ -191,7 +191,7 @@ TEST_CASE("test_ResourceAsioVersionPool_SetParameter") {
         pool.setParameter(new_param);
 
         CHECK_EQ(pool.getVersion(), 1);
-        
+
         // 旧资源仍在用
         CHECK_EQ(res1->getVersion(), 0);
         CHECK_EQ(res1->getParam<std::string>("test_param"), "v1");
@@ -223,11 +223,11 @@ TEST_CASE("test_ResourceAsioVersionPool_ReleaseIdleResource") {
         auto res1 = co_await pool.get();
         auto res2 = co_await pool.get();
         auto res3 = co_await pool.get();
-        
+
         res1.reset();
         res2.reset();
         res3.reset();
-        
+
         CHECK_EQ(pool.count(), 3);
         CHECK_EQ(pool.idleCount(), 3);
 
@@ -248,51 +248,54 @@ TEST_CASE("test_ResourceAsioVersionPool_ConcurrentAccess") {
     const int num_tasks = 20;
     std::atomic<int> completed(0);
     std::atomic<int> success_count(0);
-    std::promise<void> completion_promise;
-    std::future<void> completion_future = completion_promise.get_future();
 
     Parameter param;
     param.set<std::string>("test_param", "concurrent_test");
-    
+
     // 在协程中创建池
-    boost::asio::co_spawn(io_ctx, [&]() -> boost::asio::awaitable<void> {
-        // 单线程场景使用默认 NullLock
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+    boost::asio::co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          // 单线程场景使用默认 NullLock
+          ResourceAsioVersionPool<VersionTestResource> pool(param);
 
-        for (int i = 0; i < num_tasks; ++i) {
-            boost::asio::co_spawn(io_ctx, [&, i]() -> boost::asio::awaitable<void> {
-                try {
-                    auto res = co_await pool.get();
-                    CHECK_NE(res, nullptr);
-                    CHECK_GE(res->getId(), 0);
-                    
-                    // 模拟使用资源
-                    co_await boost::asio::steady_timer(io_ctx.get_executor(), 
-                                                       std::chrono::milliseconds(10))
-                                        .async_wait(boost::asio::use_awaitable);
-                    
-                    success_count.fetch_add(1);
-                } catch (const std::exception& e) {
-                    HKU_WARN("Task {} failed: {}", i, e.what());
-                }
+          for (int i = 0; i < num_tasks; ++i) {
+              boost::asio::co_spawn(
+                io_ctx,
+                [&, i]() -> boost::asio::awaitable<void> {
+                    try {
+                        auto res = co_await pool.get();
+                        CHECK_NE(res, nullptr);
+                        CHECK_GE(res->getId(), 0);
 
-                if (completed.fetch_add(1) + 1 == num_tasks) {
-                    completion_promise.set_value();
-                }
-            }, boost::asio::detached);
-        }
+                        // 模拟使用资源
+                        co_await boost::asio::steady_timer(io_ctx.get_executor(),
+                                                           std::chrono::milliseconds(10))
+                          .async_wait(boost::asio::use_awaitable);
 
-        co_return;
-    }, boost::asio::detached);
+                        success_count.fetch_add(1);
+                    } catch (const std::exception& e) {
+                        HKU_WARN("Task {} failed: {}", i, e.what());
+                    }
+
+                    completed.fetch_add(1);
+                },
+                boost::asio::detached);
+          }
+
+          // 等待所有子任务完成后再退出，确保 pool 在所有资源归还后才析构
+          while (completed.load() < num_tasks) {
+              co_await boost::asio::steady_timer(io_ctx.get_executor(),
+                                                 std::chrono::milliseconds(1))
+                .async_wait(boost::asio::use_awaitable);
+          }
+
+          co_return;
+      },
+      boost::asio::detached);
 
     // 运行 io_context
     io_ctx.run();
-
-    // 等待所有任务完成
-    if (completion_future.wait_for(std::chrono::seconds(10)) == std::future_status::timeout) {
-        HKU_ERROR("Concurrent test timeout!");
-        FAIL("Test timeout");
-    }
 
     HKU_INFO("Concurrent test completed - Success: {}/{}", success_count.load(), num_tasks);
     CHECK_EQ(success_count.load(), num_tasks);
@@ -305,62 +308,66 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionConcurrency") {
     std::atomic<int> completed(0);
     std::atomic<int> old_version_count(0);
     std::atomic<int> new_version_count(0);
-    std::promise<void> completion_promise;
-    std::future<void> completion_future = completion_promise.get_future();
 
     Parameter param;
     param.set<std::string>("test_param", "v1");
 
-    boost::asio::co_spawn(io_ctx, [&]() -> boost::asio::awaitable<void> {
-        // 单线程场景使用默认 NullLock
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+    boost::asio::co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          // 单线程场景使用默认 NullLock
+          ResourceAsioVersionPool<VersionTestResource> pool(param);
 
-        // 先获取一些资源
-        std::vector<std::shared_ptr<VersionTestResource>> resources;
-        for (int i = 0; i < 5; ++i) {
-            resources.push_back(co_await pool.get());
-        }
-        CHECK_EQ(pool.count(), 5);
+          // 先获取一些资源
+          std::vector<std::shared_ptr<VersionTestResource>> resources;
+          for (int i = 0; i < 5; ++i) {
+              resources.push_back(co_await pool.get());
+          }
+          CHECK_EQ(pool.count(), 5);
 
-        // 更新版本
-        pool.setParam<std::string>("test_param", "v2");
-        CHECK_EQ(pool.getVersion(), 1);
+          // 更新版本
+          pool.setParam<std::string>("test_param", "v2");
+          CHECK_EQ(pool.getVersion(), 1);
 
-        // 并发获取新资源
-        for (int i = 0; i < num_tasks; ++i) {
-            boost::asio::co_spawn(io_ctx, [&, i]() -> boost::asio::awaitable<void> {
-                try {
-                    auto res = co_await pool.get();
-                    CHECK_NE(res, nullptr);
-                    
-                    if (res->getVersion() == 0) {
-                        old_version_count.fetch_add(1);
-                    } else if (res->getVersion() == 1) {
-                        new_version_count.fetch_add(1);
+          // 并发获取新资源
+          for (int i = 0; i < num_tasks; ++i) {
+              boost::asio::co_spawn(
+                io_ctx,
+                [&, i]() -> boost::asio::awaitable<void> {
+                    try {
+                        auto res = co_await pool.get();
+                        CHECK_NE(res, nullptr);
+
+                        if (res->getVersion() == 0) {
+                            old_version_count.fetch_add(1);
+                        } else if (res->getVersion() == 1) {
+                            new_version_count.fetch_add(1);
+                        }
+                    } catch (const std::exception& e) {
+                        HKU_WARN("Task {} failed: {}", i, e.what());
                     }
-                } catch (const std::exception& e) {
-                    HKU_WARN("Task {} failed: {}", i, e.what());
-                }
 
-                if (completed.fetch_add(1) + 1 == num_tasks) {
-                    completion_promise.set_value();
-                }
-            }, boost::asio::detached);
-        }
+                    completed.fetch_add(1);
+                },
+                boost::asio::detached);
+          }
 
-        co_return;
-    }, boost::asio::detached);
+          // 等待所有子任务完成后再退出，确保 pool 在所有资源归还后才析构
+          while (completed.load() < num_tasks) {
+              co_await boost::asio::steady_timer(io_ctx.get_executor(),
+                                                 std::chrono::milliseconds(1))
+                .async_wait(boost::asio::use_awaitable);
+          }
+
+          co_return;
+      },
+      boost::asio::detached);
 
     io_ctx.run();
 
-    if (completion_future.wait_for(std::chrono::seconds(10)) == std::future_status::timeout) {
-        HKU_ERROR("Version concurrency test timeout!");
-        FAIL("Test timeout");
-    }
+    HKU_INFO("Version concurrency test - Old: {}, New: {}", old_version_count.load(),
+             new_version_count.load());
 
-    HKU_INFO("Version concurrency test - Old: {}, New: {}", 
-             old_version_count.load(), new_version_count.load());
-    
     // 所有新获取的资源都应该是新版本（旧版本会被淘汰）
     CHECK_EQ(old_version_count.load(), 0);
     CHECK_EQ(new_version_count.load(), num_tasks);
@@ -374,41 +381,58 @@ TEST_CASE("test_ResourceAsioVersionPool_MultithreadedAccess") {
     const int num_threads = 4;
     std::atomic<int> completed(0);
     std::atomic<int> success_count(0);
-    std::promise<void> completion_promise;
-    std::future<void> completion_future = completion_promise.get_future();
+    std::promise<void> all_done_promise;
+    std::future<void> all_done_future = all_done_promise.get_future();
 
     Parameter param;
     param.set<std::string>("test_param", "multithread_test");
 
-    boost::asio::co_spawn(io_ctx, [&]() -> boost::asio::awaitable<void> {
-        // 多线程场景使用 std::mutex
-        ResourceAsioVersionPool<VersionTestResource, std::mutex> pool(param);
+    boost::asio::co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          // 多线程场景使用 std::mutex
+          ResourceAsioVersionPool<VersionTestResource, std::mutex> pool(param);
 
-        for (int i = 0; i < num_tasks; ++i) {
-            boost::asio::co_spawn(io_ctx, [&, i]() -> boost::asio::awaitable<void> {
-                try {
-                    auto res = co_await pool.get();
-                    CHECK_NE(res, nullptr);
-                    CHECK_EQ(res->getVersion(), 0);
-                    
-                    // 模拟异步操作
-                    co_await boost::asio::steady_timer(io_ctx.get_executor(),
-                                                       std::chrono::milliseconds(5))
-                                        .async_wait(boost::asio::use_awaitable);
-                    
-                    success_count.fetch_add(1);
-                } catch (const std::exception& e) {
-                    HKU_WARN("Task {} failed: {}", i, e.what());
-                }
+          for (int i = 0; i < num_tasks; ++i) {
+              boost::asio::co_spawn(
+                io_ctx,
+                [&, i]() -> boost::asio::awaitable<void> {
+                    try {
+                        auto res = co_await pool.get();
+                        CHECK_NE(res, nullptr);
+                        CHECK_EQ(res->getVersion(), 0);
 
-                if (completed.fetch_add(1) + 1 == num_tasks) {
-                    completion_promise.set_value();
-                }
-            }, boost::asio::detached);
-        }
+                        // 模拟异步操作
+                        co_await boost::asio::steady_timer(io_ctx.get_executor(),
+                                                           std::chrono::milliseconds(5))
+                          .async_wait(boost::asio::use_awaitable);
 
-        co_return;
-    }, boost::asio::detached);
+                        success_count.fetch_add(1);
+                    } catch (const std::exception& e) {
+                        HKU_WARN("Task {} failed: {}", i, e.what());
+                    }
+
+                    if (completed.fetch_add(1) + 1 == num_tasks) {
+                        // 所有任务完成后，通知主协程
+                        all_done_promise.set_value();
+                    }
+                },
+                boost::asio::detached);
+          }
+
+          // 等待所有子任务完成
+          co_await boost::asio::post(io_ctx.get_executor(), boost::asio::use_awaitable);
+
+          // 由于 promise/future 不能在协程中直接 co_await，我们使用定时器轮询
+          while (completed.load() < num_tasks) {
+              co_await boost::asio::steady_timer(io_ctx.get_executor(),
+                                                 std::chrono::milliseconds(10))
+                .async_wait(boost::asio::use_awaitable);
+          }
+
+          co_return;
+      },
+      boost::asio::detached);
 
     // 创建多个线程同时运行 io_context
     std::vector<std::thread> workers;
@@ -416,8 +440,8 @@ TEST_CASE("test_ResourceAsioVersionPool_MultithreadedAccess") {
         workers.emplace_back([&]() { io_ctx.run(); });
     }
 
-    // 等待所有任务完成
-    if (completion_future.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
+    // 等待所有任务完成（设置超时）
+    if (all_done_future.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
         HKU_ERROR("Multithreaded test timeout!");
     }
 
@@ -443,7 +467,7 @@ TEST_CASE("test_ResourceAsioVersionPool_GetParam") {
         Parameter param;
         param.set<std::string>("name", "test_pool");
         param.set<int>("max_connections", 100);
-        
+
         ResourceAsioVersionPool<VersionTestResource> pool(param);
 
         // 检查参数存在性
