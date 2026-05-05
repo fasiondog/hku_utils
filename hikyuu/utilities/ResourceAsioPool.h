@@ -75,9 +75,24 @@ public:
      * 析构函数，释放所有缓存的资源
      */
     virtual ~ResourceAsioPool() {
-        // 将所有已分配资源的 closer 和 pool 解绑
-        for (auto iter = m_closer_set.begin(); iter != m_closer_set.end(); ++iter) {
-            (*iter)->unbind();
+        // 清空等待队列，取消所有等待的定时器
+        {
+            std::lock_guard<MutexType> lock(m_waiterMutex);
+            for (auto &timer : m_waiters) {
+                if (timer) {
+                    timer->cancel();
+                }
+            }
+            m_waiters.clear();
+        }
+
+        {
+            std::lock_guard<MutexType> lock(m_closer_mutex);
+            for (auto *closer : m_closer_set) {
+                if (closer) {
+                    closer->unbind();
+                }
+            }
         }
 
         // 释放所有空闲资源
@@ -87,9 +102,6 @@ public:
                 delete p;
             }
         }
-
-        m_closer_set.clear();
-        m_waiters.clear();
     }
 
     /** 资源实例指针类型 */
@@ -241,12 +253,14 @@ private:
             return;
         }
 
+        // 无论资源是否成功归还，都需要从 closer_set 中移除
+        if (closer) {
+            std::lock_guard<MutexType> lock(m_closer_mutex);
+            m_closer_set.erase(closer);
+        }
+
         if (!m_resourceList.push(p)) {
-            // 队列已满（即最大限制），直接删除并返回，无可用资源
-            if (closer) {
-                std::lock_guard<MutexType> lock(m_closer_mutex);
-                m_closer_set.erase(closer);
-            }
+            // 队列已满（即最大限制），直接删除
             delete p;
             m_count.fetch_sub(1);
             return;
@@ -333,9 +347,25 @@ public:
      * 析构函数，释放所有缓存的资源
      */
     virtual ~ResourceAsioVersionPool() {
-        // 将所有已分配资源的 closer 和 pool 解绑
-        for (auto iter = m_closer_set.begin(); iter != m_closer_set.end(); ++iter) {
-            (*iter)->unbind();
+        // 清空等待队列，取消所有等待的定时器
+        {
+            std::lock_guard<MutexType> lock(m_waiterMutex);
+            while (!m_waiters.empty()) {
+                auto timer = m_waiters.front();
+                m_waiters.pop();
+                if (timer) {
+                    timer->cancel();
+                }
+            }
+        }
+
+        {
+            std::lock_guard<MutexType> lock(m_closer_mutex);
+            for (auto *closer : m_closer_set) {
+                if (closer) {
+                    closer->unbind();
+                }
+            }
         }
 
         // 释放所有空闲资源
@@ -595,6 +625,12 @@ private:
 
     /** 归还至资源池 */
     void returnResource(ResourceType *p, ResourceCloser *closer) {
+        // 无论资源是否成功归还，都需要从 closer_set 中移除
+        if (closer) {
+            std::lock_guard<MutexType> lock(m_closer_mutex);
+            m_closer_set.erase(closer);
+        }
+
         if (p) {
             // 当前归还资源的版本和资源池版本相等，才接受归还
             if (p->getVersion() == m_version.load()) {
@@ -623,11 +659,6 @@ private:
             }
         } else {
             m_count.fetch_sub(1);
-        }
-
-        if (closer) {
-            std::lock_guard<MutexType> lock(m_closer_mutex);
-            m_closer_set.erase(closer);
         }
     }
 
