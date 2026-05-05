@@ -11,6 +11,7 @@
 #define HKU_UTILS_RESOURCE_ASIO_POOL_H
 
 #include <boost/lockfree/queue.hpp>
+#include <boost/unordered/concurrent_node_map.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -86,6 +87,9 @@ public:
                 delete p;
             }
         }
+
+        m_closer_set.clear();
+        m_waiters.clear();
     }
 
     /** 资源实例指针类型 */
@@ -135,7 +139,7 @@ public:
         // 加入等待队列
         {
             std::lock_guard<MutexType> lock(m_waiterMutex);
-            m_waiters.push(timer);
+            m_waiters.push_back(timer);
         }
 
         // 等待被唤醒或超时
@@ -149,19 +153,11 @@ public:
         // 从等待队列移除
         {
             std::lock_guard<MutexType> lock(m_waiterMutex);
-            if (!m_waiters.empty() && m_waiters.front() == timer) {
-                m_waiters.pop();
+            if (!m_waiters.empty() && m_waiters.back() == timer) {
+                m_waiters.pop_back();
             } else {
                 // 如果不是队首，需要查找并移除（超时情况）
-                std::queue<std::shared_ptr<boost::asio::steady_timer>> temp;
-                while (!m_waiters.empty()) {
-                    auto t = m_waiters.front();
-                    m_waiters.pop();
-                    if (t != timer) {
-                        temp.push(t);
-                    }
-                }
-                m_waiters = std::move(temp);
+                m_waiters.remove(timer);
             }
         }
 
@@ -240,16 +236,23 @@ private:
 
     /** 归还至资源池 */
     void returnResource(ResourceType *p, ResourceCloser *closer) {
-        if (p) {
-            if (m_resourceList.push(p)) {
-                m_idleCount.fetch_add(1);
-            } else {
-                delete p;
-                m_count.fetch_sub(1);
-            }
-        } else {
-            m_count.fetch_sub(1);
+        if (!p) [[unlikely]] {
+            HKU_WARN("ResourceAsioPool::returnResource: nullptr");
+            return;
         }
+
+        if (!m_resourceList.push(p)) {
+            // 队列已满（即最大限制），直接删除并返回，无可用资源
+            if (closer) {
+                std::lock_guard<MutexType> lock(m_closer_mutex);
+                m_closer_set.erase(closer);
+            }
+            delete p;
+            m_count.fetch_sub(1);
+            return;
+        }
+
+        m_idleCount.fetch_add(1);
 
         // 唤醒一个等待者
         std::shared_ptr<boost::asio::steady_timer> timer;
@@ -257,23 +260,18 @@ private:
             std::lock_guard<MutexType> lock(m_waiterMutex);
             if (!m_waiters.empty()) {
                 timer = m_waiters.front();
-                m_waiters.pop();
+                m_waiters.pop_front();
             }
         }
         if (timer) {
             timer->cancel();
         }
-
-        if (closer) {
-            std::lock_guard<MutexType> lock(m_closer_mutex);
-            m_closer_set.erase(closer);
-        }
     }
 
-    MutexType m_closer_mutex;                                          // 保护 closer_set 的互斥锁
-    std::unordered_set<ResourceCloser *> m_closer_set;                 // 占用资源的 closer
-    MutexType m_waiterMutex;                                           // 保护等待队列的互斥锁
-    std::queue<std::shared_ptr<boost::asio::steady_timer>> m_waiters;  // 等待队列
+    MutexType m_closer_mutex;                                         // 保护 closer_set 的互斥锁
+    std::unordered_set<ResourceCloser *> m_closer_set;                // 占用资源的 closer
+    MutexType m_waiterMutex;                                          // 保护等待队列的互斥锁
+    std::list<std::shared_ptr<boost::asio::steady_timer>> m_waiters;  // 等待队列
 };
 
 /**
