@@ -10,14 +10,40 @@
 #include "hikyuu/utilities/config.h"
 #include "MySQLConnect.h"
 
+#include <boost/mysql.hpp>
+#include <boost/asio.hpp>
+
 namespace hku {
 
-MySQLConnect::MySQLConnect(const Parameter& param) : DBConnectBase(param) {
+// 辅助函数：打印 diagnostics 诊断信息
+static void printDiagHelper(const boost::mysql::error_code& ec,
+                            const boost::mysql::diagnostics& diag, const std::string& context) {
+    if (!diag.server_message().empty()) {
+        HKU_ERROR("{} Server error: {}", context, diag.server_message());
+    } else if (!diag.client_message().empty()) {
+        HKU_ERROR("{} Client error: {}", context, diag.client_message());
+    } else {
+        HKU_ERROR("{} Error code {}: {}", context, ec.value(), ec.message());
+    }
+}
+
+// Pimpl 实现结构体
+struct MySQLConnect::Impl {
+    boost::asio::io_context io_context;
+    std::unique_ptr<boost::mysql::tcp_connection> conn;
+};
+
+MySQLConnect::MySQLConnect(const Parameter& param)
+: DBConnectBase(param), m_impl(std::make_unique<Impl>()) {
     connect();
 }
 
 MySQLConnect::~MySQLConnect() {
     close();
+}
+
+void* MySQLConnect::getRawConnection() const noexcept {
+    return m_impl->conn.get();
 }
 
 bool MySQLConnect::tryConnect() noexcept {
@@ -40,25 +66,18 @@ void MySQLConnect::connect() {
         std::string database = tryGetParam<std::string>("db", "");
         unsigned short port = static_cast<unsigned short>(tryGetParam<int>("port", 3306));
 
-        m_conn = std::make_unique<boost::mysql::tcp_connection>(m_io_context);
+        m_impl->conn = std::make_unique<boost::mysql::tcp_connection>(m_impl->io_context);
         boost::mysql::handshake_params params(usr, pwd, database);
 
         boost::mysql::error_code ec;
         boost::mysql::diagnostics diag;
-        m_conn->connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(host), port),
-                        params, ec, diag);
+        m_impl->conn->connect(
+          boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(host), port), params, ec,
+          diag);
 
         if (ec) {
-            printDiag(ec, diag, "MySQL connect");
+            printDiagHelper(ec, diag, "MySQL connect");
             HKU_THROW("{}, {}", ec.value(), ec.message());
-        }
-
-        // 设置字符集为 utf8
-        boost::mysql::results results;
-        m_conn->execute("SET NAMES utf8", results, ec, diag);
-        if (ec) [[unlikely]] {
-            printDiag(ec, diag, "MySQL set character set");
-            HKU_THROW("Failed to set character set to utf8! Error: {}", ec.message());
         }
 
     } catch (const hku::exception& e) {
@@ -80,24 +99,25 @@ void MySQLConnect::connect() {
 }
 
 void MySQLConnect::close() {
-    if (m_conn) {
-        m_conn->close();
-        m_conn.reset();
+    if (m_impl && m_impl->conn) {
+        m_impl->conn->close();
+        m_impl->conn.reset();
     }
 }
 
 bool MySQLConnect::ping() {
-    HKU_ERROR_IF_RETURN(!m_conn && !tryConnect(), false, "Failed connect to mysql!");
+    HKU_ERROR_IF_RETURN(!m_impl || !m_impl->conn && !tryConnect(), false,
+                        "Failed connect to mysql!");
 
     try {
         boost::mysql::error_code ec;
         boost::mysql::diagnostics diag;
         boost::mysql::results results;
-        m_conn->execute("SELECT 1", results, ec, diag);
+        m_impl->conn->execute("SELECT 1", results, ec, diag);
 
         // 如果 ping 失败，尝试重连
         if (ec && !tryConnect()) [[unlikely]] {
-            printDiag(ec, diag, "MySQL ping failed!");
+            printDiagHelper(ec, diag, "MySQL ping failed!");
             return false;
         }
         return true;
@@ -113,23 +133,23 @@ int64_t MySQLConnect::exec(const std::string& sql_string) {
     HKU_DEBUG(sql_string);
 #endif
 
-    if (!m_conn) {
+    if (!m_impl || !m_impl->conn) {
         SQL_CHECK(tryConnect(), -1, "Failed connect to mysql!");
     }
 
     boost::mysql::error_code ec;
     boost::mysql::diagnostics diag;
     boost::mysql::results results;
-    m_conn->execute(sql_string, results, ec, diag);
+    m_impl->conn->execute(sql_string, results, ec, diag);
 
     if (ec) [[unlikely]] {
         // 执行失败,尝试重连后再次执行
         if (ping()) {
-            m_conn->execute(sql_string, results, ec, diag);
+            m_impl->conn->execute(sql_string, results, ec, diag);
         }
 
         if (ec) {
-            printDiag(ec, diag, "MySQL execute sql");
+            printDiagHelper(ec, diag, "MySQL execute sql");
             SQL_THROW(ec.value(), "SQL error: {}! error msg: {}", sql_string, ec.message());
         }
     }
@@ -176,17 +196,6 @@ void MySQLConnect::rollback() noexcept {
         HKU_ERROR("Failed transaction! {}", e.what());
     } catch (...) {
         HKU_ERROR("Unknown error!");
-    }
-}
-
-void MySQLConnect::printDiag(const boost::mysql::error_code& ec,
-                             const boost::mysql::diagnostics& diag, const std::string& context) {
-    if (!diag.server_message().empty()) {
-        HKU_ERROR("{} Server error: {}", context, diag.server_message());
-    } else if (!diag.client_message().empty()) {
-        HKU_ERROR("{} Client error: {}", context, diag.client_message());
-    } else {
-        HKU_ERROR("{} Error code {}: {}", context, ec.value(), ec.message());
     }
 }
 

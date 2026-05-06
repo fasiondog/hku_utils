@@ -13,10 +13,8 @@
 
 #include <string>
 #include <vector>
-#include <boost/any.hpp>
+#include <memory>
 #include "../SQLStatementBase.h"
-
-#include <boost/mysql.hpp>
 
 #ifndef HKU_UTILS_API
 #define HKU_UTILS_API
@@ -56,18 +54,9 @@ private:
     void _reset();
 
 private:
-    boost::mysql::tcp_connection *m_conn{nullptr};
-    boost::mysql::statement m_stmt;
-    boost::mysql::results m_results;
-    std::vector<boost::mysql::field> m_params;
-    size_t m_current_row{0};
-    bool m_has_result{false};
-    bool m_needs_reset{false};
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
 };
-
-inline uint64_t MySQLStatement::sub_getLastRowid() {
-    return m_results.last_insert_id();
-}
 
 }  // namespace hku
 

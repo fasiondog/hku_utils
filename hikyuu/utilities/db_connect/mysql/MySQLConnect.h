@@ -14,8 +14,7 @@
 #include "../DBConnectBase.h"
 #include "MySQLStatement.h"
 
-#include <boost/mysql.hpp>
-#include <boost/asio.hpp>
+#include <memory>
 
 namespace hku {
 
@@ -38,23 +37,20 @@ public:
     virtual void commit() override;
     virtual void rollback() noexcept override;
 
-public:
-    boost::mysql::tcp_connection *getRawConnection() const noexcept {
-        return m_conn.get();
-    }
-
-    // 打印 diagnostics 诊断信息
-    static void printDiag(const boost::mysql::error_code &ec, const boost::mysql::diagnostics &diag,
-                          const std::string &context);
-
 private:
+    friend class MySQLStatement;
+
+    // 提供给 MySQLStatement 访问原始连接的方法
+    void *getRawConnection() const noexcept;
+
+    // 内部辅助方法
     bool tryConnect() noexcept;
     void connect();
     void close();
 
 private:
-    boost::asio::io_context m_io_context;
-    std::unique_ptr<boost::mysql::tcp_connection> m_conn;
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
 }  // namespace hku

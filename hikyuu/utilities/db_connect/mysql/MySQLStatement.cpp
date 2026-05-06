@@ -9,21 +9,29 @@
 
 #include <vector>
 #include <chrono>
-#include <boost/mysql/date.hpp>
-#include <boost/mysql/datetime.hpp>
-#include <boost/mysql/time.hpp>
+#include <boost/mysql.hpp>
 #include "hikyuu/utilities/Log.h"
 #include "MySQLStatement.h"
 #include "MySQLConnect.h"
 
 namespace hku {
 
+struct MySQLStatement::Impl {
+    boost::mysql::tcp_connection* conn{nullptr};
+    boost::mysql::statement stmt;
+    boost::mysql::results results;
+    std::vector<boost::mysql::field> params;
+    size_t current_row{0};
+    bool has_result{false};
+    bool needs_reset{false};
+};
+
 MySQLStatement::MySQLStatement(DBConnectBase* driver, const std::string& sql_statement)
-: SQLStatementBase(driver, sql_statement) {
+: SQLStatementBase(driver, sql_statement), m_impl(std::make_unique<Impl>()) {
     MySQLConnect* connect = dynamic_cast<MySQLConnect*>(driver);
     SQL_CHECK(connect, -1, "Failed create statement: {}! Failed dynamic_cast<MySQLConnect*>!",
               sql_statement);
-    m_conn = connect->getRawConnection();
+    m_impl->conn = static_cast<boost::mysql::tcp_connection*>(connect->getRawConnection());
     _prepare();
 }
 
@@ -35,18 +43,29 @@ void MySQLStatement::_prepare() {
     try {
         boost::mysql::error_code ec;
         boost::mysql::diagnostics diag;
-        m_stmt = m_conn->prepare_statement(m_sql_string, ec, diag);
+        m_impl->stmt = m_impl->conn->prepare_statement(m_sql_string, ec, diag);
 
         if (ec) [[unlikely]] {
             // 准备语句失败，尝试通过 ping 自动重连
             MySQLConnect* connect = dynamic_cast<MySQLConnect*>(m_driver);
             if (connect && connect->ping()) {
                 // ping 成功（已自动重连），重新获取连接并再次准备
-                m_conn = connect->getRawConnection();
-                m_stmt = m_conn->prepare_statement(m_sql_string, ec, diag);
+                m_impl->conn =
+                  static_cast<boost::mysql::tcp_connection*>(connect->getRawConnection());
+                m_impl->stmt = m_impl->conn->prepare_statement(m_sql_string, ec, diag);
 
                 if (ec) [[unlikely]] {
-                    connect->printDiag(ec, diag, "Failed prepare statement after reconnect!");
+                    // 打印错误信息（使用辅助函数）
+                    if (!diag.server_message().empty()) {
+                        HKU_ERROR("Failed prepare statement after reconnect! Server error: {}",
+                                  diag.server_message());
+                    } else if (!diag.client_message().empty()) {
+                        HKU_ERROR("Failed prepare statement after reconnect! Client error: {}",
+                                  diag.client_message());
+                    } else {
+                        HKU_ERROR("Failed prepare statement after reconnect! Error code {}: {}",
+                                  ec.value(), ec.message());
+                    }
                     SQL_THROW(ec.value(), "Failed prepare statement after reconnect!");
                 }
                 return;
@@ -65,12 +84,12 @@ void MySQLStatement::_prepare() {
 }
 
 void MySQLStatement::_reset() {
-    if (m_needs_reset) {
-        m_params.clear();
-        m_params.shrink_to_fit();
-        m_current_row = 0;
-        m_has_result = false;
-        m_needs_reset = false;
+    if (m_impl->needs_reset) {
+        m_impl->params.clear();
+        m_impl->params.shrink_to_fit();
+        m_impl->current_row = 0;
+        m_impl->has_result = false;
+        m_impl->needs_reset = false;
     }
 }
 
@@ -80,55 +99,55 @@ void MySQLStatement::sub_exec() {
     boost::mysql::error_code ec;
     boost::mysql::diagnostics diag;
 
-    if (m_params.empty()) {
+    if (m_impl->params.empty()) {
         // 没有参数，直接执行
-        m_conn->execute(m_sql_string, m_results, ec, diag);
+        m_impl->conn->execute(m_sql_string, m_impl->results, ec, diag);
     } else {
         // 有参数，使用预处理语句（统一使用 field_view 迭代器）
         std::vector<boost::mysql::field_view> param_views;
-        param_views.reserve(m_params.size());
-        for (const auto& f : m_params) {
+        param_views.reserve(m_impl->params.size());
+        for (const auto& f : m_impl->params) {
             param_views.push_back(boost::mysql::field_view(f));
         }
-        auto bound = m_stmt.bind(param_views.begin(), param_views.end());
-        m_conn->execute(bound, m_results, ec, diag);
+        auto bound = m_impl->stmt.bind(param_views.begin(), param_views.end());
+        m_impl->conn->execute(bound, m_impl->results, ec, diag);
     }
 
     if (ec) [[unlikely]] {
         SQL_THROW(ec.value(), "Failed execute sql: {}! {}", m_sql_string, ec.message());
     }
 
-    m_has_result = true;
-    m_needs_reset = true;
+    m_impl->has_result = true;
+    m_impl->needs_reset = true;
 }
 
 bool MySQLStatement::sub_moveNext() {
-    HKU_IF_RETURN(!m_has_result, false);
-    const auto& rows = m_results.rows();
-    HKU_IF_RETURN(m_current_row >= rows.size(), false);
-    m_current_row++;
+    HKU_IF_RETURN(!m_impl->has_result, false);
+    const auto& rows = m_impl->results.rows();
+    HKU_IF_RETURN(m_impl->current_row >= rows.size(), false);
+    m_impl->current_row++;
     return true;
 }
 
 void MySQLStatement::sub_bindNull(int idx) {
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
-    m_params.push_back(boost::mysql::field());  // 默认构造为 NULL
+              m_impl->params.size(), idx);
+    m_impl->params.push_back(boost::mysql::field());  // 默认构造为 NULL
 }
 
 void MySQLStatement::sub_bindInt(int idx, int64_t value) {
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
-    m_params.push_back(boost::mysql::field(static_cast<std::int64_t>(value)));
+              m_impl->params.size(), idx);
+    m_impl->params.push_back(boost::mysql::field(static_cast<std::int64_t>(value)));
 }
 
 void MySQLStatement::sub_bindDouble(int idx, double item) {
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
-    m_params.push_back(boost::mysql::field(item));
+              m_impl->params.size(), idx);
+    m_impl->params.push_back(boost::mysql::field(item));
 }
 
 void MySQLStatement::sub_bindDatetime(int idx, const Datetime& item) {
@@ -137,9 +156,9 @@ void MySQLStatement::sub_bindDatetime(int idx, const Datetime& item) {
         return;
     }
 
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
+              m_impl->params.size(), idx);
 
     // 使用 boost.mysql 原生 datetime 类型
     boost::mysql::datetime dt(
@@ -147,54 +166,55 @@ void MySQLStatement::sub_bindDatetime(int idx, const Datetime& item) {
       static_cast<std::uint8_t>(item.day()), static_cast<std::uint8_t>(item.hour()),
       static_cast<std::uint8_t>(item.minute()), static_cast<std::uint8_t>(item.second()),
       static_cast<std::uint32_t>(item.millisecond() * 1000 + item.microsecond()));
-    m_params.push_back(boost::mysql::field(dt));
+    m_impl->params.push_back(boost::mysql::field(dt));
 }
 
 void MySQLStatement::sub_bindText(int idx, const std::string& item) {
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
-    m_params.push_back(boost::mysql::field(item));
+              m_impl->params.size(), idx);
+    m_impl->params.push_back(boost::mysql::field(item));
 }
 
 void MySQLStatement::sub_bindText(int idx, const char* item, size_t len) {
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
+              m_impl->params.size(), idx);
     std::string str(item, len);
-    m_params.push_back(boost::mysql::field(str));
+    m_impl->params.push_back(boost::mysql::field(str));
 }
 
 void MySQLStatement::sub_bindBlob(int idx, const std::string& item) {
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
+              m_impl->params.size(), idx);
     std::vector<unsigned char> blob(item.begin(), item.end());
-    m_params.push_back(boost::mysql::field(blob));
+    m_impl->params.push_back(boost::mysql::field(blob));
 }
 
 void MySQLStatement::sub_bindBlob(int idx, const std::vector<char>& item) {
-    SQL_CHECK(idx == static_cast<int>(m_params.size()), -1,
+    SQL_CHECK(idx == static_cast<int>(m_impl->params.size()), -1,
               "Parameter index must be sequential! Expected index: {}, but got: {}",
-              m_params.size(), idx);
+              m_impl->params.size(), idx);
     std::vector<unsigned char> blob(item.begin(), item.end());
-    m_params.push_back(boost::mysql::field(blob));
+    m_impl->params.push_back(boost::mysql::field(blob));
 }
 
 int MySQLStatement::sub_getNumColumns() const {
-    HKU_IF_RETURN(!m_has_result, 0);
-    const auto& metadata = m_results.meta();
+    HKU_IF_RETURN(!m_impl->has_result, 0);
+    const auto& metadata = m_impl->results.meta();
     HKU_IF_RETURN(metadata.empty(), 0);
     return static_cast<int>(metadata.size());
 }
 
 void MySQLStatement::sub_getColumnAsInt64(int idx, int64_t& item) {
-    SQL_CHECK(m_has_result, -1, "No result available!");
+    SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& rows = m_results.rows();
-    SQL_CHECK(m_current_row > 0 && m_current_row <= rows.size(), -1, "Invalid row index!");
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
 
-    const auto& row = rows[m_current_row - 1];
+    const auto& row = rows[m_impl->current_row - 1];
     SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
 
     const auto& value = row[idx];
@@ -224,12 +244,13 @@ void MySQLStatement::sub_getColumnAsInt64(int idx, int64_t& item) {
 }
 
 void MySQLStatement::sub_getColumnAsDouble(int idx, double& item) {
-    SQL_CHECK(m_has_result, -1, "No result available!");
+    SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& rows = m_results.rows();
-    SQL_CHECK(m_current_row > 0 && m_current_row <= rows.size(), -1, "Invalid row index!");
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
 
-    const auto& row = rows[m_current_row - 1];
+    const auto& row = rows[m_impl->current_row - 1];
     SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
 
     const auto& value = row[idx];
@@ -259,12 +280,13 @@ void MySQLStatement::sub_getColumnAsDouble(int idx, double& item) {
 }
 
 void MySQLStatement::sub_getColumnAsDatetime(int idx, Datetime& item) {
-    SQL_CHECK(m_has_result, -1, "No result available!");
+    SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& rows = m_results.rows();
-    SQL_CHECK(m_current_row > 0 && m_current_row <= rows.size(), -1, "Invalid row index!");
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
 
-    const auto& row = rows[m_current_row - 1];
+    const auto& row = rows[m_impl->current_row - 1];
     SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
 
     const auto& value = row[idx];
@@ -296,12 +318,13 @@ void MySQLStatement::sub_getColumnAsDatetime(int idx, Datetime& item) {
 }
 
 void MySQLStatement::sub_getColumnAsText(int idx, std::string& item) {
-    SQL_CHECK(m_has_result, -1, "No result available!");
+    SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& rows = m_results.rows();
-    SQL_CHECK(m_current_row > 0 && m_current_row <= rows.size(), -1, "Invalid row index!");
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
 
-    const auto& row = rows[m_current_row - 1];
+    const auto& row = rows[m_impl->current_row - 1];
     SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
 
     const auto& value = row[idx];
@@ -353,12 +376,13 @@ void MySQLStatement::sub_getColumnAsText(int idx, std::string& item) {
 }
 
 void MySQLStatement::sub_getColumnAsBlob(int idx, std::string& item) {
-    SQL_CHECK(m_has_result, -1, "No result available!");
+    SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& rows = m_results.rows();
-    SQL_CHECK(m_current_row > 0 && m_current_row <= rows.size(), -1, "Invalid row index!");
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
 
-    const auto& row = rows[m_current_row - 1];
+    const auto& row = rows[m_impl->current_row - 1];
     SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
 
     const auto& value = row[idx];
@@ -376,12 +400,13 @@ void MySQLStatement::sub_getColumnAsBlob(int idx, std::string& item) {
 }
 
 void MySQLStatement::sub_getColumnAsBlob(int idx, std::vector<char>& item) {
-    SQL_CHECK(m_has_result, -1, "No result available!");
+    SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& rows = m_results.rows();
-    SQL_CHECK(m_current_row > 0 && m_current_row <= rows.size(), -1, "Invalid row index!");
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
 
-    const auto& row = rows[m_current_row - 1];
+    const auto& row = rows[m_impl->current_row - 1];
     SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
 
     const auto& value = row[idx];
@@ -396,6 +421,10 @@ void MySQLStatement::sub_getColumnAsBlob(int idx, std::vector<char>& item) {
     } catch (...) {
         SQL_THROW(-1, "Failed to convert column {} to blob", idx);
     }
+}
+
+uint64_t MySQLStatement::sub_getLastRowid() {
+    return m_impl->results.last_insert_id();
 }
 
 }  // namespace hku
