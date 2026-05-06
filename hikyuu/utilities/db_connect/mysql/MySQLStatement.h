@@ -56,12 +56,13 @@ private:
     void _reset();
 
 private:
-    boost::mysql::tcp_connection* m_conn;
+    boost::mysql::tcp_connection *m_conn{nullptr};
     boost::mysql::statement m_stmt;
     boost::mysql::results m_results;
     std::vector<boost::mysql::field> m_params;
-    bool m_has_result;
-    size_t m_current_row;
+    size_t m_current_row{0};
+    bool m_has_result{false};
+    bool m_needs_reset{false};
 };
 
 inline uint64_t MySQLStatement::sub_getLastRowid() {

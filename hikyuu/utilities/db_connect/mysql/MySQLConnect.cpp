@@ -40,36 +40,24 @@ void MySQLConnect::connect() {
         std::string database = tryGetParam<std::string>("db", "");
         unsigned short port = static_cast<unsigned short>(tryGetParam<int>("port", 3306));
 
-        // 创建 IO context 和连接
         m_conn = std::make_unique<boost::mysql::tcp_connection>(m_io_context);
-        
-        // 设置连接参数
-        boost::mysql::handshake_params params(
-            usr,           // username
-            pwd,           // password
-            database       // database name
-        );
-        
-        // 连接到 MySQL 服务器
+        boost::mysql::handshake_params params(usr, pwd, database);
+
         boost::mysql::error_code ec;
         boost::mysql::diagnostics diag;
-        m_conn->connect(
-            boost::asio::ip::tcp::endpoint(
-                boost::asio::ip::make_address(host), 
-                port
-            ),
-            params,
-            ec,
-            diag
-        );
-        
+        m_conn->connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(host), port),
+                        params, ec, diag);
+
         if (ec) {
-            HKU_THROW("Failed to connect to MySQL database! Error: {}", ec.message());
+            printDiag(ec, diag, "MySQL connect");
+            HKU_THROW("{}, {}", ec.value(), ec.message());
         }
-        
+
         // 设置字符集为 utf8
-        m_conn->execute("SET NAMES utf8", m_results, ec, diag);
-        if (ec) {
+        boost::mysql::results results;
+        m_conn->execute("SET NAMES utf8", results, ec, diag);
+        if (ec) [[unlikely]] {
+            printDiag(ec, diag, "MySQL set character set");
             HKU_THROW("Failed to set character set to utf8! Error: {}", ec.message());
         }
 
@@ -99,22 +87,24 @@ void MySQLConnect::close() {
 }
 
 bool MySQLConnect::ping() {
-    if (!m_conn) {
-        return tryConnect();
-    }
-    
+    HKU_ERROR_IF_RETURN(!m_conn && !tryConnect(), false, "Failed connect to mysql!");
+
     try {
         boost::mysql::error_code ec;
         boost::mysql::diagnostics diag;
-        m_conn->execute("SELECT 1", m_results, ec, diag);
-        if (ec) {
-            // ping 失败，尝试重连
-            return tryConnect();
+        boost::mysql::results results;
+        m_conn->execute("SELECT 1", results, ec, diag);
+
+        // 如果 ping 失败，尝试重连
+        if (ec && !tryConnect()) [[unlikely]] {
+            printDiag(ec, diag, "MySQL ping failed!");
+            return false;
         }
         return true;
-    } catch (...) {
+    } catch (const std::exception& e) {
         // 异常时也尝试重连
-        return tryConnect();
+        HKU_ERROR_IF_RETURN(!tryConnect(), false, "MySQL ping exception! {}", e.what());
+        return true;
     }
 }
 
@@ -122,30 +112,30 @@ int64_t MySQLConnect::exec(const std::string& sql_string) {
 #if HKU_SQL_TRACE
     HKU_DEBUG(sql_string);
 #endif
-    
+
     if (!m_conn) {
-        HKU_CHECK(tryConnect(), "Failed connect to mysql!");
+        SQL_CHECK(tryConnect(), -1, "Failed connect to mysql!");
     }
 
     boost::mysql::error_code ec;
     boost::mysql::diagnostics diag;
-    m_conn->execute(sql_string, m_results, ec, diag);
-    
-    if (ec) {
-        // 执行失败，尝试重连后再次执行
+    boost::mysql::results results;
+    m_conn->execute(sql_string, results, ec, diag);
+
+    if (ec) [[unlikely]] {
+        // 执行失败,尝试重连后再次执行
         if (ping()) {
-            m_conn->execute(sql_string, m_results, ec, diag);
+            m_conn->execute(sql_string, results, ec, diag);
         }
-        
+
         if (ec) {
+            printDiag(ec, diag, "MySQL execute sql");
             SQL_THROW(ec.value(), "SQL error: {}! error msg: {}", sql_string, ec.message());
         }
     }
 
     // 获取受影响的行数
-    int64_t affect_rows = m_results.affected_rows();
-    
-    return affect_rows;
+    return results.affected_rows();
 }
 
 SQLStatementPtr MySQLConnect::getStatement(const std::string& sql_statement) {
@@ -166,7 +156,8 @@ bool MySQLConnect::tableExist(const std::string& tablename) {
 
 void MySQLConnect::resetAutoIncrement(const std::string& tablename) {
     int64_t count = queryNumber<int64_t>(fmt::format("select count(1) from {}", tablename));
-    HKU_CHECK(count == 0, "The ID cannot be reset when data is present in table({})", tablename);
+    SQL_CHECK(count == 0, -1, "The ID cannot be reset when data is present in table({})",
+              tablename);
     exec(fmt::format("alter {} auto_increment=1", tablename));
 }
 
@@ -185,6 +176,17 @@ void MySQLConnect::rollback() noexcept {
         HKU_ERROR("Failed transaction! {}", e.what());
     } catch (...) {
         HKU_ERROR("Unknown error!");
+    }
+}
+
+void MySQLConnect::printDiag(const boost::mysql::error_code& ec,
+                             const boost::mysql::diagnostics& diag, const std::string& context) {
+    if (!diag.server_message().empty()) {
+        HKU_ERROR("{} Server error: {}", context, diag.server_message());
+    } else if (!diag.client_message().empty()) {
+        HKU_ERROR("{} Client error: {}", context, diag.client_message());
+    } else {
+        HKU_ERROR("{} Error code {}: {}", context, ec.value(), ec.message());
     }
 }
 

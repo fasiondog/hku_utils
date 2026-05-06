@@ -39,13 +39,13 @@ public:
     virtual void rollback() noexcept override;
 
 public:
-    boost::mysql::tcp_connection* getRawConnection() const noexcept {
+    boost::mysql::tcp_connection *getRawConnection() const noexcept {
         return m_conn.get();
     }
-    
-    boost::asio::io_context& getIoContext() noexcept {
-        return m_io_context;
-    }
+
+    // 打印 diagnostics 诊断信息
+    static void printDiag(const boost::mysql::error_code &ec, const boost::mysql::diagnostics &diag,
+                          const std::string &context);
 
 private:
     bool tryConnect() noexcept;
@@ -55,7 +55,6 @@ private:
 private:
     boost::asio::io_context m_io_context;
     std::unique_ptr<boost::mysql::tcp_connection> m_conn;
-    boost::mysql::results m_results;
 };
 
 }  // namespace hku
