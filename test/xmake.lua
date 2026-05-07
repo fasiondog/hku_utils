@@ -56,7 +56,7 @@ target("unit-test")
         add_packages("gzip-hpp")
     end
 
-    add_defines("BOOST_ASIO_HAS_CO_AWAIT=1", "BOOST_ASIO_HAS_CXX20_COROUTINES=1", "DBOOST_ASIO_DISABLE_DEPRECATED=1")
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
 
     add_includedirs("..", ".")
 
@@ -115,6 +115,14 @@ target("unit-test")
     if has_config("node") then
         add_files("utilities/node/*.cpp")
     end
+
+    on_config(function(target)
+        -- 未指定 C++标准时，设置最低要求
+        local x = target:get("languages")
+        if x == nil then
+            target:set("languages", "c++20")
+        end
+    end)    
 
     before_build(function(target)
         -- 未指定 C++标准时，设置最低要求 c++11

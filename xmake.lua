@@ -6,8 +6,8 @@ set_version("1.3.9", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每�
 -- set warning all as error
 -- set_warnings("all", "error")
 
--- 最低 c++ 17, 协程最低C++20
-set_languages("c++20")
+-- 最低 c++ 20，协程需要 C++20 支持
+-- set_languages("c++20")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 
@@ -186,7 +186,7 @@ target("hku_utils")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 
-    add_defines("BOOST_ASIO_HAS_CO_AWAIT=1", "BOOST_ASIO_HAS_CXX20_COROUTINES=1", "DBOOST_ASIO_DISABLE_DEPRECATED=1")
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
 
     add_includedirs(".")
 
@@ -286,12 +286,11 @@ target("hku_utils")
         add_files("hikyuu/utilities/http_client/url.cpp")
     end
 
-    before_build(function(target)
-        -- 注：windows 使用 dll 需要 c++17, linux 使用静态库最低需要 C++ 17
-        -- 未指定 C++标准时，设置最低要求 c++11
+    on_config(function(target)
+        -- 未指定 C++标准时，设置最低要求
         local x = target:get("languages")
         if x == nil then
-            target:set("languages", "cxx17")
+            target:set("languages", "c++20")
         end
     end)
 
