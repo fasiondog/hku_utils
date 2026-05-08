@@ -102,7 +102,7 @@ add_requires("boost", {
   })
 
 if has_config("mysql") then 
-    add_requires("openssl3")
+    add_requires("openssl3", {system = false, configs = {shared = true}})
 end  
 
 -- 使用 sqlcipher 时，忽略 sqlite3

@@ -106,7 +106,7 @@ void MySQLConnect::close() {
 }
 
 bool MySQLConnect::ping() {
-    HKU_ERROR_IF_RETURN(!m_impl || !m_impl->conn && !tryConnect(), false,
+    HKU_ERROR_IF_RETURN((!m_impl || !m_impl->conn) && !tryConnect(), false,
                         "Failed connect to mysql!");
 
     try {
