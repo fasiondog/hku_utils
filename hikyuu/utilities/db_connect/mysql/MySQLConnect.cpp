@@ -11,6 +11,8 @@
 #include "MySQLConnect.h"
 
 #include <memory>
+#include <thread>
+#include <future>
 #include <boost/mysql.hpp>
 #include <boost/asio.hpp>
 #include "hikyuu/utilities/LruCache.h"
@@ -32,8 +34,21 @@ static void printDiagHelper(const boost::mysql::error_code& ec,
 // Pimpl 实现结构体
 struct MySQLConnect::Impl {
     boost::asio::io_context io_context;
+    boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard;
+    std::thread io_thread;  // 后台线程运行 io_context
     std::unique_ptr<boost::mysql::tcp_connection> conn;
     LruCache<std::string, std::shared_ptr<boost::mysql::statement>> statement_cache{15};
+
+    Impl()
+    : work_guard(boost::asio::make_work_guard(io_context)),
+      io_thread([this]() { io_context.run(); }) {}
+
+    ~Impl() {
+        work_guard.reset();  // 允许 io_context 停止
+        if (io_thread.joinable()) {
+            io_thread.join();
+        }
+    }
 
     std::shared_ptr<boost::mysql::statement> get_statement(const std::string& sql,
                                                            boost::mysql::error_code& ec,
@@ -53,12 +68,24 @@ struct MySQLConnect::Impl {
             delete stmt;
         };
 
-        ret = std::shared_ptr<boost::mysql::statement>(
-          new boost::mysql::statement(conn->prepare_statement(sql, ec, diag)), deleter);
+        // 使用 async_prepare_statement + use_future 实现同步等待
+        boost::mysql::diagnostics prep_diag;
+        auto prepare_future =
+          conn->async_prepare_statement(sql, prep_diag, boost::asio::use_future);
 
-        if (!ec) {
-            statement_cache.insert(sql, ret);
-        } else {
+        try {
+            // 等待准备完成，成功时返回 statement
+            boost::mysql::statement stmt = prepare_future.get();
+
+            ret = std::shared_ptr<boost::mysql::statement>(
+              new boost::mysql::statement(std::move(stmt)), deleter);
+            // statement_cache.insert(sql, ret);  // 临时禁用缓存
+        } catch (const boost::mysql::error_with_diagnostics& e) {
+            ec = e.code();
+            diag = e.get_diagnostics();
+            ret.reset();
+        } catch (const boost::system::system_error& e) {
+            ec = e.code();
             ret.reset();
         }
 
@@ -102,15 +129,23 @@ void MySQLConnect::connect() {
         m_impl->conn = std::make_unique<boost::mysql::tcp_connection>(m_impl->io_context);
         boost::mysql::handshake_params params(usr, pwd, database);
 
-        boost::mysql::error_code ec;
+        // 使用 async_connect + use_future 实现同步等待
         boost::mysql::diagnostics diag;
-        m_impl->conn->connect(
-          boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(host), port), params, ec,
-          diag);
 
-        if (ec) {
-            printDiagHelper(ec, diag, "MySQL connect");
-            HKU_THROW("{}, {}", ec.value(), ec.message());
+        auto connect_future = m_impl->conn->async_connect(
+          boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(host), port), params, diag,
+          boost::asio::use_future);
+
+        // 等待连接完成（后台线程已经在运行 io_context）
+        try {
+            connect_future.get();  // 成功时返回 void，失败时抛出异常
+        } catch (const boost::mysql::error_with_diagnostics& e) {
+            // 包含 diagnostics 的错误
+            printDiagHelper(e.code(), e.get_diagnostics(), "MySQL connect");
+            HKU_THROW("{}, {}", e.code().value(), e.code().message());
+        } catch (const boost::system::system_error& e) {
+            // 普通系统错误
+            HKU_THROW("MySQL connect failed: {}, {}", e.code().value(), e.what());
         }
 
     } catch (const hku::exception& e) {
@@ -144,19 +179,32 @@ bool MySQLConnect::ping() {
                         "Failed connect to mysql!");
 
     try {
-        boost::mysql::error_code ec;
-        boost::mysql::diagnostics diag;
+        // 使用 async_execute + use_future 实现同步等待
         boost::mysql::results results;
-        m_impl->conn->execute("SELECT 1", results, ec, diag);
+        boost::mysql::diagnostics diag;
 
-        // 如果 ping 失败，尝试重连
-        if (ec && !tryConnect()) [[unlikely]] {
-            printDiagHelper(ec, diag, "MySQL ping failed!");
-            return false;
+        auto ping_future =
+          m_impl->conn->async_execute("SELECT 1", results, diag, boost::asio::use_future);
+
+        // 等待执行完成
+        try {
+            ping_future.get();  // 成功时返回 void
+        } catch (const boost::mysql::error_with_diagnostics& e) {
+            // 如果 ping 失败，尝试重连
+            if (!tryConnect()) [[unlikely]] {
+                printDiagHelper(e.code(), e.get_diagnostics(), "MySQL ping failed!");
+                return false;
+            }
+            return true;
+        } catch (const boost::system::system_error& e) {
+            // 异常时也尝试重连
+            HKU_ERROR_IF_RETURN(!tryConnect(), false, "MySQL ping exception! {}", e.what());
+            return true;
         }
+
         return true;
     } catch (const std::exception& e) {
-        // 异常时也尝试重连
+        // 其他异常时也尝试重连
         HKU_ERROR_IF_RETURN(!tryConnect(), false, "MySQL ping exception! {}", e.what());
         return true;
     }
@@ -171,21 +219,43 @@ int64_t MySQLConnect::exec(const std::string& sql_string) {
         SQL_CHECK(tryConnect(), -1, "Failed connect to mysql!");
     }
 
-    boost::mysql::error_code ec;
-    boost::mysql::diagnostics diag;
+    // 使用 async_execute + use_future 实现同步等待
     boost::mysql::results results;
-    m_impl->conn->execute(sql_string, results, ec, diag);
+    boost::mysql::diagnostics diag;
 
-    if (ec) [[unlikely]] {
+    auto exec_future =
+      m_impl->conn->async_execute(sql_string, results, diag, boost::asio::use_future);
+
+    // 等待执行完成
+    try {
+        exec_future.get();  // 成功时返回 void
+    } catch (const boost::mysql::error_with_diagnostics& e) {
+        boost::mysql::error_code ec = e.code();
+        boost::mysql::diagnostics err_diag = e.get_diagnostics();
+
         // 执行失败,尝试重连后再次执行
         if (ping()) {
-            m_impl->conn->execute(sql_string, results, ec, diag);
+            // 重新执行
+            auto retry_future =
+              m_impl->conn->async_execute(sql_string, results, diag, boost::asio::use_future);
+            try {
+                retry_future.get();
+            } catch (const boost::mysql::error_with_diagnostics& retry_e) {
+                ec = retry_e.code();
+                err_diag = retry_e.get_diagnostics();
+            } catch (const boost::system::system_error& retry_e) {
+                ec = retry_e.code();
+            }
         }
 
         if (ec) {
-            printDiagHelper(ec, diag, "MySQL execute sql");
+            printDiagHelper(ec, err_diag, "MySQL execute sql");
             SQL_THROW(ec.value(), "SQL error: {}! error msg: {}", sql_string, ec.message());
         }
+    } catch (const boost::system::system_error& e) {
+        boost::mysql::error_code ec = e.code();
+        printDiagHelper(ec, diag, "MySQL execute sql");
+        SQL_THROW(ec.value(), "SQL error: {}! error msg: {}", sql_string, ec.message());
     }
 
     // 获取受影响的行数
