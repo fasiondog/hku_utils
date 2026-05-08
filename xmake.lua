@@ -92,9 +92,10 @@ add_requires("boost", {
       date_time = has_config("datetime"),
       filesystem = false,
       serialization = false,
-      system = false,
+      system = true,
       python = false,
-      cmake = false,
+      cmake = true,
+      asio = true,
       openssl = has_config("mysql"),
       mysql = has_config("mysql"),
       charconv = has_config("mysql"),  -- boost.mysql 需要 charconv
@@ -114,14 +115,6 @@ if has_config("sqlcipher") then
     end
 elseif has_config("sqlite") then
     add_requires("sqlite3", {system = false, configs = {shared = true, safe_mode="2"}})
-end
-
-if has_config("mysql") then 
-    if is_plat("linux") and linuxos.name() == "ubuntu" then
-        add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
-    else
-        add_requires("mysql")
-    end
 end
 
 if get_config("duckdb") then 
@@ -184,6 +177,11 @@ target("hku_utils")
     set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", has_config("async_log") and 1 or 0)
     set_configvar("HKU_LOG_ACTIVE_LEVEL", get_config("log_level"))
 
+    -- 保证在 boost 之前
+    if has_config("mysql") or has_config("http_client_ssl") then
+        add_packages("openssl3")
+    end
+
     add_packages("fmt", "spdlog", "boost", "yas")
 
     add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
@@ -199,10 +197,6 @@ target("hku_utils")
         end
     end
 
-    if has_config("mysql") then
-        add_packages("openssl3")
-    end
-
     if has_config("duckdb") then
         add_packages("duckdb")
         add_files("hikyuu/utilities/db_connect/*.cpp")
@@ -215,9 +209,6 @@ target("hku_utils")
 
     if has_config("http_client") then 
         add_packages("nlohmann_json")
-        if has_config("http_client_ssl") then
-            add_packages("openssl3")
-        end        
         if has_config("http_client_zip") then
             add_packages("gzip-hpp")
         end
@@ -270,7 +261,8 @@ target("hku_utils")
 
     if has_config("mysql") then
         add_files("hikyuu/utilities/db_connect/*.cpp")
-        add_files("hikyuu/utilities/db_connect/mysql/*.cpp")
+        add_files("hikyuu/utilities/db_connect/mysql/temp.cpp")
+        -- add_files("hikyuu/utilities/db_connect/mysql/MySQLStatement.cpp")
     end
 
     if has_config("ini_parser") then

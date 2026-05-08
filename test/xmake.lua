@@ -29,8 +29,8 @@ target("unit-test")
     add_deps("testplugin")
     add_packages("doctest", "spdlog")
 
-    if get_config("mysql") then
-        -- MySQL 使用 boost.mysql，需要 OpenSSL 支持
+    if has_config("mysql") or has_config("http_client_ssl") then
+        -- MySQL 使用 boost.mysql，需要 OpenSSL 支持, 必须在 boost 之前
         add_packages("openssl3")
     end
 
@@ -46,10 +46,6 @@ target("unit-test")
 
     if has_config("http_client") or has_config("node") then
         add_packages("nng", "nlohmann_json")
-        
-        if has_config("http_client_ssl") then
-            add_packages("openssl")
-        end
     end
 
     if has_config("http_client_zip") then
