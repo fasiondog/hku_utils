@@ -7,7 +7,7 @@ set_version("1.3.9", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每�
 -- set_warnings("all", "error")
 
 -- 最低 c++ 20，协程需要 C++20 支持
--- set_languages("c++20")
+set_languages("c++20")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 
