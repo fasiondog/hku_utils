@@ -314,7 +314,7 @@ private:
  */
 class HKU_UTILS_API AsioHttpClient {
 public:
-    using executor_type = net::executor_type;
+    using executor_type = boost::asio::any_io_executor;
 
     /// @brief 默认超时时间（毫秒）
     static constexpr int32_t DEFAULT_TIMEOUT_MS = 30000;  // 30 秒
