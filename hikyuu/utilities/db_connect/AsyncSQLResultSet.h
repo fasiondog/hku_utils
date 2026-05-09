@@ -11,8 +11,8 @@
 #include "hikyuu/utilities/arithmetic.h"
 #include "hikyuu/utilities/Log.h"
 #include "hikyuu/utilities/osdef.h"
-#include "AsyncDBConnectBase.h"
 #include "../net.h"
+#include "AsyncDBConnectBase.h"
 
 namespace hku {
 
@@ -118,7 +118,9 @@ public:
      * @return size_t 数据集大小
      */
     net::awaitable<size_t> size() const {
-        HKU_IF_RETURN(!m_connect, 0);
+        if (!m_connect) {
+            co_return 0;
+        }
         std::string sql =
           fmt::format("select count(1) from {} where {}", TableT::getTableName(), m_where);
         co_return co_await m_connect->queryNumber<size_t>(sql, 0);
@@ -186,7 +188,9 @@ private:
      */
     net::awaitable<TableT> get(size_t index) {
         TableT result{Null<TableT>()};
-        HKU_IF_RETURN(index == Null<size_t>(), result);
+        if (index == Null<size_t>()) {
+            co_return result;
+        }
 
         size_t page = index / page_size;
         if (m_connect && page != m_current_page) {
@@ -197,10 +201,14 @@ private:
             m_current_page = page;
         }
 
-        HKU_IF_RETURN(m_buffer.empty(), result);
+        if (m_buffer.empty()) {
+            co_return result;
+        }
 
         size_t pos = index - page * page_size;
-        HKU_IF_RETURN(pos >= m_buffer.size(), result);
+        if (pos >= m_buffer.size()) {
+            co_return result;
+        }
 
         result = m_buffer[index - page * page_size];
         co_return result;

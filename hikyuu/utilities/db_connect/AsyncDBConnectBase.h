@@ -14,7 +14,6 @@
 #include "../Null.h"
 #include "DBCondition.h"
 #include "AsyncSQLStatementBase.h"
-#include "AsyncSQLResultSet.h"
 #include "SQLException.h"
 #include "../net.h"
 
@@ -311,7 +310,7 @@ net::awaitable<NumberType> AsyncDBConnectBase::queryNumber(const std::string &qu
     }
 
     NumberType result = 0;
-    co_await st->getColumn(0, result);
+    st->getColumn(0, result);  // getColumn 是同步方法
 
     if (co_await st->moveNext()) {
         HKU_CHECK(default_val != Null<NumberType>(), "query doesn't result in exactly 1 element");
@@ -334,6 +333,7 @@ net::awaitable<void> AsyncDBConnectBase::save(T &item, bool autotrans) {
         co_await transaction();
     }
 
+    std::exception_ptr saved_exception;
     try {
         if (item.valid()) {
             item.update(st);
@@ -341,27 +341,26 @@ net::awaitable<void> AsyncDBConnectBase::save(T &item, bool autotrans) {
         } else {
             item.save(st);
             co_await st->exec();
-            item.rowid(co_await st->getLastRowid());
+            item.rowid(st->getLastRowid());  // getLastRowid 是同步方法
         }
 
         if (autotrans) {
             co_await commit();
         }
-    } catch (hku::SQLException &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        SQL_THROW(e.errcode(), "failed save! sql: {}! {}", st->getSqlString(), e.what());
-    } catch (std::exception &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        HKU_THROW("failed save! sql: {}! {}", st->getSqlString(), e.what());
     } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // 在 try-catch 外部处理回滚
+    if (saved_exception) {
         if (autotrans) {
-            co_await rollback();
+            try {
+                co_await rollback();
+            } catch (...) {
+                // 忽略回滚异常，保留原始异常
+            }
         }
-        HKU_THROW("failed save! sql: {}! Unknown error!", st->getSqlString());
+        std::rethrow_exception(saved_exception);
     }
 }
 
@@ -374,7 +373,9 @@ template <class InputIterator>
 net::awaitable<void> AsyncDBConnectBase::batchSave(InputIterator first, InputIterator last,
                                                    bool autotrans) {
     size_t count = std::distance(first, last);
-    HKU_IF_RETURN(count == 0, void());
+    if (count == 0) {
+        co_return;
+    }
 
     auto st = co_await getStatement(InputIterator::value_type::getInsertSQL());
 
@@ -382,31 +383,31 @@ net::awaitable<void> AsyncDBConnectBase::batchSave(InputIterator first, InputIte
         co_await transaction();
     }
 
+    std::exception_ptr saved_exception;
     try {
         for (InputIterator iter = first; iter != last; ++iter) {
             iter->save(st);
             co_await st->exec();
-            iter->rowid(co_await st->getLastRowid());
+            iter->rowid(st->getLastRowid());  // getLastRowid 是同步方法
         }
 
         if (autotrans) {
             co_await commit();
         }
-    } catch (hku::SQLException &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        SQL_THROW(e.errcode(), "failed batch save! sql: {}! {}", st->getSqlString(), e.what());
-    } catch (std::exception &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        HKU_THROW("failed batch save! sql: {}! {}", st->getSqlString(), e.what());
     } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // 在 try-catch 外部处理回滚
+    if (saved_exception) {
         if (autotrans) {
-            co_await rollback();
+            try {
+                co_await rollback();
+            } catch (...) {
+                // 忽略回滚异常，保留原始异常
+            }
         }
-        HKU_THROW("failed batch save! sql: {}! Unknown error!", st->getSqlString());
+        std::rethrow_exception(saved_exception);
     }
 }
 
@@ -488,7 +489,9 @@ template <class InputIterator>
 net::awaitable<void> AsyncDBConnectBase::batchUpdate(InputIterator first, InputIterator last,
                                                      bool autotrans) {
     size_t count = std::distance(first, last);
-    HKU_IF_RETURN(count == 0, void());
+    if (count == 0) {
+        co_return;
+    }
 
     auto st = co_await getStatement(InputIterator::value_type::getUpdateSQL());
 
@@ -496,6 +499,7 @@ net::awaitable<void> AsyncDBConnectBase::batchUpdate(InputIterator first, InputI
         co_await transaction();
     }
 
+    std::exception_ptr saved_exception;
     try {
         for (InputIterator iter = first; iter != last; ++iter) {
             iter->update(st);
@@ -505,21 +509,20 @@ net::awaitable<void> AsyncDBConnectBase::batchUpdate(InputIterator first, InputI
         if (autotrans) {
             co_await commit();
         }
-    } catch (hku::SQLException &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        SQL_THROW(e.errcode(), "failed batch save! sql: {}! {}", st->getSqlString(), e.what());
-    } catch (std::exception &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        HKU_THROW("failed batch update! sql: {}! {}", st->getSqlString(), e.what());
     } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // 在 try-catch 外部处理回滚
+    if (saved_exception) {
         if (autotrans) {
-            co_await rollback();
+            try {
+                co_await rollback();
+            } catch (...) {
+                // 忽略回滚异常，保留原始异常
+            }
         }
-        HKU_THROW("failed batch save! sql: {}! Unknown error!", st->getSqlString());
+        std::rethrow_exception(saved_exception);
     }
 }
 
@@ -558,6 +561,7 @@ net::awaitable<void> AsyncDBConnectBase::remove(T &item, bool autotrans) {
         co_await transaction();
     }
 
+    std::exception_ptr saved_exception;
     try {
         co_await st->exec();
 
@@ -565,21 +569,20 @@ net::awaitable<void> AsyncDBConnectBase::remove(T &item, bool autotrans) {
             co_await commit();
         }
         item.rowid(0);
-    } catch (hku::SQLException &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        SQL_THROW(e.errcode(), "failed delete! sql: {}! {}", st->getSqlString(), e.what());
-    } catch (std::exception &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        HKU_THROW("failed delete! sql: {}! {}", st->getSqlString(), e.what());
     } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // 在 try-catch 外部处理回滚
+    if (saved_exception) {
         if (autotrans) {
-            co_await rollback();
+            try {
+                co_await rollback();
+            } catch (...) {
+                // 忽略回滚异常，保留原始异常
+            }
         }
-        HKU_THROW("failed delete! sql: {}! Unknown error!", st->getSqlString());
+        std::rethrow_exception(saved_exception);
     }
 }
 
@@ -592,12 +595,15 @@ template <class InputIterator>
 net::awaitable<void> AsyncDBConnectBase::batchRemove(InputIterator first, InputIterator last,
                                                      bool autotrans) {
     size_t count = std::distance(first, last);
-    HKU_IF_RETURN(count == 0, void());
+    if (count == 0) {
+        co_return;
+    }
 
     if (autotrans) {
         co_await transaction();
     }
 
+    std::exception_ptr saved_exception;
     try {
         for (InputIterator iter = first; iter != last; ++iter) {
             co_await remove(*iter, false);  // 外层已处理事务
@@ -606,21 +612,20 @@ net::awaitable<void> AsyncDBConnectBase::batchRemove(InputIterator first, InputI
         if (autotrans) {
             co_await commit();
         }
-    } catch (hku::SQLException &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        SQL_THROW(e.errcode(), "failed batch delete! {}", e.what());
-    } catch (std::exception &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        HKU_THROW("failed batch delete! {}", e.what());
     } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // 在 try-catch 外部处理回滚
+    if (saved_exception) {
         if (autotrans) {
-            co_await rollback();
+            try {
+                co_await rollback();
+            } catch (...) {
+                // 忽略回滚异常，保留原始异常
+            }
         }
-        HKU_THROW("failed batch delete! Unknown error!");
+        std::rethrow_exception(saved_exception);
     }
 }
 
@@ -633,27 +638,28 @@ inline net::awaitable<void> AsyncDBConnectBase::remove(const std::string &tablen
     std::string sql = (where == "" || where == "1=1")
                         ? fmt::format("delete from {}", tablename, where)
                         : (fmt::format("delete from {} where {}", tablename, where));
+    
+    std::exception_ptr saved_exception;
     try {
         co_await exec(sql);
 
         if (autotrans) {
             co_await commit();
         }
-    } catch (hku::SQLException &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        SQL_THROW(e.errcode(), "Failed exec sql: {}! {}", sql, e.what());
-    } catch (std::exception &e) {
-        if (autotrans) {
-            co_await rollback();
-        }
-        HKU_THROW("Failed exec sql: {}! {}", sql, e.what());
     } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // 在 try-catch 外部处理回滚
+    if (saved_exception) {
         if (autotrans) {
-            co_await rollback();
+            try {
+                co_await rollback();
+            } catch (...) {
+                // 忽略回滚异常，保留原始异常
+            }
         }
-        HKU_THROW(R"(Failed exec sql: {}! Unknown error!)", sql);
+        std::rethrow_exception(saved_exception);
     }
 }
 
@@ -676,6 +682,9 @@ template <typename TableT, size_t page_size>
 AsyncSQLResultSet<TableT, page_size> AsyncDBConnectBase::query(const DBCondition &cond) {
     return AsyncSQLResultSet<TableT, page_size>(shared_from_this(), cond.str());
 }
+
+// 在此处包含 AsyncSQLResultSet.h，确保 AsyncDBConnectBase 已完整定义
+#include "AsyncSQLResultSet.h"
 
 }  // namespace hku
 

@@ -18,6 +18,7 @@
 #include "hikyuu/utilities/exception.h"
 #include "hikyuu/utilities/Log.h"
 #include "../net.h"
+#include "SQLStatementBase.h"
 
 namespace hku {
 
@@ -63,37 +64,38 @@ public:
     /** 移动至下一结果 */
     net::awaitable<bool> moveNext();
 
+    //-------------------------------------------------------------------------
+    // 同步方法 - bind、getColumn 和 getLastRowid 操作是本地内存操作，保持同步
+    //-------------------------------------------------------------------------
+
     /** 获取执行INSERT时最后插入记录的 rowid，非线程安全 */
-    net::awaitable<uint64_t> getLastRowid();
+    uint64_t getLastRowid();
 
     /** 获取 idx 指定的数据至 item */
-    net::awaitable<void> getColumn(int idx, double &item);
+    void getColumn(int idx, double &item);
 
     /** 获取 idx 指定的数据至 item */
-    net::awaitable<void> getColumn(int idx, float &item);
+    void getColumn(int idx, float &item);
 
     /** 获取 idx 指定的数据至 item */
-    net::awaitable<void> getColumn(int idx, std::string &item);
+    void getColumn(int idx, std::string &item);
 
     /** 获取 idx 指定的数据至 item */
-    net::awaitable<void> getColumn(int idx, Datetime &item);
+    void getColumn(int idx, Datetime &item);
 
-    /** 获取 idx 指定的数据至 item */
-    net::awaitable<void> getColumn(int idx, std::vector<char> &item);
-
-    /** 获取 idx 指定的数据至 item */
-    template <typename T>
-    net::awaitable<typename std::enable_if<std::numeric_limits<T>::is_integer>::type> getColumn(
-      int idx, T &item);
+    void getColumn(int idx, std::vector<char> &item);
 
     /** 获取 idx 指定的数据至 item */
     template <typename T>
-    net::awaitable<typename std::enable_if<!std::numeric_limits<T>::is_integer>::type> getColumn(
-      int idx, T &item);
+    typename std::enable_if<std::numeric_limits<T>::is_integer>::type getColumn(int idx, T &item);
+
+    /** 获取 idx 指定的数据至 item */
+    template <typename T>
+    typename std::enable_if<!std::numeric_limits<T>::is_integer>::type getColumn(int idx, T &item);
 
     /** 以指定 idx 开始顺序获取指定的数据至 item1, item2, item3 */
     template <typename T, typename... Args>
-    net::awaitable<void> getColumn(int idx, T &item, Args &...rest);
+    void getColumn(int idx, T &item, Args &...rest);
 
     //-------------------------------------------------------------------------
     // 同步方法 - 保持不变
@@ -145,36 +147,30 @@ public:
     //-------------------------------------------------------------------------
     // 子类接口 - 异步方法
     //-------------------------------------------------------------------------
-    virtual net::awaitable<void> sub_exec() = 0;              ///< 子类接口 @see exec
-    virtual net::awaitable<bool> sub_moveNext() = 0;          ///< 子类接口 @see moveNext
-    virtual net::awaitable<uint64_t> sub_getLastRowid() = 0;  ///< 子类接口 @see getLastRowid
-
-    virtual net::awaitable<void> sub_getColumnAsInt64(int idx,
-                                                      int64_t &) = 0;  ///< 子类接口 @see getColumn
-    virtual net::awaitable<void> sub_getColumnAsDouble(int idx,
-                                                       double &) = 0;  ///< 子类接口 @see getColumn
-    virtual net::awaitable<void> sub_getColumnAsDatetime(
-      int idx, Datetime &) = 0;  ///< 子类接口 @see getColumn
-    virtual net::awaitable<void> sub_getColumnAsText(
-      int idx, std::string &) = 0;  ///< 子类接口 @see getColumn
-    virtual net::awaitable<void> sub_getColumnAsBlob(
-      int idx, std::string &) = 0;  ///< 子类接口 @see getColumn
-    virtual net::awaitable<void> sub_getColumnAsBlob(
-      int idx, std::vector<char> &) = 0;  ///< 子类接口 @see getColumn
+    virtual net::awaitable<void> sub_exec() = 0;      ///< 子类接口 @see exec
+    virtual net::awaitable<bool> sub_moveNext() = 0;  ///< 子类接口 @see moveNext
 
     //-------------------------------------------------------------------------
-    // 子类接口 - 同步方法（bind 操作通常是本地的，保持同步）
+    // 子类接口 - 同步方法（bind、getColumn 和 getLastRowid 操作通常是本地的，保持同步）
     //-------------------------------------------------------------------------
-    virtual void sub_bindNull(int idx) = 0;                                 ///< 子类接口 @see bind
-    virtual void sub_bindInt(int idx, int64_t value) = 0;                   ///< 子类接口 @see bind
-    virtual void sub_bindDouble(int idx, double item) = 0;                  ///< 子类接口 @see bind
+    virtual uint64_t sub_getLastRowid() = 0;                ///< 子类接口 @see getLastRowid
+    virtual void sub_bindNull(int idx) = 0;                 ///< 子类接口 @see bind
+    virtual void sub_bindInt(int idx, int64_t value) = 0;   ///< 子类接口 @see bind
+    virtual void sub_bindDouble(int idx, double item) = 0;  ///< 子类接口 @see bind
     virtual void sub_bindDatetime(int idx, const Datetime &item) = 0;       ///< 子类接口 @see bind
     virtual void sub_bindText(int idx, const std::string &item) = 0;        ///< 子类接口 @see bind
     virtual void sub_bindText(int idx, const char *item, size_t len) = 0;   ///< 子类接口 @see bind
     virtual void sub_bindBlob(int idx, const std::string &item) = 0;        ///< 子类接口 @see bind
     virtual void sub_bindBlob(int idx, const std::vector<char> &item) = 0;  ///< 子类接口 @see bind
 
-    virtual int sub_getNumColumns() const = 0;  ///< 子类接口 @see getNumColumns
+    virtual int sub_getNumColumns() const = 0;                      ///< 子类接口 @see getNumColumns
+    virtual void sub_getColumnAsInt64(int idx, int64_t &) = 0;      ///< 子类接口 @see getColumn
+    virtual void sub_getColumnAsDouble(int idx, double &) = 0;      ///< 子类接口 @see getColumn
+    virtual void sub_getColumnAsDatetime(int idx, Datetime &) = 0;  ///< 子类接口 @see getColumn
+    virtual void sub_getColumnAsText(int idx, std::string &) = 0;   ///< 子类接口 @see getColumn
+    virtual void sub_getColumnAsBlob(int idx, std::string &) = 0;   ///< 子类接口 @see getColumn
+    virtual void sub_getColumnAsBlob(int idx,
+                                     std::vector<char> &) = 0;  ///< 子类接口 @see getColumn
 
 private:
     AsyncSQLStatementBase() = delete;
@@ -216,49 +212,52 @@ inline net::awaitable<bool> AsyncSQLStatementBase::moveNext() {
     co_return co_await sub_moveNext();
 }
 
-inline net::awaitable<uint64_t> AsyncSQLStatementBase::getLastRowid() {
-    co_return co_await sub_getLastRowid();
+inline uint64_t AsyncSQLStatementBase::getLastRowid() {
+    return sub_getLastRowid();
 }
 
-inline net::awaitable<void> AsyncSQLStatementBase::getColumn(int idx, double &item) {
-    co_await sub_getColumnAsDouble(idx, item);
+//-------------------------------------------------------------------------
+// 同步方法实现（bind 和 getColumn 操作是本地内存操作，保持同步）
+//-------------------------------------------------------------------------
+
+inline void AsyncSQLStatementBase::getColumn(int idx, double &item) {
+    sub_getColumnAsDouble(idx, item);
 }
 
-inline net::awaitable<void> AsyncSQLStatementBase::getColumn(int idx, float &item) {
+inline void AsyncSQLStatementBase::getColumn(int idx, float &item) {
     double temp;
-    co_await sub_getColumnAsDouble(idx, temp);
+    sub_getColumnAsDouble(idx, temp);
     item = (float)temp;
 }
 
-inline net::awaitable<void> AsyncSQLStatementBase::getColumn(int idx, Datetime &item) {
-    co_await sub_getColumnAsDatetime(idx, item);
+inline void AsyncSQLStatementBase::getColumn(int idx, Datetime &item) {
+    sub_getColumnAsDatetime(idx, item);
 }
 
-inline net::awaitable<void> AsyncSQLStatementBase::getColumn(int idx, std::string &item) {
-    co_await sub_getColumnAsText(idx, item);
+inline void AsyncSQLStatementBase::getColumn(int idx, std::string &item) {
+    sub_getColumnAsText(idx, item);
 }
 
-inline net::awaitable<void> AsyncSQLStatementBase::getColumn(int idx, std::vector<char> &item) {
-    co_await sub_getColumnAsBlob(idx, item);
+inline void AsyncSQLStatementBase::getColumn(int idx, std::vector<char> &item) {
+    sub_getColumnAsBlob(idx, item);
 }
 
 template <typename T>
-net::awaitable<typename std::enable_if<std::numeric_limits<T>::is_integer>::type>
-AsyncSQLStatementBase::getColumn(int idx, T &item) {
+typename std::enable_if<std::numeric_limits<T>::is_integer>::type AsyncSQLStatementBase::getColumn(
+  int idx, T &item) {
     int64_t temp;
-    co_await sub_getColumnAsInt64(idx, temp);
+    sub_getColumnAsInt64(idx, temp);
     item = (T)temp;
-    co_return;
 }
 
 template <typename T>
-net::awaitable<typename std::enable_if<!std::numeric_limits<T>::is_integer>::type>
-AsyncSQLStatementBase::getColumn(int idx, T &item) {
+typename std::enable_if<!std::numeric_limits<T>::is_integer>::type AsyncSQLStatementBase::getColumn(
+  int idx, T &item) {
     std::string tmp;
     try {
-        co_await sub_getColumnAsBlob(idx, tmp);
+        sub_getColumnAsBlob(idx, tmp);
     } catch (null_blob_exception &) {
-        co_return;
+        return;
     }
     std::istringstream istream(tmp);
     yas::std_istream_adapter is(istream);
@@ -266,9 +265,9 @@ AsyncSQLStatementBase::getColumn(int idx, T &item) {
 }
 
 template <typename T, typename... Args>
-net::awaitable<void> AsyncSQLStatementBase::getColumn(int idx, T &item, Args &...rest) {
-    co_await getColumn(idx, item);
-    co_await getColumn(idx + 1, rest...);
+void AsyncSQLStatementBase::getColumn(int idx, T &item, Args &...rest) {
+    getColumn(idx, item);
+    getColumn(idx + 1, rest...);
 }
 
 //-------------------------------------------------------------------------

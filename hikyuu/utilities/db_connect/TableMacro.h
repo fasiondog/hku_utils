@@ -12,6 +12,7 @@
 
 #include "DBConnectBase.h"
 #include "SQLStatementBase.h"
+#include "AsyncSQLStatementBase.h"
 
 namespace hku {
 
@@ -170,13 +171,21 @@ public:                                                                         
     void save(const SQLStatementPtr& st) const {                                      \
         st->bind(0, f1, f2);                                                          \
     }                                                                                 \
+    void save(const AsyncSQLStatementPtr& st) const {                                 \
+        st->bind(0, f1, f2);                                                          \
+    }                                                                                 \
     void update(const SQLStatementPtr& st) const {                                    \
+        st->bind(0, f1, f2, m_id);                                                    \
+    }                                                                                 \
+    void update(const AsyncSQLStatementPtr& st) const {                               \
         st->bind(0, f1, f2, m_id);                                                    \
     }                                                                                 \
     void load(const SQLStatementPtr& st) {                                            \
         st->getColumn(0, m_id, f1, f2);                                               \
+    }                                                                                 \
+    void load(const AsyncSQLStatementPtr& st) {                                       \
+        st->getColumn(0, m_id, f1, f2);                                               \
     }
-
 #define TABLE_BIND3(TableT, table, f1, f2, f3)                                             \
 public:                                                                                    \
     TableT() = default;                                                                    \
@@ -231,10 +240,19 @@ public:                                                                         
     void save(const SQLStatementPtr& st) const {                                           \
         st->bind(0, f1, f2, f3);                                                           \
     }                                                                                      \
+    void save(const AsyncSQLStatementPtr& st) const {                                      \
+        st->bind(0, f1, f2, f3);                                                           \
+    }                                                                                      \
     void update(const SQLStatementPtr& st) const {                                         \
         st->bind(0, f1, f2, f3, m_id);                                                     \
     }                                                                                      \
+    void update(const AsyncSQLStatementPtr& st) const {                                    \
+        st->bind(0, f1, f2, f3, m_id);                                                     \
+    }                                                                                      \
     void load(const SQLStatementPtr& st) {                                                 \
+        st->getColumn(0, m_id, f1, f2, f3);                                                \
+    }                                                                                      \
+    void load(const AsyncSQLStatementPtr& st) {                                            \
         st->getColumn(0, m_id, f1, f2, f3);                                                \
     }
 
@@ -299,10 +317,19 @@ public:                                                                         
     void save(const SQLStatementPtr& st) const {                                        \
         st->bind(0, f1, f2, f3, f4);                                                    \
     }                                                                                   \
+    void save(const AsyncSQLStatementPtr& st) const {                                   \
+        st->bind(0, f1, f2, f3, f4);                                                    \
+    }                                                                                   \
     void update(const SQLStatementPtr& st) const {                                      \
         st->bind(0, f1, f2, f3, f4, m_id);                                              \
     }                                                                                   \
+    void update(const AsyncSQLStatementPtr& st) const {                                 \
+        st->bind(0, f1, f2, f3, f4, m_id);                                              \
+    }                                                                                   \
     void load(const SQLStatementPtr& st) {                                              \
+        st->getColumn(0, m_id, f1, f2, f3, f4);                                         \
+    }                                                                                   \
+    void load(const AsyncSQLStatementPtr& st) {                                         \
         st->getColumn(0, m_id, f1, f2, f3, f4);                                         \
     }
 
@@ -369,13 +396,21 @@ public:                                                                         
     void save(const SQLStatementPtr& st) const {                                                  \
         st->bind(0, f1, f2, f3, f4, f5);                                                          \
     }                                                                                             \
+    void save(const AsyncSQLStatementPtr& st) const {                                             \
+        st->bind(0, f1, f2, f3, f4, f5);                                                          \
+    }                                                                                             \
     void update(const SQLStatementPtr& st) const {                                                \
+        st->bind(0, f1, f2, f3, f4, f5, m_id);                                                    \
+    }                                                                                             \
+    void update(const AsyncSQLStatementPtr& st) const {                                           \
         st->bind(0, f1, f2, f3, f4, f5, m_id);                                                    \
     }                                                                                             \
     void load(const SQLStatementPtr& st) {                                                        \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5);                                               \
+    }                                                                                             \
+    void load(const AsyncSQLStatementPtr& st) {                                                   \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5);                                               \
     }
-
 #define TABLE_BIND6(TableT, table, f1, f2, f3, f4, f5, f6)                                         \
 public:                                                                                            \
     TableT() = default;                                                                            \
@@ -442,13 +477,21 @@ public:                                                                         
     void save(const SQLStatementPtr& st) const {                                                   \
         st->bind(0, f1, f2, f3, f4, f5, f6);                                                       \
     }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6);                                                       \
+    }                                                                                              \
     void update(const SQLStatementPtr& st) const {                                                 \
+        st->bind(0, f1, f2, f3, f4, f5, f6, m_id);                                                 \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
         st->bind(0, f1, f2, f3, f4, f5, f6, m_id);                                                 \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6);                                            \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6);                                            \
     }
-
 #define TABLE_BIND7(TableT, table, f1, f2, f3, f4, f5, f6, f7)                                     \
 public:                                                                                            \
     TableT() = default;                                                                            \

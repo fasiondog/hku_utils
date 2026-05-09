@@ -97,6 +97,8 @@ target("unit-test")
 
     if get_config("mysql") then
         add_files("utilities/db_connect/test_mysql.cpp")
+        add_files("utilities/db_connect/test_async_mysql.cpp")
+        add_files("utilities/db_connect/test_AsyncTransAction.cpp")
     end
 
     if get_config("tdengine") then
