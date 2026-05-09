@@ -21,7 +21,7 @@ namespace hku {
 /**
  * SQLite 异步连接
  * @ingroup SQLite
- * 
+ *
  * 基于 SQLite3 的异步数据库连接实现。
  * 每个连接内部持有独立的 ThreadPool(1) 单线程池，通过 co_run 将同步操作转换为异步接口。
  */
@@ -69,7 +69,7 @@ private:
 
     // 提供给 AsyncSQLiteStatement 访问原始连接的方法
     void *getRawConnection() const noexcept;
-    
+
     // 提供给 AsyncSQLiteStatement 访问线程池执行器的方法
     ThreadPool::ExecutorWrapper getThreadPoolExecutor() const noexcept;
 

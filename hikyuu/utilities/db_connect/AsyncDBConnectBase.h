@@ -75,7 +75,7 @@ PARAMETER_SUPPORT  // NOSONAR
      */
     virtual net::awaitable<void> resetAutoIncrement(const std::string &tablename) = 0;
 
-     //-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
     // 模板方法 - 异步版本
     //-------------------------------------------------------------------------
 
@@ -638,7 +638,7 @@ inline net::awaitable<void> AsyncDBConnectBase::remove(const std::string &tablen
     std::string sql = (where == "" || where == "1=1")
                         ? fmt::format("delete from {}", tablename, where)
                         : (fmt::format("delete from {} where {}", tablename, where));
-    
+
     std::exception_ptr saved_exception;
     try {
         co_await exec(sql);
@@ -682,9 +682,6 @@ template <typename TableT, size_t page_size>
 AsyncSQLResultSet<TableT, page_size> AsyncDBConnectBase::query(const DBCondition &cond) {
     return AsyncSQLResultSet<TableT, page_size>(shared_from_this(), cond.str());
 }
-
-// 在此处包含 AsyncSQLResultSet.h，确保 AsyncDBConnectBase 已完整定义
-#include "AsyncSQLResultSet.h"
 
 }  // namespace hku
 

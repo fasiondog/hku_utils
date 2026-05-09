@@ -25,7 +25,7 @@ class AsyncSQLiteConnect;
  */
 class HKU_UTILS_API AsyncSQLiteStatement : public AsyncSQLStatementBase {
 public:
-    AsyncSQLiteStatement(AsyncSQLiteConnect* connect, const std::string &sql);
+    AsyncSQLiteStatement(AsyncSQLiteConnect *connect, const std::string &sql);
     virtual ~AsyncSQLiteStatement() override;
 
     AsyncSQLiteStatement(const AsyncSQLiteStatement &) = delete;
@@ -34,7 +34,7 @@ public:
     virtual net::awaitable<void> sub_exec() override;
     virtual net::awaitable<bool> sub_moveNext() override;
     virtual uint64_t sub_getLastRowid() override;
-    
+
     virtual void sub_bindNull(int idx) override;
     virtual void sub_bindInt(int idx, int64_t value) override;
     virtual void sub_bindDouble(int idx, double item) override;

@@ -54,7 +54,7 @@ AsyncSQLiteConnect::~AsyncSQLiteConnect() {
     close();
 }
 
-void* AsyncSQLiteConnect::getRawConnection() const noexcept {
+void *AsyncSQLiteConnect::getRawConnection() const noexcept {
     return m_impl->m_db;
 }
 
@@ -82,9 +82,10 @@ net::awaitable<void> AsyncSQLiteConnect::connect() {
     // 将所有初始化操作合并到一个 co_run 中
     auto init_func = [this, flags
 #if HKU_ENABLE_SQLCIPHER
-                     , &key
+                      ,
+                      &key
 #endif
-                    ]() -> int {
+    ]() -> int {
         // 1. 打开数据库
         int rc = sqlite3_open_v2(m_impl->m_dbname.c_str(), &m_impl->m_db, flags, NULL);
         if (rc != SQLITE_OK) {
@@ -113,8 +114,9 @@ net::awaitable<void> AsyncSQLiteConnect::connect() {
     };
 
     int rc = co_await co_run(m_impl->m_thread_pool.executor(), init_func);
-    
-    SQL_CHECK(rc == SQLITE_OK, rc, "{}", m_impl->m_db ? sqlite3_errmsg(m_impl->m_db) : "Failed to open database");
+
+    SQL_CHECK(rc == SQLITE_OK, rc, "{}",
+              m_impl->m_db ? sqlite3_errmsg(m_impl->m_db) : "Failed to open database");
 
     m_impl->initialized = true;
 }
@@ -131,7 +133,7 @@ net::awaitable<bool> AsyncSQLiteConnect::ping() {
     if (!m_impl || !m_impl->m_db) {
         try {
             co_await connect();
-        } catch (const std::exception& e) {
+        } catch (const std::exception &e) {
             HKU_ERROR("Failed connect to sqlite! {}", e.what());
             co_return false;
         }
@@ -163,10 +165,10 @@ net::awaitable<int64_t> AsyncSQLiteConnect::exec(const std::string &sql_string) 
     };
 
     auto [rc, affect_rows] = co_await co_run(m_impl->m_thread_pool.executor(), exec_func);
-    
-    SQL_CHECK(rc == SQLITE_OK, rc, "SQL error: {}! ({})", 
+
+    SQL_CHECK(rc == SQLITE_OK, rc, "SQL error: {}! ({})",
               m_impl->m_db ? sqlite3_errmsg(m_impl->m_db) : "Unknown error", sql_string);
-    
+
     co_return (affect_rows < 0 ? 0 : affect_rows);
 }
 
@@ -175,14 +177,15 @@ net::awaitable<AsyncSQLStatementPtr> AsyncSQLiteConnect::getStatement(
     if (!m_impl || !m_impl->m_db) {
         co_await connect();
     }
-    
+
     co_return std::make_shared<AsyncSQLiteStatement>(this, sql_statement);
 }
 
 net::awaitable<bool> AsyncSQLiteConnect::tableExist(const std::string &tablename) {
     bool result = false;
     try {
-        auto st = co_await getStatement(fmt::format("select count(1) from sqlite_master where name='{}'", tablename));
+        auto st = co_await getStatement(
+          fmt::format("select count(1) from sqlite_master where name='{}'", tablename));
         co_await st->exec();
         if (co_await st->moveNext()) {
             int tmp;
@@ -198,8 +201,10 @@ net::awaitable<bool> AsyncSQLiteConnect::tableExist(const std::string &tablename
 }
 
 net::awaitable<void> AsyncSQLiteConnect::resetAutoIncrement(const std::string &tablename) {
-    int64_t count = co_await queryNumber<int64_t>(fmt::format("select count(1) from {}", tablename));
-    SQL_CHECK(count == 0, -1, "The ID cannot be reset when data is present in table({})", tablename);
+    int64_t count =
+      co_await queryNumber<int64_t>(fmt::format("select count(1) from {}", tablename));
+    SQL_CHECK(count == 0, -1, "The ID cannot be reset when data is present in table({})",
+              tablename);
     co_await exec(fmt::format("UPDATE sqlite_sequence SET seq=0 WHERE name='{}'", tablename));
 }
 
@@ -227,12 +232,13 @@ net::awaitable<bool> AsyncSQLiteConnect::check(bool quick) {
     }
 
     std::string check_pragma(quick ? "PRAGMA quick_check;" : "PRAGMA integrity_check;");
-    
+
     auto check_func = [this, &check_pragma]() -> bool {
         bool good = false;
         sqlite3_stmt *integrity = NULL;
-        
-        if (sqlite3_prepare_v2(m_impl->m_db, check_pragma.c_str(), -1, &integrity, NULL) == SQLITE_OK) {
+
+        if (sqlite3_prepare_v2(m_impl->m_db, check_pragma.c_str(), -1, &integrity, NULL) ==
+            SQLITE_OK) {
             while (sqlite3_step(integrity) == SQLITE_ROW) {
                 const unsigned char *result = sqlite3_column_text(integrity, 0);
                 if (result && strcmp((const char *)result, (const char *)"ok") == 0) {
@@ -242,7 +248,7 @@ net::awaitable<bool> AsyncSQLiteConnect::check(bool quick) {
             }
             sqlite3_finalize(integrity);
         }
-        
+
         return good;
     };
 
