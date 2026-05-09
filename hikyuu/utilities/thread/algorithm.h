@@ -841,10 +841,11 @@ auto co_run_ec(Executor exec, Func&& func) -> asio::awaitable<typename std::invo
                         boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
                   }
 
-                  net::post(io_exec, [handler = std::move(handler), ec]() mutable { handler(ec); });
+                  asio::post(io_exec,
+                             [handler = std::move(handler), ec]() mutable { handler(ec); });
               });
           },
-          net::use_awaitable);
+          asio::use_awaitable);
     } else {
         // 非 void 返回类型的普通版本
         return net::async_initiate<decltype(net::use_awaitable), void(net::error_code, ResultType)>(
@@ -865,13 +866,13 @@ auto co_run_ec(Executor exec, Func&& func) -> asio::awaitable<typename std::invo
                         boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
                   }
 
-                  net::post(io_exec, [handler = std::move(handler), ec,
-                                      result = std::move(result)]() mutable {
+                  asio::post(io_exec, [handler = std::move(handler), ec,
+                                       result = std::move(result)]() mutable {
                       handler(ec, std::move(result));
                   });
               });
           },
-          net::use_awaitable);
+          asio::use_awaitable);
     }
 }
 
