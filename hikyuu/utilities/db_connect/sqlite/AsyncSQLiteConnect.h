@@ -12,6 +12,7 @@
 
 #include "../AsyncDBConnectBase.h"
 #include "AsyncSQLiteStatement.h"
+#include "../../thread/ThreadPool.h"
 
 #include <memory>
 
@@ -48,6 +49,9 @@ private:
 
     // 提供给 AsyncSQLiteStatement 访问原始连接的方法
     void *getRawConnection() const noexcept;
+    
+    // 提供给 AsyncSQLiteStatement 访问线程池执行器的方法
+    ThreadPool::ExecutorWrapper getThreadPoolExecutor() const noexcept;
 
     // 内部辅助方法
     net::awaitable<void> connect();

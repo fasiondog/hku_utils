@@ -22,9 +22,10 @@ struct AsyncSQLiteStatement::Impl {
     bool m_needs_reset = false;
     int m_step_status = SQLITE_DONE;
     bool m_at_first_step = true;
-    ThreadPool m_thread_pool{1};  // 单线程池用于执行同步 SQLite 操作
+    AsyncSQLiteConnect* m_connect = nullptr;  // 持有连接指针以获取线程池执行器
 
-    Impl(sqlite3 *db, sqlite3_stmt *stmt) : m_db(db), m_stmt(stmt) {}
+    Impl(AsyncSQLiteConnect* connect, sqlite3 *db, sqlite3_stmt *stmt) 
+    : m_connect(connect), m_db(db), m_stmt(stmt) {}
 
     ~Impl() {
         if (m_stmt) {
@@ -43,6 +44,11 @@ struct AsyncSQLiteStatement::Impl {
             m_step_status = SQLITE_DONE;
             m_at_first_step = true;
         }
+    }
+    
+    // 从连接获取线程池执行器
+    ThreadPool::ExecutorWrapper getExecutor() const {
+        return m_connect->getThreadPoolExecutor();
     }
 };
 
@@ -64,7 +70,7 @@ AsyncSQLiteStatement::AsyncSQLiteStatement(AsyncSQLiteConnect* connect, const st
 
     HKU_CHECK(stmt != nullptr, "Invalid SQL statement: {}", sql);
     
-    m_impl = std::make_unique<Impl>(db, stmt);
+    m_impl = std::make_unique<Impl>(connect, db, stmt);
 }
 
 AsyncSQLiteStatement::~AsyncSQLiteStatement() {
@@ -105,7 +111,7 @@ net::awaitable<void> AsyncSQLiteStatement::sub_exec() {
         return SQLITE_OK;
     };
 
-    int status = co_await co_run(m_impl->m_thread_pool.executor(), exec_func);
+    int status = co_await co_run(m_impl->getExecutor(), exec_func);
     
     if (status != SQLITE_OK) {
         SQL_THROW(status, "{}", sqlite3_errmsg(m_impl->m_db));
@@ -129,7 +135,7 @@ net::awaitable<bool> AsyncSQLiteStatement::sub_moveNext() {
                 return m_impl->m_step_status;
             };
 
-            int status = co_await co_run(m_impl->m_thread_pool.executor(), step_func);
+            int status = co_await co_run(m_impl->getExecutor(), step_func);
             
             if (status == SQLITE_DONE) {
                 co_return false;

@@ -58,6 +58,10 @@ void* AsyncSQLiteConnect::getRawConnection() const noexcept {
     return m_impl->m_db;
 }
 
+ThreadPool::ExecutorWrapper AsyncSQLiteConnect::getThreadPoolExecutor() const noexcept {
+    return m_impl->m_thread_pool.executor();
+}
+
 net::awaitable<void> AsyncSQLiteConnect::connect() {
     if (m_impl->initialized) {
         co_return;
