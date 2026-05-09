@@ -11,6 +11,7 @@
 #ifndef HIYUU_DB_CONNECT_MYSQL_ASYNCMYSQLCONNECT_H
 #define HIYUU_DB_CONNECT_MYSQL_ASYNCMYSQLCONNECT_H
 
+#include "hikyuu/utilities/Parameter.h"
 #include "../AsyncDBConnectBase.h"
 #include "AsyncMySQLStatement.h"
 

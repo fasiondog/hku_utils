@@ -10,12 +10,12 @@
 #ifndef HIKYUU_DB_CONNECT_ASYNCDbCONNECTBASE_H
 #define HIKYUU_DB_CONNECT_ASYNCDbCONNECTBASE_H
 
-#include "../../utilities/Parameter.h"
-#include "../Null.h"
+#include "hikyuu/utilities/Parameter.h"
+#include "hikyuu/utilities/Null.h"
+#include "hikyuu/utilities/net.h"
 #include "DBCondition.h"
 #include "AsyncSQLStatementBase.h"
 #include "SQLException.h"
-#include "../net.h"
 
 namespace hku {
 

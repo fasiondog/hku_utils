@@ -7,9 +7,9 @@
  *      Author: fasiondog
  */
 
-#include "hikyuu/utilities/config.h"
+#include "test_config.h"
 
-#if HKU_ENABLE_MYSQL
+#if ENABLE_MYSQL_TEST && HKU_ENABLE_MYSQL
 
 #include "hikyuu/utilities/db_connect/TableMacro.h"
 #include "hikyuu/utilities/db_connect/AsyncSQLResultSet.h"

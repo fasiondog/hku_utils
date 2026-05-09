@@ -11,9 +11,7 @@
 #define HIKYUU_DB_CONNECT_ASYNC_TRANSACTION_H
 
 #include <memory>
-#include <boost/asio.hpp>
 #include "AsyncDBConnectBase.h"
-#include "../Log.h"
 
 namespace hku {
 
@@ -114,7 +112,7 @@ inline net::awaitable<void> AsyncAutoTransAction::commit() {
 inline AsyncAutoTransAction::~AsyncAutoTransAction() {
     if (!m_committed && m_driver && m_io_context) {
         // 启动一个 detached 协程来回滚（即发即忘）
-        boost::asio::co_spawn(
+        net::asio::co_spawn(
           *m_io_context,
           [driver = m_driver]() -> net::awaitable<void> {
               try {
@@ -123,7 +121,7 @@ inline AsyncAutoTransAction::~AsyncAutoTransAction() {
                   HKU_WARN("AsyncAutoTransAction: rollback in destructor failed");
               }
           },
-          boost::asio::detached);
+          net::asio::detached);
     }
 }
 
@@ -176,7 +174,7 @@ private:
 
 private:
     AsyncDBConnectPtr m_driver;
-    boost::asio::io_context* m_io_context = nullptr;
+    net::asio::io_context* m_io_context = nullptr;
     bool m_committed = false;
     bool m_started = false;
 };

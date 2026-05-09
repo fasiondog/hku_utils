@@ -9,7 +9,7 @@
 
 #include "hikyuu/utilities/config.h"
 
-#if HKU_ENABLE_MYSQL
+#if HKU_ENABLE_MYSQL_TEST
 
 #include "hikyuu/utilities/db_connect/mysql/MySQLConnect.h"
 #include "hikyuu/utilities/ini_parser/IniParser.h"

@@ -7,9 +7,9 @@
  *      Author: fasiondog
  */
 
-#include "hikyuu/utilities/config.h"
+#include "test_config.h"
 
-#if HKU_ENABLE_MYSQL
+#if ENABLE_MYSQL_TEST && HKU_ENABLE_MYSQL
 
 #include "hikyuu/utilities/db_connect/AsyncTransAction.h"
 #include "hikyuu/utilities/db_connect/mysql/AsyncMySQLConnect.h"
@@ -88,7 +88,7 @@ TEST_CASE("test_async_auto_trans_action_basic") {
             } catch (...) {
                 use_success = false;
             }
-            
+
             if (!use_success) {
                 co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
                 co_await conn->exec("USE test");
@@ -106,19 +106,20 @@ TEST_CASE("test_async_auto_trans_action_basic") {
             // 测试正常提交流程
             {
                 auto trans = co_await AsyncAutoTransAction::create(conn);
-                co_await trans->connect()->exec("INSERT INTO test_async_auto_trans (value) VALUES (100)");
+                co_await trans->connect()->exec(
+                  "INSERT INTO test_async_auto_trans (value) VALUES (100)");
                 co_await trans->commit();
             }
 
             // 验证数据已提交
             auto stmt = co_await conn->getStatement("SELECT COUNT(*) FROM test_async_auto_trans");
             co_await stmt->exec();
-            
+
             if (co_await stmt->moveNext()) {
                 int count = 0;
                 stmt->getColumn(0, count);
                 CHECK(count == 1);
-                
+
                 if (count == 1) {
                     test_passed = true;
                 }
@@ -169,7 +170,7 @@ TEST_CASE("test_async_auto_trans_action_rollback_on_destroy") {
             } catch (...) {
                 use_success = false;
             }
-            
+
             if (!use_success) {
                 co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
                 co_await conn->exec("USE test");
@@ -187,24 +188,26 @@ TEST_CASE("test_async_auto_trans_action_rollback_on_destroy") {
             // 测试未调用 commit，析构时应自动回滚
             {
                 auto trans = co_await AsyncAutoTransAction::create(conn);
-                co_await trans->connect()->exec("INSERT INTO test_async_auto_trans_rollback (value) VALUES (200)");
+                co_await trans->connect()->exec(
+                  "INSERT INTO test_async_auto_trans_rollback (value) VALUES (200)");
                 // 注意：没有调用 commit()
             }
 
             // 等待一小段时间让 detached 协程执行回滚
-            co_await boost::asio::steady_timer(co_await net::this_coro::executor, 
-                                                std::chrono::milliseconds(100)).async_wait(
-                boost::asio::use_awaitable);
+            co_await boost::asio::steady_timer(co_await net::this_coro::executor,
+                                               std::chrono::milliseconds(100))
+              .async_wait(boost::asio::use_awaitable);
 
             // 验证数据已回滚（应该为 0）
-            auto stmt = co_await conn->getStatement("SELECT COUNT(*) FROM test_async_auto_trans_rollback");
+            auto stmt =
+              co_await conn->getStatement("SELECT COUNT(*) FROM test_async_auto_trans_rollback");
             co_await stmt->exec();
-            
+
             if (co_await stmt->moveNext()) {
                 int count = 0;
                 stmt->getColumn(0, count);
                 CHECK(count == 0);
-                
+
                 if (count == 0) {
                     rollback_success = true;
                 }
@@ -255,7 +258,7 @@ TEST_CASE("test_async_trans_action_basic") {
             } catch (...) {
                 use_success = false;
             }
-            
+
             if (!use_success) {
                 co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
                 co_await conn->exec("USE test");
@@ -273,19 +276,20 @@ TEST_CASE("test_async_trans_action_basic") {
             // 测试正常提交流程
             {
                 auto trans = co_await AsyncTransAction::create(conn);
-                co_await trans->connect()->exec("INSERT INTO test_async_trans (value) VALUES (300)");
+                co_await trans->connect()->exec(
+                  "INSERT INTO test_async_trans (value) VALUES (300)");
                 co_await trans->end();  // 使用 end() 提交
             }
 
             // 验证数据已提交
             auto stmt = co_await conn->getStatement("SELECT COUNT(*) FROM test_async_trans");
             co_await stmt->exec();
-            
+
             if (co_await stmt->moveNext()) {
                 int count = 0;
                 stmt->getColumn(0, count);
                 CHECK(count == 1);
-                
+
                 if (count == 1) {
                     test_passed = true;
                 }
@@ -336,7 +340,7 @@ TEST_CASE("test_async_trans_action_manual_rollback") {
             } catch (...) {
                 use_success = false;
             }
-            
+
             if (!use_success) {
                 co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
                 co_await conn->exec("USE test");
@@ -354,19 +358,21 @@ TEST_CASE("test_async_trans_action_manual_rollback") {
             // 测试手动回滚
             {
                 auto trans = co_await AsyncTransAction::create(conn);
-                co_await trans->connect()->exec("INSERT INTO test_async_trans_rollback (value) VALUES (400)");
+                co_await trans->connect()->exec(
+                  "INSERT INTO test_async_trans_rollback (value) VALUES (400)");
                 co_await trans->rollback();  // 手动回滚
             }
 
             // 验证数据已回滚
-            auto stmt = co_await conn->getStatement("SELECT COUNT(*) FROM test_async_trans_rollback");
+            auto stmt =
+              co_await conn->getStatement("SELECT COUNT(*) FROM test_async_trans_rollback");
             co_await stmt->exec();
-            
+
             if (co_await stmt->moveNext()) {
                 int count = 0;
                 stmt->getColumn(0, count);
                 CHECK(count == 0);
-                
+
                 if (count == 0) {
                     rollback_success = true;
                 }

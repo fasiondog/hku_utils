@@ -7,14 +7,15 @@
  *      Author: fasiondog
  */
 
-#include "hikyuu/utilities/config.h"
-#include "hikyuu/utilities/Log.h"
-#include "AsyncMySQLConnect.h"
-
 #include <memory>
 #include <boost/mysql.hpp>
 #include <boost/asio.hpp>
+
+#include "hikyuu/utilities/config.h"
 #include "hikyuu/utilities/LruCache.h"
+#include "hikyuu/utilities/Parameter.h"
+#include "hikyuu/utilities/Log.h"
+#include "AsyncMySQLConnect.h"
 
 namespace hku {
 
