@@ -44,6 +44,26 @@ public:
     virtual net::awaitable<void> commit() override;
     virtual net::awaitable<void> rollback() noexcept override;
 
+    /**
+     * @brief 对数据库进行检查（异步版本）
+     * @note 该函数不能区分是因为文件并非sqlite文件，还是sqlite本身损坏的情况
+     *       如有判断文件本身是否为有效sqlite文件，请使用 isValidSqliteFile 方法
+     * @param quick true 快速检查 | false 完整性检查
+     * @return true 检测成功
+     * @return false 检测失败
+     */
+    net::awaitable<bool> check(bool quick = false);
+
+    /**
+     * @brief 在线备份数据库，不影响其他数据库连接进行操作（异步版本）
+     * @param zFilename 备份数据库名称
+     * @param n_page 分批备份时每次循环备份的 page 数，小于等于0时，一次性备份，不进行分批备份
+     * @param step_sleep 分批备份时每次循环后，休眠间隔时长（毫秒），以便让出cpu
+     * @return true 成功
+     * @return false 失败
+     */
+    net::awaitable<bool> backup(const char *zFilename, int n_page = -1, int step_sleep = 250);
+
 private:
     friend class AsyncSQLiteStatement;
 

@@ -221,4 +221,71 @@ net::awaitable<void> AsyncSQLiteConnect::rollback() noexcept {
     }
 }
 
+net::awaitable<bool> AsyncSQLiteConnect::check(bool quick) {
+    if (!m_impl || !m_impl->m_db) {
+        co_await connect();
+    }
+
+    std::string check_pragma(quick ? "PRAGMA quick_check;" : "PRAGMA integrity_check;");
+    
+    auto check_func = [this, &check_pragma]() -> bool {
+        bool good = false;
+        sqlite3_stmt *integrity = NULL;
+        
+        if (sqlite3_prepare_v2(m_impl->m_db, check_pragma.c_str(), -1, &integrity, NULL) == SQLITE_OK) {
+            while (sqlite3_step(integrity) == SQLITE_ROW) {
+                const unsigned char *result = sqlite3_column_text(integrity, 0);
+                if (result && strcmp((const char *)result, (const char *)"ok") == 0) {
+                    good = true;
+                    break;
+                }
+            }
+            sqlite3_finalize(integrity);
+        }
+        
+        return good;
+    };
+
+    bool result = co_await co_run(m_impl->m_thread_pool.executor(), check_func);
+    co_return result;
+}
+
+net::awaitable<bool> AsyncSQLiteConnect::backup(const char *zFilename, int n_page, int step_sleep) {
+    if (!m_impl || !m_impl->m_db) {
+        co_await connect();
+    }
+
+    auto backup_func = [this, zFilename, n_page, step_sleep]() -> bool {
+        sqlite3 *pFile;
+        int rc = sqlite3_open(zFilename, &pFile);
+        if (rc == SQLITE_OK) {
+            /* Open the sqlite3_backup object used to accomplish the transfer */
+            sqlite3_backup *pBackup = sqlite3_backup_init(pFile, "main", m_impl->m_db, "main");
+            if (pBackup) {
+                if (n_page <= 0) {
+                    sqlite3_backup_step(pBackup, -1);
+
+                } else {
+                    do {
+                        rc = sqlite3_backup_step(pBackup, n_page);
+                        if (step_sleep > 0 &&
+                            (rc == SQLITE_OK || rc == SQLITE_BUSY || rc == SQLITE_LOCKED)) {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(step_sleep));
+                        }
+                    } while (rc == SQLITE_OK || rc == SQLITE_BUSY || rc == SQLITE_LOCKED);
+                }
+
+                sqlite3_backup_finish(pBackup);
+            }
+            rc = sqlite3_errcode(pFile);
+        }
+
+        sqlite3_close(pFile);
+        return rc == SQLITE_OK;
+    };
+
+    bool result = co_await co_run(m_impl->m_thread_pool.executor(), backup_func);
+    co_return result;
+}
+
 }  // namespace hku
