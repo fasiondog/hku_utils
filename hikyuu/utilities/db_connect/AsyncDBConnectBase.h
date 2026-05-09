@@ -76,39 +76,7 @@ PARAMETER_SUPPORT  // NOSONAR
      */
     virtual net::awaitable<void> resetAutoIncrement(const std::string &tablename) = 0;
 
-    //-------------------------------------------------------------------------
-    // 同步方法（保持不变，不改为异步）
-    //-------------------------------------------------------------------------
-
-    /** ping 操作，用于判断是否连接（同步版本） */
-    virtual bool sync_ping() = 0;
-
-    /** 开始事务，失败时抛出异常（同步版本） */
-    virtual void sync_transaction() = 0;
-
-    /** 提交事务，失败时抛出异常（同步版本） */
-    virtual void sync_commit() = 0;
-
-    /** 回滚事务（同步版本） */
-    virtual void sync_rollback() noexcept = 0;
-
-    /** 执行无返回结果的 SQL（同步版本） */
-    virtual int64_t sync_exec(const std::string &sql_string) = 0;
-
-    /** 获取 SQLStatement（同步版本） */
-    virtual SQLStatementPtr sync_getStatement(const std::string &sql_statement) = 0;
-
-    /** 判断表是否存在（同步版本） */
-    virtual bool tableExist(const std::string &tablename) = 0;
-
-    /**
-     * 重置含自增 id 的表中的 id 从 1开始（同步版本）
-     * @param tablename 待重置id的表名
-     * @exception 表中仍旧含有数据时，抛出异常
-     */
-    virtual void resetAutoIncrement(const std::string &tablename) = 0;
-
-    //-------------------------------------------------------------------------
+     //-------------------------------------------------------------------------
     // 模板方法 - 异步版本
     //-------------------------------------------------------------------------
 
