@@ -847,9 +847,9 @@ auto co_run_ec(Executor exec, Func&& func) -> asio::awaitable<typename std::invo
           asio::use_awaitable);
     } else {
         // 非 void 返回类型的普通版本
-        return net::async_initiate<decltype(net::use_awaitable), void(net::error_code, ResultType)>(
+        return asio::async_initiate<decltype(asio::use_awaitable), void(net::error_code, ResultType)>(
           [exec, func = std::forward<Func>(func)](auto&& handler) mutable {
-              auto io_exec = net::get_associated_executor(handler);
+              auto io_exec = asio::get_associated_executor(handler);
 
               exec.execute([func = std::move(func),
                             handler = std::forward<decltype(handler)>(handler), io_exec]() mutable {
