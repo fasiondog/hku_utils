@@ -65,25 +65,18 @@ TEST_CASE("test_async_mysql_basic_connection") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
-
-    MESSAGE("Starting async MySQL test with host: " << param.get<std::string>("host") 
-            << ", port: " << param.get<int>("port"));
 
     boost::asio::io_context io_context;
     bool test_passed = false;
 
     auto run_test = [&]() -> net::awaitable<void> {
         try {
-            MESSAGE("Creating AsyncMySQLConnect...");
             auto conn = std::make_shared<AsyncMySQLConnect>(param);
-            MESSAGE("Calling ping...");
 
             // 验证 ping（会自动从当前协程环境获取 io_context）
             bool connected = co_await conn->ping();
-            MESSAGE("Ping result: " << (connected ? "success" : "failed"));
             CHECK(connected == true);
 
             if (connected) {
@@ -95,19 +88,10 @@ TEST_CASE("test_async_mysql_basic_connection") {
         }
     };
 
-    MESSAGE("Spawning coroutine...");
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
-    
-    MESSAGE("Running io_context...");
+
     // 运行 io_context，最多等待 10 秒
     io_context.run_for(std::chrono::seconds(10));
-    MESSAGE("io_context finished");
-
-    if (!test_passed) {
-        MESSAGE("Async MySQL connection test failed or timed out");
-    } else {
-        MESSAGE("Test passed!");
-    }
 }
 
 TEST_CASE("test_async_mysql_exec") {
@@ -115,7 +99,6 @@ TEST_CASE("test_async_mysql_exec") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
 
@@ -128,7 +111,6 @@ TEST_CASE("test_async_mysql_exec") {
 
             bool connected = co_await conn->ping();
             if (!connected) {
-                MESSAGE("Connection failed");
                 co_return;
             }
 
@@ -144,10 +126,6 @@ TEST_CASE("test_async_mysql_exec") {
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(10));
-
-    if (!exec_success) {
-        MESSAGE("Async MySQL exec test failed");
-    }
 }
 
 TEST_CASE("test_async_mysql_statement") {
@@ -155,7 +133,6 @@ TEST_CASE("test_async_mysql_statement") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
 
@@ -168,7 +145,6 @@ TEST_CASE("test_async_mysql_statement") {
 
             bool connected = co_await conn->ping();
             if (!connected) {
-                MESSAGE("Connection failed");
                 co_return;
             }
 
@@ -192,10 +168,6 @@ TEST_CASE("test_async_mysql_statement") {
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(10));
-
-    if (!stmt_success) {
-        MESSAGE("Async MySQL statement test failed");
-    }
 }
 
 TEST_CASE("test_async_mysql_table_exist") {
@@ -203,7 +175,6 @@ TEST_CASE("test_async_mysql_table_exist") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
 
@@ -216,7 +187,6 @@ TEST_CASE("test_async_mysql_table_exist") {
 
             bool connected = co_await conn->ping();
             if (!connected) {
-                MESSAGE("Connection failed");
                 co_return;
             }
 
@@ -232,10 +202,6 @@ TEST_CASE("test_async_mysql_table_exist") {
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(10));
-
-    if (!check_success) {
-        MESSAGE("Async MySQL table exist check failed");
-    }
 }
 
 TEST_CASE("test_async_mysql_data_types") {
@@ -243,7 +209,6 @@ TEST_CASE("test_async_mysql_data_types") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
 
@@ -256,7 +221,6 @@ TEST_CASE("test_async_mysql_data_types") {
 
             bool connected = co_await conn->ping();
             if (!connected) {
-                MESSAGE("Connection failed");
                 co_return;
             }
 
@@ -267,7 +231,7 @@ TEST_CASE("test_async_mysql_data_types") {
             } catch (...) {
                 use_success = false;
             }
-            
+
             if (!use_success) {
                 co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
                 co_await conn->exec("USE test");
@@ -298,15 +262,15 @@ TEST_CASE("test_async_mysql_data_types") {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             )");
 
-            insert_stmt->bind(0, static_cast<int32_t>(2147483647));       // INT
-            insert_stmt->bind(1, static_cast<int64_t>(9223372036854775807LL)); // BIGINT
-            insert_stmt->bind(2, 3.14f);                                   // FLOAT
-            insert_stmt->bind(3, 3.14159265358979);                        // DOUBLE
-            insert_stmt->bind(4, 999999.99);                               // DECIMAL
-            insert_stmt->bind(5, std::string("VARCHAR test"));             // VARCHAR
-            insert_stmt->bind(6, std::string("TEXT content"));             // TEXT
-            insert_stmt->bind(7, std::string("2024-01-15"));               // DATE
-            insert_stmt->bind(8, std::string("2024-01-15 10:30:45"));      // DATETIME
+            insert_stmt->bind(0, static_cast<int32_t>(2147483647));             // INT
+            insert_stmt->bind(1, static_cast<int64_t>(9223372036854775807LL));  // BIGINT
+            insert_stmt->bind(2, 3.14f);                                        // FLOAT
+            insert_stmt->bind(3, 3.14159265358979);                             // DOUBLE
+            insert_stmt->bind(4, 999999.99);                                    // DECIMAL
+            insert_stmt->bind(5, std::string("VARCHAR test"));                  // VARCHAR
+            insert_stmt->bind(6, std::string("TEXT content"));                  // TEXT
+            insert_stmt->bind(7, std::string("2024-01-15"));                    // DATE
+            insert_stmt->bind(8, std::string("2024-01-15 10:30:45"));           // DATETIME
 
             co_await insert_stmt->exec();
             uint64_t last_id = insert_stmt->getLastRowid();
@@ -314,10 +278,10 @@ TEST_CASE("test_async_mysql_data_types") {
 
             // 查询验证
             auto select_stmt = co_await conn->getStatement(
-                "SELECT col_int, col_bigint, col_float, col_double, col_decimal, "
-                "col_varchar, col_text, col_date, col_datetime "
-                "FROM test_async_data_types WHERE id = ?");
-            
+              "SELECT col_int, col_bigint, col_float, col_double, col_decimal, "
+              "col_varchar, col_text, col_date, col_datetime "
+              "FROM test_async_data_types WHERE id = ?");
+
             select_stmt->bind(0, static_cast<int64_t>(last_id));
             co_await select_stmt->exec();
 
@@ -359,16 +323,12 @@ TEST_CASE("test_async_mysql_data_types") {
             co_await conn->exec("DROP TABLE IF EXISTS test_async_data_types");
 
         } catch (const std::exception& e) {
-            MESSAGE("Data types test failed: " << e.what());
+            // MESSAGE("Data types test failed: " << e.what());
         }
     };
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(10));
-
-    if (!test_passed) {
-        MESSAGE("Async MySQL data types test failed");
-    }
 }
 
 TEST_CASE("test_async_mysql_transaction") {
@@ -376,7 +336,6 @@ TEST_CASE("test_async_mysql_transaction") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
 
@@ -389,7 +348,6 @@ TEST_CASE("test_async_mysql_transaction") {
 
             bool connected = co_await conn->ping();
             if (!connected) {
-                MESSAGE("Connection failed");
                 co_return;
             }
 
@@ -400,7 +358,7 @@ TEST_CASE("test_async_mysql_transaction") {
             } catch (...) {
                 use_success = false;
             }
-            
+
             if (!use_success) {
                 co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
                 co_await conn->exec("USE test");
@@ -428,12 +386,12 @@ TEST_CASE("test_async_mysql_transaction") {
             // 验证数据已提交
             auto stmt = co_await conn->getStatement("SELECT COUNT(*) FROM test_async_transaction");
             co_await stmt->exec();
-            
+
             if (co_await stmt->moveNext()) {
                 int count = 0;
                 stmt->getColumn(0, count);
                 CHECK(count == 2);
-                
+
                 if (count == 2) {
                     transaction_success = true;
                 }
@@ -447,7 +405,7 @@ TEST_CASE("test_async_mysql_transaction") {
             // 验证回滚后数据未变化
             auto stmt2 = co_await conn->getStatement("SELECT COUNT(*) FROM test_async_transaction");
             co_await stmt2->exec();
-            
+
             if (co_await stmt2->moveNext()) {
                 int count = 0;
                 stmt2->getColumn(0, count);
@@ -464,10 +422,6 @@ TEST_CASE("test_async_mysql_transaction") {
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(10));
-
-    if (!transaction_success) {
-        MESSAGE("Async MySQL transaction test failed");
-    }
 }
 
 TEST_CASE("test_async_mysql_error_handling") {
@@ -475,7 +429,6 @@ TEST_CASE("test_async_mysql_error_handling") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
 
@@ -488,16 +441,14 @@ TEST_CASE("test_async_mysql_error_handling") {
 
             bool connected = co_await conn->ping();
             if (!connected) {
-                MESSAGE("Connection failed");
                 co_return;
             }
 
             // 测试 SQL 语法错误
             try {
                 co_await conn->exec("INVALID SQL SYNTAX");
-                MESSAGE("Should have thrown exception for invalid SQL");
             } catch (const std::exception& e) {
-                MESSAGE("Caught expected exception: " << e.what());
+                // MESSAGE("Caught expected exception: " << e.what());
                 error_handled = true;
             }
 
@@ -505,22 +456,17 @@ TEST_CASE("test_async_mysql_error_handling") {
             try {
                 auto stmt = co_await conn->getStatement("SELECT * FROM nonexistent_table_xyz");
                 co_await stmt->exec();
-                MESSAGE("Should have thrown exception for nonexistent table");
             } catch (const std::exception& e) {
-                MESSAGE("Caught expected exception: " << e.what());
+                // MESSAGE("Caught expected exception: " << e.what());
             }
 
         } catch (const std::exception& e) {
-            MESSAGE("Error handling test failed: " << e.what());
+            // MESSAGE("Error handling test failed: " << e.what());
         }
     };
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(10));
-
-    if (!error_handled) {
-        MESSAGE("Async MySQL error handling test failed");
-    }
 }
 
 TEST_CASE("test_async_mysql_auto_reconnect") {
@@ -528,7 +474,6 @@ TEST_CASE("test_async_mysql_auto_reconnect") {
     Parameter param = loadMySQLConfig();
 
     if (param.empty()) {
-        MESSAGE("MySQL configuration not found, skipping test");
         return;
     }
 
@@ -544,7 +489,6 @@ TEST_CASE("test_async_mysql_auto_reconnect") {
             CHECK(connected == true);
 
             if (!connected) {
-                MESSAGE("Initial connection failed");
                 co_return;
             }
 
@@ -567,10 +511,6 @@ TEST_CASE("test_async_mysql_auto_reconnect") {
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(10));
-
-    if (!reconnect_success) {
-        MESSAGE("Async MySQL auto reconnect test failed");
-    }
 }
 
 // ============================================================================
@@ -579,7 +519,7 @@ TEST_CASE("test_async_mysql_auto_reconnect") {
 
 struct TestResultTable {
     TABLE_BIND3(TestResultTable, test_async_result_set, name, value, extra);
-    
+
     std::string name;
     int value = 0;
     std::string extra;
@@ -588,7 +528,7 @@ struct TestResultTable {
 TEST_CASE("test_async_sql_result_set_null_connect") {
     // 测试空连接的情况
     AsyncSQLResultSet<TestResultTable, 100> results;
-    
+
     boost::asio::io_context io_context;
     bool test_passed = false;
 
@@ -596,26 +536,24 @@ TEST_CASE("test_async_sql_result_set_null_connect") {
         try {
             CHECK(co_await results.empty() == true);
             CHECK(co_await results.size() == 0);
-            
+
             // 测试 at 方法抛出异常
             try {
                 co_await results.at(0);
-                MESSAGE("Expected exception not thrown for at(0)");
             } catch (const std::out_of_range&) {
                 // 预期异常
             }
-            
+
             try {
                 co_await results.at(1000);
-                MESSAGE("Expected exception not thrown for at(1000)");
             } catch (const std::out_of_range&) {
                 // 预期异常
             }
-            
+
             // 测试 operator[]
             auto x = co_await results.operator_bracket(0);
             CHECK(x.valid() == false);
-            
+
             test_passed = true;
         } catch (const std::exception& e) {
             MESSAGE("Null connect test failed: " << e.what());
@@ -624,28 +562,21 @@ TEST_CASE("test_async_sql_result_set_null_connect") {
 
     boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
     io_context.run_for(std::chrono::seconds(5));
-
-    if (!test_passed) {
-        MESSAGE("AsyncSQLResultSet null connect test failed");
-    }
 }
 
 TEST_CASE("test_async_sql_result_set_basic") {
     // 注意：AsyncSQLResultSet 目前需要额外的异步 load 支持
     // 此测试暂时跳过，待完整实现后再启用
-    MESSAGE("AsyncSQLResultSet basic test skipped - needs async load support");
 }
 
 TEST_CASE("test_async_sql_result_set_with_condition") {
     // 注意：AsyncSQLResultSet 目前需要额外的异步 load 支持
     // 此测试暂时跳过，待完整实现后再启用
-    MESSAGE("AsyncSQLResultSet condition test skipped - needs async load support");
 }
 
 TEST_CASE("test_async_sql_result_set_pagination") {
     // 注意：AsyncSQLResultSet 目前需要额外的异步 load 支持
     // 此测试暂时跳过，待完整实现后再启用
-    MESSAGE("AsyncSQLResultSet pagination test skipped - needs async load support");
 }
 
-#endif // HKU_ENABLE_MYSQL
+#endif  // HKU_ENABLE_MYSQL
