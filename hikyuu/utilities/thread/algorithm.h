@@ -785,7 +785,7 @@ auto co_run(Executor exec, Func&& func) -> asio::awaitable<typename std::invoke_
 }
 
 /**
- * @brief 在指定 executor 上异步执行函数，异常会转换为 boost::system::error_code
+ * @brief 在指定 executor 上异步执行函数，异常会转换为 net::error_code
  *
  * 此函数将异常转换为 error_code 传递错误状态，适用于不希望异常中断协程执行的场景。
  * 当发生异常时，Boost.Asio 框架会自动将非空的 error_code 转换为 boost::system::system_error 抛出。
@@ -823,13 +823,13 @@ auto co_run_ec(Executor exec, Func&& func) -> asio::awaitable<typename std::invo
 
     if constexpr (std::is_void_v<ResultType>) {
         // void 返回类型的特化版本
-        return asio::async_initiate<decltype(asio::use_awaitable), void(boost::system::error_code)>(
+        return asio::async_initiate<decltype(asio::use_awaitable)>(
           [exec, func = std::forward<Func>(func)](auto&& handler) mutable {
               auto io_exec = asio::get_associated_executor(handler);
 
               exec.execute([func = std::move(func),
                             handler = std::forward<decltype(handler)>(handler), io_exec]() mutable {
-                  boost::system::error_code ec;
+                  net::error_code ec;
 
                   try {
                       func();
@@ -846,15 +846,14 @@ auto co_run_ec(Executor exec, Func&& func) -> asio::awaitable<typename std::invo
           net::use_awaitable);
     } else {
         // 非 void 返回类型的普通版本
-        return net::async_initiate<decltype(net::use_awaitable),
-                                   void(boost::system::error_code, ResultType)>(
+        return net::async_initiate<decltype(net::use_awaitable)>(
           [exec, func = std::forward<Func>(func)](auto&& handler) mutable {
               auto io_exec = net::get_associated_executor(handler);
 
               exec.execute([func = std::move(func),
                             handler = std::forward<decltype(handler)>(handler), io_exec]() mutable {
                   ResultType result{};
-                  boost::system::error_code ec;
+                  net::error_code ec;
 
                   try {
                       result = func();
