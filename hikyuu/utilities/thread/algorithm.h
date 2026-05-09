@@ -823,8 +823,7 @@ auto co_run_ec(Executor exec, Func&& func) -> asio::awaitable<typename std::invo
 
     if constexpr (std::is_void_v<ResultType>) {
         // void 返回类型的特化版本
-        return asio::async_initiate<decltype(asio::use_awaitable),
-                                    void(net::error_code, ResultType)>(
+        return asio::async_initiate<decltype(asio::use_awaitable), void(net::error_code)>(
           [exec, func = std::forward<Func>(func)](auto&& handler) mutable {
               auto io_exec = asio::get_associated_executor(handler);
 
