@@ -449,7 +449,7 @@ auto global_parallel_for_index_single(size_t start, size_t end, FunctionType&& f
 //----------------------------------------------------------------
 // 协程
 //----------------------------------------------------------------
-namespace asio = boost::asio;
+namespace asio = net::asio;
 
 /**
  * @brief 在协程中等待 std::future 的适配器函数
