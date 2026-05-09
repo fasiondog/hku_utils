@@ -210,14 +210,26 @@ void MySQLStatement::sub_exec() {
             // 绑定参数
             auto bound = m_impl->stmt->bind(param_views.begin(), param_views.end());
             
-            // 对于 INSERT/UPDATE/DELETE 等不返回结果集的语句，使用 async_execute
-            // 对于 SELECT 等返回结果集的语句，使用 async_start_execution + async_read_some_rows
-            // 这里暂时统一使用 async_execute，简化逻辑
-            auto exec_future = conn->async_execute(bound, m_impl->results, diag,
-                                                    boost::asio::use_future);
-            exec_future.get();  // 等待执行完成
+            // 使用流式执行，与无参数的情况保持一致
+            auto start_future = conn->async_start_execution(bound, m_impl->exec_state, diag,
+                                                             boost::asio::use_future);
+            start_future.get();  // 等待执行开始
             
-            m_impl->is_streaming = false;  // 非流式模式
+            m_impl->is_streaming = true;
+            m_impl->current_row = 0;
+            m_impl->total_rows_read = 0;
+            
+            // 如果需要读取结果集，读取第一批数据
+            if (m_impl->exec_state.should_read_rows()) {
+                boost::mysql::diagnostics read_diag;
+                auto read_future = conn->async_read_some_rows(m_impl->exec_state, read_diag,
+                                                               boost::asio::use_future);
+                boost::mysql::rows_view batch_view = read_future.get();
+                
+                // 将 rows_view 转换为 vector<row> 以拥有数据所有权
+                m_impl->current_batch.assign(batch_view.begin(), batch_view.end());
+                m_impl->total_rows_read += m_impl->current_batch.size();
+            }
         }
     } catch (const boost::mysql::error_with_diagnostics& e) {
         HKU_ERROR("Execute failed! Error code: {}, Server message: {}, Client message: {}",

@@ -261,8 +261,7 @@ target("hku_utils")
 
     if has_config("mysql") then
         add_files("hikyuu/utilities/db_connect/*.cpp")
-        add_files("hikyuu/utilities/db_connect/mysql/temp.cpp")
-        -- add_files("hikyuu/utilities/db_connect/mysql/MySQLStatement.cpp")
+        add_files("hikyuu/utilities/db_connect/mysql/mysql_imp.cpp")
     end
 
     if has_config("ini_parser") then
