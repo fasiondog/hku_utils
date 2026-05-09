@@ -22,7 +22,7 @@ namespace hku {
  * @details commit() 失败时会自动回滚，析构函数中如果未提交则自动回滚（使用 detached 协程）
  * @ingroup DBConnect
  */
-class AsyncAutoTransAction {
+class HKU_UTILS_API AsyncAutoTransAction {
 public:
     /**
      * 工厂方法：创建实例并自动启动事务
