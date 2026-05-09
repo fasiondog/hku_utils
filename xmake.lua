@@ -184,8 +184,9 @@ target("hku_utils")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 
-    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
-
+    -- 禁用 boost.math 的128位浮点数支持（否则需要连接 libquadmath）
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1", "BOOST_MATH_DISABLE_FLOAT128")
+    
     add_includedirs(".")
 
     if has_config("sqlcipher") then
