@@ -184,8 +184,7 @@ target("hku_utils")
 
     add_packages("fmt", "spdlog", "boost", "yas")
 
-    -- 禁用 boost.math 的128位浮点数支持（否则需要连接 libquadmath）
-    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1", "BOOST_MATH_DISABLE_FLOAT128")
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
     
     add_includedirs(".")
 
@@ -197,6 +196,10 @@ target("hku_utils")
             add_syslinks("dl")
         end
     end
+
+    if is_plat("linux") then 
+        add_links("quadmath")
+    end    
 
     if has_config("duckdb") then
         add_packages("duckdb")
