@@ -197,10 +197,6 @@ target("hku_utils")
         end
     end
 
-    if is_plat("linux") then 
-        add_links("quadmath")
-    end    
-
     if has_config("duckdb") then
         add_packages("duckdb")
         add_files("hikyuu/utilities/db_connect/*.cpp")
@@ -243,6 +239,10 @@ target("hku_utils")
     if is_plat("macosx", "linux", "cross") then
         add_cxflags("-pthread")
         add_syslinks("pthread")
+    end
+
+    if is_plat("linux") then 
+        add_syslinks("quadmath")
     end
 
     if is_plat("linux", "cross") then
