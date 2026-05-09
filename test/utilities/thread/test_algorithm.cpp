@@ -11,9 +11,11 @@
 #include <hikyuu/utilities/thread/ThreadPool.h>
 #include <hikyuu/utilities/SpendTimer.h>
 #include <hikyuu/utilities/thread/algorithm.h>
+#include <hikyuu/utilities/net.h>
 #include <thread>
 
 using namespace hku;
+namespace asio = hku::net::asio;
 
 #if CPP_STANDARD >= CPP_STANDARD_20
 
