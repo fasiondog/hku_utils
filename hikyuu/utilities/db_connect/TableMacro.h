@@ -59,8 +59,10 @@ public:                                         \
     }                                           \
     void load(const SQLStatementPtr& st) {      \
         st->getColumn(0, m_id);                 \
+    }                                           \
+    void load(const AsyncSQLStatementPtr& st) { \
+        st->getColumn(0, m_id);                 \
     }
-
 #define TABLE_BIND1(TableT, table, f1)                             \
 public:                                                            \
     TableT() = default;                                            \
@@ -116,6 +118,15 @@ public:                                                            \
         st->bind(0, f1, m_id);                                     \
     }                                                              \
     void load(const SQLStatementPtr& st) {                         \
+        st->getColumn(0, m_id, f1);                                \
+    }                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {              \
+        st->bind(0, f1);                                           \
+    }                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {            \
+        st->bind(0, f1, m_id);                                     \
+    }                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                    \
         st->getColumn(0, m_id, f1);                                \
     }
 
@@ -565,6 +576,15 @@ public:                                                                         
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7);                                        \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7);                                                   \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, m_id);                                             \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7);                                        \
     }
 
 #define TABLE_BIND8(TableT, table, f1, f2, f3, f4, f5, f6, f7, f8)                                 \
@@ -641,6 +661,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, m_id);                                         \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8);                                    \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8);                                               \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, m_id);                                         \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8);                                    \
     }
 
@@ -720,6 +749,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, m_id);                                     \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9);                                \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9);                                           \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, m_id);                                     \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9);                                \
     }
 
@@ -801,6 +839,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, m_id);                                \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10);                           \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10);                                      \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, m_id);                                \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10);                           \
     }
 
@@ -886,6 +933,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, m_id);                           \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11);                      \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11);                                 \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, m_id);                           \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11);                      \
     }
 
@@ -973,6 +1029,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, m_id);                      \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12);                 \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12);                            \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, m_id);                      \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12);                 \
     }
 
@@ -1063,6 +1128,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, m_id);                 \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13);            \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13);                       \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, m_id);                 \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13);            \
     }
 
@@ -1155,6 +1229,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, m_id);            \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14);       \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14);                  \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, m_id);            \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14);       \
     }
 
@@ -1250,6 +1333,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, m_id);       \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15);  \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15);             \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, m_id);       \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15);  \
     }
 
@@ -1348,6 +1440,16 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, m_id);  \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
+                      f16);                                                                        \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16);        \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, m_id);  \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
                       f16);                                                                        \
     }
@@ -1451,6 +1553,17 @@ public:                                                                         
                  m_id);                                                                            \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
+                      f16, f17);                                                                   \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17);   \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 m_id);                                                                            \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
                       f16, f17);                                                                   \
     }
@@ -1559,6 +1672,18 @@ public:                                                                         
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
                       f16, f17, f18);                                                              \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18);                                                                             \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, m_id);                                                                       \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
+                      f16, f17, f18);                                                              \
     }
 
 #define TABLE_BIND19(TableT, table, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14,   \
@@ -1665,6 +1790,18 @@ public:                                                                         
                  f18, f19, m_id);                                                                  \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
+                      f16, f17, f18, f19);                                                         \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19);                                                                        \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19, m_id);                                                                  \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
                       f16, f17, f18, f19);                                                         \
     }
@@ -1778,6 +1915,18 @@ public:                                                                         
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
                       f16, f17, f18, f19, f20);                                                    \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19, f20);                                                                   \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19, f20, m_id);                                                             \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, m_id, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15,   \
+                      f16, f17, f18, f19, f20);                                                    \
     }
 
 //-------------------------------------------------------------------
@@ -1823,6 +1972,15 @@ public:                                                                    \
     }                                                                      \
     void load(const SQLStatementPtr& st) {                                 \
         st->getColumn(0, f1);                                              \
+    }                                                                      \
+    void save(const AsyncSQLStatementPtr& st) const {                      \
+        st->bind(0, f1);                                                   \
+    }                                                                      \
+    void update(const AsyncSQLStatementPtr& st) const {                    \
+        st->bind(0, f1, m_rowid);                                          \
+    }                                                                      \
+    void load(const AsyncSQLStatementPtr& st) {                            \
+        st->getColumn(0, f1);                                              \
     }
 
 #define TABLE_NO_AUTOID_BIND2(ROWID, table, f1, f2)                                    \
@@ -1859,6 +2017,15 @@ public:                                                                         
     }                                                                                  \
     void load(const SQLStatementPtr& st) {                                             \
         st->getColumn(0, f1, f2);                                                      \
+    }                                                                                  \
+    void save(const AsyncSQLStatementPtr& st) const {                                  \
+        st->bind(0, f1, f2);                                                           \
+    }                                                                                  \
+    void update(const AsyncSQLStatementPtr& st) const {                                \
+        st->bind(0, f1, f2, m_rowid);                                                  \
+    }                                                                                  \
+    void load(const AsyncSQLStatementPtr& st) {                                        \
+        st->getColumn(0, f1, f2);                                                      \
     }
 
 #define TABLE_NO_AUTOID_BIND3(ROWID, table, f1, f2, f3)                                            \
@@ -1894,6 +2061,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, m_rowid);                                                          \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3);                                                              \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3);                                                                   \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, m_rowid);                                                          \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3);                                                              \
     }
 
@@ -1933,6 +2109,15 @@ public:                                                                         
     }                                                                              \
     void load(const SQLStatementPtr& st) {                                         \
         st->getColumn(0, f1, f2, f3);                                              \
+    }                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                              \
+        st->bind(0, f1, f2, f3, f4);                                               \
+    }                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                            \
+        st->bind(0, f1, f2, f3, m_rowid);                                          \
+    }                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                    \
+        st->getColumn(0, f1, f2, f3);                                              \
     }
 
 #define TABLE_NO_AUTOID_BIND5(ROWID, table, f1, f2, f3, f4, f5)                                \
@@ -1970,6 +2155,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, m_rowid);                                              \
     }                                                                                          \
     void load(const SQLStatementPtr& st) {                                                     \
+        st->getColumn(0, f1, f2, f3, f4, f5);                                                  \
+    }                                                                                          \
+    void save(const AsyncSQLStatementPtr& st) const {                                          \
+        st->bind(0, f1, f2, f3, f4, f5);                                                       \
+    }                                                                                          \
+    void update(const AsyncSQLStatementPtr& st) const {                                        \
+        st->bind(0, f1, f2, f3, f4, f5, m_rowid);                                              \
+    }                                                                                          \
+    void load(const AsyncSQLStatementPtr& st) {                                                \
         st->getColumn(0, f1, f2, f3, f4, f5);                                                  \
     }
 
@@ -2010,6 +2204,15 @@ public:                                                                         
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, f1, f2, f3, f4, f5, f6);                                                  \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6);                                                       \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, m_rowid);                                              \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6);                                                  \
     }
 
 #define TABLE_NO_AUTOID_BIND7(ROWID, table, f1, f2, f3, f4, f5, f6, f7)                            \
@@ -2048,6 +2251,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, m_rowid);                                          \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7);                                              \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7);                                                   \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, m_rowid);                                          \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7);                                              \
     }
 
@@ -2088,6 +2300,15 @@ public:                                                                         
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8);                                          \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8);                                               \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, m_rowid);                                      \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8);                                          \
     }
 
 #define TABLE_NO_AUTOID_BIND9(ROWID, table, f1, f2, f3, f4, f5, f6, f7, f8, f9)                    \
@@ -2126,6 +2347,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, m_rowid);                                  \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9);                                      \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9);                                           \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, m_rowid);                                  \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9);                                      \
     }
 
@@ -2166,6 +2396,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, m_rowid);                             \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10);                                 \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10);                                      \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, m_rowid);                             \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10);                                 \
     }
 
@@ -2208,6 +2447,15 @@ public:                                                                         
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11);                            \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11);                                 \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, m_rowid);                        \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11);                            \
     }
 
 #define TABLE_NO_AUTOID_BIND12(ROWID, table, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12)    \
@@ -2248,6 +2496,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, m_rowid);                   \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12);                       \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12);                            \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, m_rowid);                   \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12);                       \
     }
 
@@ -2292,6 +2549,15 @@ public:                                                                         
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13);                  \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13);                       \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, m_rowid);              \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13);                  \
     }
 
 #define TABLE_NO_AUTOID_BIND14(ROWID, table, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,    \
@@ -2333,7 +2599,16 @@ public:                                                                         
     void update(const SQLStatementPtr& st) const {                                                 \
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, m_rowid);         \
     }                                                                                              \
-    void load(const SQLStatementPtr& st) {                                                         \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14);             \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14);                  \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, m_rowid);         \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14);             \
     }
 
@@ -2377,6 +2652,15 @@ public:                                                                         
         st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, m_rowid);    \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15);        \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15);             \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, m_rowid);    \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15);        \
     }
 
@@ -2423,6 +2707,16 @@ public:                                                                         
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16);   \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16);        \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,         \
+                 m_rowid);                                                                         \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16);   \
     }
 
 #define TABLE_NO_AUTOID_BIND17(ROWID, table, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,    \
@@ -2468,6 +2762,17 @@ public:                                                                         
                  m_rowid);                                                                         \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
+                      f17);                                                                        \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17);   \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 m_rowid);                                                                         \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
                       f17);                                                                        \
     }
@@ -2518,6 +2823,18 @@ public:                                                                         
     void load(const SQLStatementPtr& st) {                                                         \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
                       f17, f18);                                                                   \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18);                                                                             \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, m_rowid);                                                                    \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
+                      f17, f18);                                                                   \
     }
 
 #define TABLE_NO_AUTOID_BIND19(ROWID, table, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,    \
@@ -2564,6 +2881,18 @@ public:                                                                         
                  f18, f19, m_rowid);                                                               \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
+                      f17, f18, f19);                                                              \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19);                                                                        \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19, m_rowid);                                                               \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
                       f17, f18, f19);                                                              \
     }
@@ -2613,6 +2942,18 @@ public:                                                                         
                  f18, f19, f20, m_rowid);                                                          \
     }                                                                                              \
     void load(const SQLStatementPtr& st) {                                                         \
+        st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
+                      f17, f18, f19, f20);                                                         \
+    }                                                                                              \
+    void save(const AsyncSQLStatementPtr& st) const {                                              \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19, f20);                                                                   \
+    }                                                                                              \
+    void update(const AsyncSQLStatementPtr& st) const {                                            \
+        st->bind(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17,    \
+                 f18, f19, f20, m_rowid);                                                          \
+    }                                                                                              \
+    void load(const AsyncSQLStatementPtr& st) {                                                    \
         st->getColumn(0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,    \
                       f17, f18, f19, f20);                                                         \
     }
