@@ -59,7 +59,6 @@ public:
 private:
     void _prepare();
     void _reset();
-    std::string _prepareInsertWithReturning(const std::string &sql);
 
 private:
     duckdb_connection m_connection;

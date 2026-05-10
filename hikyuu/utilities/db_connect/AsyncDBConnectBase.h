@@ -362,6 +362,7 @@ net::awaitable<void> AsyncDBConnectBase::save(T &item, bool autotrans) {
         }
         std::rethrow_exception(saved_exception);
     }
+    co_return;
 }
 
 template <class Container>
@@ -409,6 +410,7 @@ net::awaitable<void> AsyncDBConnectBase::batchSave(InputIterator first, InputIte
         }
         std::rethrow_exception(saved_exception);
     }
+    co_return;
 }
 
 template <typename T>
@@ -426,11 +428,13 @@ net::awaitable<void> AsyncDBConnectBase::load(T &item, const std::string &where)
     if (co_await st->moveNext()) {
         item.load(st);
     }
+    co_return;
 }
 
 template <typename T>
 net::awaitable<void> AsyncDBConnectBase::load(T &item, const DBCondition &cond) {
     co_await load(item, cond.str());
+    co_return;
 }
 
 template <typename Container>
@@ -465,6 +469,7 @@ net::awaitable<void> AsyncDBConnectBase::loadView(T &item, const std::string &sq
     if (co_await st->moveNext()) {
         item.load(st);
     }
+    co_return;
 }
 
 template <typename Container>
@@ -524,6 +529,7 @@ net::awaitable<void> AsyncDBConnectBase::batchUpdate(InputIterator first, InputI
         }
         std::rethrow_exception(saved_exception);
     }
+    co_return;
 }
 
 template <class InputIterator>
@@ -584,6 +590,7 @@ net::awaitable<void> AsyncDBConnectBase::remove(T &item, bool autotrans) {
         }
         std::rethrow_exception(saved_exception);
     }
+    co_return;
 }
 
 template <class Container>
@@ -627,6 +634,7 @@ net::awaitable<void> AsyncDBConnectBase::batchRemove(InputIterator first, InputI
         }
         std::rethrow_exception(saved_exception);
     }
+    co_return;
 }
 
 inline net::awaitable<void> AsyncDBConnectBase::remove(const std::string &tablename,
@@ -661,6 +669,7 @@ inline net::awaitable<void> AsyncDBConnectBase::remove(const std::string &tablen
         }
         std::rethrow_exception(saved_exception);
     }
+    co_return;
 }
 
 inline net::awaitable<void> AsyncDBConnectBase::remove(const std::string &tablename,

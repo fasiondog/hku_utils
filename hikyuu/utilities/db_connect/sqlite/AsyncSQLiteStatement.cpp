@@ -117,6 +117,7 @@ net::awaitable<void> AsyncSQLiteStatement::sub_exec() {
     if (status != SQLITE_OK) {
         SQL_THROW(status, "{}", sqlite3_errmsg(m_impl->m_db));
     }
+    co_return;
 }
 
 net::awaitable<bool> AsyncSQLiteStatement::sub_moveNext() {

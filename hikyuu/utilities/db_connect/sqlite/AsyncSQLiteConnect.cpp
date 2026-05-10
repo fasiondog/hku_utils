@@ -28,15 +28,6 @@ struct AsyncSQLiteConnect::Impl {
     std::string m_dbname;
     bool initialized = false;
     ThreadPool m_thread_pool{1};  // 单线程池用于执行同步 SQLite 操作
-
-    Impl() {}
-
-    ~Impl() {
-        if (m_db) {
-            sqlite3_close(m_db);
-            m_db = nullptr;
-        }
-    }
 };
 
 AsyncSQLiteConnect::AsyncSQLiteConnect(const Parameter &param)

@@ -51,13 +51,11 @@ struct AsyncMySQLConnect::Impl {
     // 从当前协程环境获取 io_context（只在首次调用时执行）
     net::awaitable<void> ensure_initialized() {
         if (!initialized) {
-            auto exec = co_await net::this_coro::executor;
-            io_context_ptr = &static_cast<boost::asio::io_context&>(exec.context());
-            if (io_context_ptr == nullptr) {
-                throw exception("Cannot get io_context from execution context");
-            }
+            auto executor = co_await net::this_coro::executor;
+            io_context_ptr = &static_cast<boost::asio::io_context&>(executor.context());
             initialized = true;
         }
+        co_return;
     }
 
     net::awaitable<std::shared_ptr<boost::mysql::statement>> get_statement(
