@@ -42,7 +42,7 @@ struct AsyncMySQLConnect::Impl {
     Impl() {}
 
     ~Impl() {
-        // 不再管理 io_context 的生命周期
+        statement_cache.reset();
         if (conn) {
             conn->close();
         }
