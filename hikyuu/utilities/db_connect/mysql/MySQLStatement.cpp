@@ -19,34 +19,11 @@ namespace hku {
 struct MySQLStatement::Impl {
     MySQLConnect* connect{nullptr};
     std::shared_ptr<boost::mysql::statement> stmt;
-    boost::mysql::results results;  // 用于 async_execute（有参数的情况）
-    boost::mysql::execution_state exec_state;  // 用于流式读取的状态（无参数的情况）
-    std::vector<boost::mysql::row> current_batch;  // 当前批次的数据（拥有所有权）
+    boost::mysql::results results;
     std::vector<boost::mysql::field> params;
-    size_t current_row{0};  // 当前批次内的行索引
-    size_t total_rows_read{0};  // 已读取的总行数
+    size_t current_row{0};
     bool has_result{false};
     bool needs_reset{false};
-    bool is_streaming{false};  // 是否使用流式模式
-    
-    // 辅助函数：获取当前行的 field_view
-    boost::mysql::field_view getField(int idx) const {
-        if (is_streaming) {
-            // 流式模式：从 current_batch 中获取
-            SQL_CHECK(current_row > 0 && current_row <= current_batch.size(), -1,
-                      "Invalid row index in streaming mode!");
-            const auto& row = current_batch[current_row - 1];
-            SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
-            return row[idx];
-        } else {
-            // 非流式模式：从 results 中获取
-            const auto& rows = results.rows();
-            SQL_CHECK(current_row > 0 && current_row <= rows.size(), -1, "Invalid row index!");
-            const auto& row = *(rows.begin() + (current_row - 1));
-            SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
-            return row[idx];
-        }
-    }
 };
 
 MySQLStatement::MySQLStatement(DBConnectBase* driver, const std::string& sql_statement)
@@ -132,8 +109,6 @@ void MySQLStatement::_prepare() {
             }
 
             // 非连接错误或重连失败，直接抛出原始错误
-            HKU_ERROR("Failed prepare statement! Error code: {}, Server message: {}, Client message: {}",
-                      ec.value(), diag.server_message(), diag.client_message());
             SQL_THROW(ec.value(), "Failed prepare statement! {}", m_sql_string);
         }
 
@@ -151,93 +126,38 @@ void MySQLStatement::_prepare() {
 void MySQLStatement::_reset() {
     if (m_impl->needs_reset) {
         m_impl->stmt.reset();
-        m_impl->results = {};  // 重置 results
-        m_impl->exec_state = {};  // 重置执行状态
-        m_impl->current_batch.clear();  // 清空当前批次
+        m_impl->results = {};
         m_impl->params.clear();
         m_impl->params.shrink_to_fit();
         m_impl->current_row = 0;
-        m_impl->total_rows_read = 0;
         m_impl->has_result = false;
-        m_impl->is_streaming = false;
         m_impl->needs_reset = false;
     }
 }
 
 void MySQLStatement::sub_exec() {
-    // 首先准备语句（获取预处理语句对象）
-    // 保存参数，因为 _prepare 会调用 _reset 清空参数
-    auto saved_params = std::move(m_impl->params);
-    _prepare();
-    // 恢复参数
-    m_impl->params = std::move(saved_params);
-    
+    boost::mysql::error_code ec;
+    boost::mysql::diagnostics diag;
+
     // 获取底层连接用于执行
     auto* conn = static_cast<boost::mysql::tcp_connection*>(m_impl->connect->getRawConnection());
 
-    boost::mysql::diagnostics diag;
-
-    try {
-        if (m_impl->params.empty()) {
-            // 没有参数，也使用流式执行
-            auto start_future = conn->async_start_execution(m_sql_string, m_impl->exec_state, diag,
-                                                             boost::asio::use_future);
-            start_future.get();  // 等待执行开始
-            
-            m_impl->is_streaming = true;
-            m_impl->current_row = 0;
-            m_impl->total_rows_read = 0;
-            
-            // 如果需要读取结果集，读取第一批数据
-            if (m_impl->exec_state.should_read_rows()) {
-                boost::mysql::diagnostics read_diag;
-                auto read_future = conn->async_read_some_rows(m_impl->exec_state, read_diag,
-                                                               boost::asio::use_future);
-                boost::mysql::rows_view batch_view = read_future.get();
-                
-                // 将 rows_view 转换为 vector<row> 以拥有数据所有权
-                m_impl->current_batch.assign(batch_view.begin(), batch_view.end());
-                m_impl->total_rows_read += m_impl->current_batch.size();
-            }
-        } else {
-            // 有参数，使用预处理语句执行
-            std::vector<boost::mysql::field_view> param_views;
-            param_views.reserve(m_impl->params.size());
-            for (const auto& f : m_impl->params) {
-                param_views.push_back(boost::mysql::field_view(f));
-            }
-            
-            // 绑定参数
-            auto bound = m_impl->stmt->bind(param_views.begin(), param_views.end());
-            
-            // 使用流式执行，与无参数的情况保持一致
-            auto start_future = conn->async_start_execution(bound, m_impl->exec_state, diag,
-                                                             boost::asio::use_future);
-            start_future.get();  // 等待执行开始
-            
-            m_impl->is_streaming = true;
-            m_impl->current_row = 0;
-            m_impl->total_rows_read = 0;
-            
-            // 如果需要读取结果集，读取第一批数据
-            if (m_impl->exec_state.should_read_rows()) {
-                boost::mysql::diagnostics read_diag;
-                auto read_future = conn->async_read_some_rows(m_impl->exec_state, read_diag,
-                                                               boost::asio::use_future);
-                boost::mysql::rows_view batch_view = read_future.get();
-                
-                // 将 rows_view 转换为 vector<row> 以拥有数据所有权
-                m_impl->current_batch.assign(batch_view.begin(), batch_view.end());
-                m_impl->total_rows_read += m_impl->current_batch.size();
-            }
+    if (m_impl->params.empty()) {
+        // 没有参数，直接执行
+        conn->execute(m_sql_string, m_impl->results, ec, diag);
+    } else {
+        // 有参数，使用预处理语句（统一使用 field_view 迭代器）
+        std::vector<boost::mysql::field_view> param_views;
+        param_views.reserve(m_impl->params.size());
+        for (const auto& f : m_impl->params) {
+            param_views.push_back(boost::mysql::field_view(f));
         }
-    } catch (const boost::mysql::error_with_diagnostics& e) {
-        HKU_ERROR("Execute failed! Error code: {}, Server message: {}, Client message: {}",
-                  e.code().value(), e.get_diagnostics().server_message(), e.get_diagnostics().client_message());
-        SQL_THROW(e.code().value(), "Failed execute sql: {}! {}", m_sql_string, e.code().message());
-    } catch (const boost::system::system_error& e) {
-        HKU_ERROR("Execute failed! Error code: {}, Message: {}", e.code().value(), e.code().message());
-        SQL_THROW(e.code().value(), "Failed execute sql: {}! {}", m_sql_string, e.code().message());
+        auto bound = m_impl->stmt->bind(param_views.begin(), param_views.end());
+        conn->execute(bound, m_impl->results, ec, diag);
+    }
+
+    if (ec) [[unlikely]] {
+        SQL_THROW(ec.value(), "Failed execute sql: {}! {}", m_sql_string, ec.message());
     }
 
     m_impl->has_result = true;
@@ -250,52 +170,14 @@ bool MySQLStatement::sub_moveNext() {
         return false;
     }
 
-    auto* conn = static_cast<boost::mysql::tcp_connection*>(m_impl->connect->getRawConnection());
-
-    if (m_impl->is_streaming) {
-        // 流式模式（无参数的 SELECT）
-        m_impl->current_row++;
-        
-        // 如果当前批次还有数据，直接返回
-        if (m_impl->current_row <= m_impl->current_batch.size()) {
-            return true;
-        }
-        
-        // 当前批次已读完，尝试读取下一批
-        if (m_impl->exec_state.should_read_rows()) {
-            try {
-                boost::mysql::diagnostics diag;
-                auto read_future = conn->async_read_some_rows(m_impl->exec_state, diag,
-                                                               boost::asio::use_future);
-                boost::mysql::rows_view batch_view = read_future.get();
-                
-                // 将 rows_view 转换为 vector<row>
-                m_impl->current_batch.assign(batch_view.begin(), batch_view.end());
-                m_impl->total_rows_read += m_impl->current_batch.size();
-                m_impl->current_row = 1;  // 重置为第一批的第一行
-                
-                return !m_impl->current_batch.empty();
-            } catch (...) {
-                // 读取失败，结束迭代
-                _reset();
-                return false;
-            }
-        } else {
-            // 没有更多数据
-            _reset();
-            return false;
-        }
-    } else {
-        // 非流式模式（有参数的 async_execute）
-        const auto& rows = m_impl->results.rows();
-        if (m_impl->current_row >= rows.size()) {
-            _reset();
-            return false;
-        }
-        
-        m_impl->current_row++;
-        return true;
+    const auto& rows = m_impl->results.rows();
+    if (m_impl->current_row >= rows.size()) {
+        _reset();
+        return false;
     }
+
+    m_impl->current_row++;
+    return true;
 }
 
 void MySQLStatement::sub_bindNull(int idx) {
@@ -371,25 +253,22 @@ void MySQLStatement::sub_bindBlob(int idx, const std::vector<char>& item) {
 
 int MySQLStatement::sub_getNumColumns() const {
     HKU_IF_RETURN(!m_impl->has_result, 0);
-    
-    if (m_impl->is_streaming) {
-        // 流式模式：从当前批次获取元数据
-        if (m_impl->current_batch.empty()) {
-            return 0;
-        }
-        return static_cast<int>(m_impl->current_batch[0].size());
-    } else {
-        // 非流式模式：从 results 获取
-        const auto& metadata = m_impl->results.meta();
-        HKU_IF_RETURN(metadata.empty(), 0);
-        return static_cast<int>(metadata.size());
-    }
+    const auto& metadata = m_impl->results.meta();
+    HKU_IF_RETURN(metadata.empty(), 0);
+    return static_cast<int>(metadata.size());
 }
 
 void MySQLStatement::sub_getColumnAsInt64(int idx, int64_t& item) {
     SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& value = m_impl->getField(idx);
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
+
+    const auto& row = rows[m_impl->current_row - 1];
+    SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
+
+    const auto& value = row[idx];
     if (value.is_null()) {
         item = 0;
         return;
@@ -418,7 +297,14 @@ void MySQLStatement::sub_getColumnAsInt64(int idx, int64_t& item) {
 void MySQLStatement::sub_getColumnAsDouble(int idx, double& item) {
     SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& value = m_impl->getField(idx);
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
+
+    const auto& row = rows[m_impl->current_row - 1];
+    SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
+
+    const auto& value = row[idx];
     if (value.is_null()) {
         item = 0.0;
         return;
@@ -447,7 +333,14 @@ void MySQLStatement::sub_getColumnAsDouble(int idx, double& item) {
 void MySQLStatement::sub_getColumnAsDatetime(int idx, Datetime& item) {
     SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& value = m_impl->getField(idx);
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
+
+    const auto& row = rows[m_impl->current_row - 1];
+    SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
+
+    const auto& value = row[idx];
     if (value.is_null()) {
         item = Null<Datetime>();
         return;
@@ -478,7 +371,14 @@ void MySQLStatement::sub_getColumnAsDatetime(int idx, Datetime& item) {
 void MySQLStatement::sub_getColumnAsText(int idx, std::string& item) {
     SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& value = m_impl->getField(idx);
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
+
+    const auto& row = rows[m_impl->current_row - 1];
+    SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
+
+    const auto& value = row[idx];
     if (value.is_null()) {
         item.clear();
         return;
@@ -508,6 +408,7 @@ void MySQLStatement::sub_getColumnAsText(int idx, std::string& item) {
                          d.year(), d.month(), d.day());
                 item = buffer;
             } catch (...) {
+                try {
                 // 最后尝试作为 time 读取（boost::mysql::time 是 duration 类型）
                 auto t = value.as_time();
                 // 将 duration 转换为小时、分钟、秒
@@ -519,6 +420,9 @@ void MySQLStatement::sub_getColumnAsText(int idx, std::string& item) {
                 char buffer[32];
                 snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", hours, minutes, seconds);
                 item = buffer;
+                } catch (...) {
+                    SQL_THROW(-1, "Failed to convert column {} to string", idx);
+                }
             }
         }
     }
@@ -527,7 +431,14 @@ void MySQLStatement::sub_getColumnAsText(int idx, std::string& item) {
 void MySQLStatement::sub_getColumnAsBlob(int idx, std::string& item) {
     SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& value = m_impl->getField(idx);
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
+
+    const auto& row = rows[m_impl->current_row - 1];
+    SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
+
+    const auto& value = row[idx];
     if (value.is_null()) {
         item.clear();
         return;
@@ -545,14 +456,21 @@ void MySQLStatement::sub_getColumnAsBlob(int idx, std::string& item) {
 void MySQLStatement::sub_getColumnAsBlob(int idx, std::vector<char>& item) {
     SQL_CHECK(m_impl->has_result, -1, "No result available!");
 
-    const auto& value = m_impl->getField(idx);
+    const auto& rows = m_impl->results.rows();
+    SQL_CHECK(m_impl->current_row > 0 && m_impl->current_row <= rows.size(), -1,
+              "Invalid row index!");
+
+    const auto& row = rows[m_impl->current_row - 1];
+    SQL_CHECK(idx < static_cast<int>(row.size()), -1, "Column index out of range!");
+
+    const auto& value = row[idx];
     if (value.is_null()) {
         item.clear();
         return;
     }
 
     try {
-        auto blob = value.as_blob();
+        const auto& blob = value.as_blob();
         item.assign(blob.begin(), blob.end());
     } catch (...) {
         // 如果不是 blob 类型，尝试作为字符串读取
@@ -562,13 +480,7 @@ void MySQLStatement::sub_getColumnAsBlob(int idx, std::vector<char>& item) {
 }
 
 uint64_t MySQLStatement::sub_getLastRowid() {
-    if (m_impl->is_streaming) {
-        // 流式模式：从 execution_state 获取
-        return m_impl->exec_state.last_insert_id();
-    } else {
-        // 非流式模式：从 results 获取
-        return m_impl->results.last_insert_id();
-    }
+    return m_impl->results.last_insert_id();
 }
 
 }  // namespace hku
