@@ -35,7 +35,8 @@ static void printAsyncMySQLDiag(const boost::mysql::error_code& ec,
 struct AsyncMySQLConnect::Impl {
     boost::asio::io_context* io_context_ptr = nullptr;  // 指向外部 io_context，不拥有
     std::unique_ptr<boost::mysql::tcp_connection> conn;
-    LruCache<std::string, std::shared_ptr<boost::mysql::statement>> statement_cache{15};
+    std::unique_ptr<LruCache<std::string, std::shared_ptr<boost::mysql::statement>>>
+      statement_cache;
     bool initialized = false;
 
     Impl() {}
@@ -62,7 +63,7 @@ struct AsyncMySQLConnect::Impl {
     net::awaitable<std::shared_ptr<boost::mysql::statement>> get_statement(
       const std::string& sql, boost::mysql::error_code& ec, boost::mysql::diagnostics& diag) {
         std::shared_ptr<boost::mysql::statement> ret;
-        if (statement_cache.tryGet(sql, ret)) {
+        if (statement_cache->tryGet(sql, ret)) {
             co_return ret;
         }
 
@@ -83,7 +84,7 @@ struct AsyncMySQLConnect::Impl {
 
             ret = std::shared_ptr<boost::mysql::statement>(
               new boost::mysql::statement(std::move(stmt)), deleter);
-            // statement_cache.insert(sql, ret);  // 临时禁用缓存
+            statement_cache->insert(sql, ret);
             co_return ret;
         } catch (const boost::mysql::error_with_diagnostics& e) {
             ec = e.code();
@@ -98,7 +99,11 @@ struct AsyncMySQLConnect::Impl {
 
 AsyncMySQLConnect::AsyncMySQLConnect(const Parameter& param)
 : AsyncDBConnectBase(param), m_impl(std::make_unique<Impl>()) {
-    // 注意：构造函数中不能使用 co_await，连接在首次使用时建立
+    // 获取预处理语句缓存大小，并创建缓存
+    int64_t cache_size = tryGetParam<int64_t>("statement_cache_size", 3);
+    m_params.set("statement_cache_size", cache_size);
+    m_impl->statement_cache =
+      std::make_unique<LruCache<std::string, std::shared_ptr<boost::mysql::statement>>>(cache_size);
 }
 
 AsyncMySQLConnect::~AsyncMySQLConnect() {
@@ -154,7 +159,9 @@ net::awaitable<void> AsyncMySQLConnect::connect() {
 
 void AsyncMySQLConnect::close() {
     if (m_impl && m_impl->conn) {
-        m_impl->statement_cache.clear();
+        if (m_impl->statement_cache) {
+            m_impl->statement_cache->clear();
+        }
         m_impl->conn->close();
         m_impl->conn.reset();
     }

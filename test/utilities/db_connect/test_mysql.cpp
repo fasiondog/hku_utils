@@ -7,9 +7,9 @@
  *      Author: fasiondog
  */
 
-#include "hikyuu/utilities/config.h"
+#include "test_config.h"
 
-#if HKU_ENABLE_MYSQL_TEST
+#if ENABLE_MYSQL_TEST && HKU_ENABLE_MYSQL
 
 #include "hikyuu/utilities/db_connect/mysql/MySQLConnect.h"
 #include "hikyuu/utilities/ini_parser/IniParser.h"
@@ -184,9 +184,9 @@ TEST_CASE("test_mysql_data_types") {
     }
 
     // 创建包含各种数据类型的测试表
-    conn.exec("DROP TABLE IF EXISTS test_data_types");
+    conn.exec("DROP TABLE IF EXISTS test.test_data_types");
     conn.exec(R"(
-            CREATE TABLE test_data_types (
+            CREATE TABLE test.test_data_types (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 col_tinyint TINYINT,
                 col_smallint SMALLINT,
@@ -212,7 +212,7 @@ TEST_CASE("test_mysql_data_types") {
 
     // 插入测试数据（使用字符串格式）
     auto insert_stmt = conn.getStatement(R"(
-        INSERT INTO test_data_types (
+        INSERT INTO test.test_data_types (
             col_tinyint, col_smallint, col_mediumint, col_int, col_bigint,
             col_float, col_double, col_decimal,
             col_char, col_varchar, col_text,
@@ -254,7 +254,7 @@ TEST_CASE("test_mysql_data_types") {
 
     // 测试使用 hku::Datetime 类型直接绑定
     auto insert_dt_stmt = conn.getStatement(R"(
-        INSERT INTO test_data_types (col_date, col_datetime, col_timestamp) 
+        INSERT INTO test.test_data_types (col_date, col_datetime, col_timestamp) 
         VALUES (?, ?, ?)
     )");
 
@@ -272,14 +272,14 @@ TEST_CASE("test_mysql_data_types") {
 
     // 验证 Datetime 绑定后的数据
     auto select_dt_stmt = conn.getStatement(
-      "SELECT col_date, col_datetime, col_timestamp FROM test_data_types WHERE id = ?");
+      "SELECT col_date, col_datetime, col_timestamp FROM test.test_data_types WHERE id = ?");
     select_dt_stmt->bind(0, static_cast<int64_t>(dt_last_id));
     select_dt_stmt->exec();
     CHECK(select_dt_stmt->moveNext() == true);
 
     // 创建新的查询语句来测试 Datetime 类型
     auto select_dt_stmt2 = conn.getStatement(
-      "SELECT col_date, col_datetime, col_timestamp FROM test_data_types WHERE id = ?");
+      "SELECT col_date, col_datetime, col_timestamp FROM test.test_data_types WHERE id = ?");
     select_dt_stmt2->bind(0, static_cast<int64_t>(dt_last_id));
     select_dt_stmt2->exec();
     CHECK(select_dt_stmt2->moveNext() == true);
@@ -309,7 +309,7 @@ TEST_CASE("test_mysql_data_types") {
     CHECK(read_timestamp.second() == 30);
 
     // 查询并验证数据
-    auto select_stmt = conn.getStatement("SELECT * FROM test_data_types WHERE id = ?");
+    auto select_stmt = conn.getStatement("SELECT * FROM test.test_data_types WHERE id = ?");
     select_stmt->bind(0, static_cast<int64_t>(last_id));
     select_stmt->exec();
 
@@ -373,7 +373,7 @@ TEST_CASE("test_mysql_data_types") {
     CHECK(time_val.find("10:30:45") != std::string::npos);
     CHECK(year_val == 2024);
 
-    // 验证 hku::Datetime 类型的直接支持
+    // // 验证 hku::Datetime 类型的直接支持
     Datetime dt_date, dt_datetime, dt_timestamp;
     select_stmt->getColumn(12, dt_date);       // DATE -> Datetime
     select_stmt->getColumn(13, dt_datetime);   // DATETIME -> Datetime
@@ -410,7 +410,7 @@ TEST_CASE("test_mysql_data_types") {
     CHECK(varbinary_result[4] == 'o');
 
     // 清理
-    conn.exec("DROP TABLE IF EXISTS test_data_types");
+    conn.exec("DROP TABLE IF EXISTS test.test_data_types");
 }
 
 #endif  // HKU_ENABLE_MYSQL

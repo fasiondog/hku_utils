@@ -34,6 +34,10 @@ target("unit-test")
         add_packages("openssl3")
     end
 
+    if has_config("mysql") and not has_config("disable_libmysqlclient") then 
+        add_packages("mysql")
+    end
+
     if get_config("duckdb") then
         add_packages("duckdb")
     end    

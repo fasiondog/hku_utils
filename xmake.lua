@@ -15,6 +15,9 @@ set_objectdir("$(builddir)/$(mode)/$(plat)/$(arch)/.objs")
 set_targetdir("$(builddir)/$(mode)/$(plat)/$(arch)/lib")
 
 option("mysql", {description = "Enable mysql driver.", default = false})
+-- boost mysql 同步模式下大数据量批量获取比 libmysqlclient 慢很多，可根据场景自行配置
+option("disable_libmysqlclient", {description = "Disable use libmysqlclient", default = true})
+
 option("sqlite", {description = "Enable sqlite driver.", default = true})
 option("duckdb", {description = "Enable duckdb driver.", default = false})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
@@ -104,6 +107,15 @@ add_requires("boost", {
 
 if has_config("mysql") then 
     add_requires("openssl3", {system = false, configs = {shared = true}})
+    if not has_config("disable_libmysqlclient") then 
+        local mysql_version = "8.0.31"
+        if is_plat("windows") or (is_plat("linux", "cross") and is_arch("aarch64", "arm64.*")) then 
+            mysql_version = "8.0.21" 
+        elseif is_plat("macosx") then
+            mysql_version = "8.0.40"
+        end
+        add_requires("mysql " .. mysql_version, { system = false })
+    end
 end  
 
 -- 使用 sqlcipher 时，忽略 sqlite3
@@ -161,6 +173,7 @@ target("hku_utils")
     add_configfiles("$(projectdir)/config.h.in")
 
     set_configvar("HKU_ENABLE_MYSQL", has_config("mysql") and 1 or 0)
+    set_configvar("HKU_DISABLE_LIBMYSQLCLIENT", has_config("disable_libmysqlclient") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLITE", (has_config("sqlite") or has_config("sqlcipher")) and 1 or 0)
     set_configvar("HKU_ENABLE_DUCKDB", has_config("duckdb") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLCIPHER", has_config("sqlcipher") and 1 or 0)
@@ -187,6 +200,10 @@ target("hku_utils")
     add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
     
     add_includedirs(".")
+
+    if has_config("mysql") and not has_config("disable_libmysqlclient") then
+        add_packages("mysql")
+    end
 
     if has_config("sqlcipher") then
         add_packages("sqlcipher")
