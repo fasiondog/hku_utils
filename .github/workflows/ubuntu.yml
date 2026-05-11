@@ -40,6 +40,12 @@ jobs:
         actions-cache-folder: '.xmake-cache'
         actions-cache-key: 'ubuntu'
 
+    - name: 打印 quadmath 路径
+      run: |
+        echo "========== quadmath 路径 =========="
+        gcc -print-file-name=libquadmath.so
+        find /usr -name "*quadmath*.so" 2>/dev/null | head -10        
+
     - name: config
       run: |
         xmake f -c -k ${{ matrix.kind }} -y -vD --mysql=y --http_client_zip=y --http_client_ssl=y
