@@ -1627,16 +1627,6 @@ AsioHttpStreamResponse AsioHttpClient::requestStream(
                                                content_type, chunk_callback),
                            boost::asio::use_future);
 
-    // // 带超时保护的等待
-    // auto timeout_duration = m_timeout * 3 / 2;
-    // if (future.wait_for(timeout_duration) == std::future_status::timeout) {
-    //     HKU_THROW_EXCEPTION(
-    //       HttpTimeoutException,
-    //       "HTTP stream request timed out after {} ms (possibly due to invalid URL or network "
-    //       "issues)",
-    //       std::chrono::duration_cast<std::chrono::milliseconds>(timeout_duration).count());
-    // }
-
     // 获取结果，如果协程中抛出了异常，这里会重新抛出
     return future.get();
 }
