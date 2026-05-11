@@ -1603,21 +1603,6 @@ AsioHttpResponse AsioHttpClient::request(const std::string& method, const std::s
       co_spawn(*m_ctx, async_request(method, path, params, headers, body, body_len, content_type),
                boost::asio::use_future);
 
-    // 带超时保护的等待，防止因 URL 非法或其他原因导致的永久阻塞
-    // 超时时间设置为当前超时时间的 1.5 倍，给异步操作留出足够时间
-    auto timeout_duration = m_timeout * 3 / 2;
-    if (future.wait_for(timeout_duration) == std::future_status::timeout) {
-        // 超时后停止 io_context，强制取消所有 pending 操作
-        if (m_own_ctx) {
-            m_own_ctx->stop();
-        }
-
-        HKU_THROW_EXCEPTION(
-          HttpTimeoutException,
-          "HTTP request timed out after {} ms (possibly due to invalid URL or network issues)",
-          std::chrono::duration_cast<std::chrono::milliseconds>(timeout_duration).count());
-    }
-
     // 获取结果，如果协程中抛出了异常，这里会重新抛出
     return future.get();
 }
@@ -1642,20 +1627,15 @@ AsioHttpStreamResponse AsioHttpClient::requestStream(
                                                content_type, chunk_callback),
                            boost::asio::use_future);
 
-    // 带超时保护的等待
-    auto timeout_duration = m_timeout * 3 / 2;
-    if (future.wait_for(timeout_duration) == std::future_status::timeout) {
-        // 超时后停止 io_context，强制取消所有 pending 操作
-        if (m_own_ctx) {
-            m_own_ctx->stop();
-        }
-
-        HKU_THROW_EXCEPTION(
-          HttpTimeoutException,
-          "HTTP stream request timed out after {} ms (possibly due to invalid URL or network "
-          "issues)",
-          std::chrono::duration_cast<std::chrono::milliseconds>(timeout_duration).count());
-    }
+    // // 带超时保护的等待
+    // auto timeout_duration = m_timeout * 3 / 2;
+    // if (future.wait_for(timeout_duration) == std::future_status::timeout) {
+    //     HKU_THROW_EXCEPTION(
+    //       HttpTimeoutException,
+    //       "HTTP stream request timed out after {} ms (possibly due to invalid URL or network "
+    //       "issues)",
+    //       std::chrono::duration_cast<std::chrono::milliseconds>(timeout_duration).count());
+    // }
 
     // 获取结果，如果协程中抛出了异常，这里会重新抛出
     return future.get();
