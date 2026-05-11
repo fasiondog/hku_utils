@@ -310,16 +310,7 @@ target("hku_utils")
                 "/usr/lib/gcc/aarch64-linux-gnu/**",
                 "/usr/lib/gcc/arm-linux-gnueabihf/**"
             })
--- /usr/lib/gcc/x86_64-linux-gnu/13/libquadmath.so
--- /usr/local/julia1.12.6/lib/julia/libquadmath.so
--- /usr/share/miniconda/lib/libquadmath.so
--- /usr/share/miniconda/pkgs/libgcc-15.2.0-h69a1729_7/lib/libquadmath.so
--- /usr/lib/gcc/x86_64-linux-gnu/14/libquadmath.so
--- /usr/lib/gcc/x86_64-linux-gnu/13/libquadmath.so
--- /usr/lib/gcc/x86_64-linux-gnu/12/libquadmath.so
-
-            print("******************")
-            print(quadmath)
+            -- print(quadmath)
             if quadmath ~= nil then
                 target:add("syslinks", "quadmath")
             end

@@ -146,7 +146,6 @@ target("unit-test")
                 "/usr/lib/gcc/aarch64-linux-gnu/**",
                 "/usr/lib/gcc/arm-linux-gnueabihf/**"
             })
-            print(quadmath)
             if quadmath ~= nil then
                 target:add("syslinks", "quadmath")
             end
