@@ -131,7 +131,18 @@ target("unit-test")
             if pkg:kind() == "shared" then
                 target:add("defines", "HKU_UTILS_API=__declspec(dllimport)")
             end
-        end        
+        end       
+
+        import("lib.detect.find_library")
+        if target:is_plat("linux") then
+            -- boost.mysql 依赖的 charconv 会自动检测包含__float128
+            local quadmath = find_library("quadmath*", {"/usr/lib", "/usr/lib64", "/usr/local/lib",
+                     "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"})
+            print(quadmath)
+            if quadmath ~= nil then
+                target:add("syslinks", "quadmath")
+            end
+        end
     end)    
 
     before_run(function (target)

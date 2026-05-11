@@ -296,6 +296,19 @@ target("hku_utils")
         add_files("hikyuu/utilities/http_client/url.cpp")
     end
 
+    before_build(function(target)
+        import("lib.detect.find_library")
+        if target:is_plat("linux") then
+            -- boost.mysql 依赖的 charconv 会自动检测包含__float128
+            local quadmath = find_library("quadmath*", {"/usr/lib", "/usr/lib64", "/usr/local/lib",
+                     "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"})
+            print(quadmath)
+            if quadmath ~= nil then
+                target:add("syslinks", "quadmath")
+            end
+        end
+    end)    
+
     after_build(function(target)
         local destpath = get_config("builddir") .. "/" .. get_config("mode") .. "/" .. get_config("plat") .. "/" .. get_config("arch")
         print(destpath)
