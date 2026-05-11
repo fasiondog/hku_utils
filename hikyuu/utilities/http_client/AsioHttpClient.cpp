@@ -1605,10 +1605,18 @@ AsioHttpResponse AsioHttpClient::request(const std::string& method, const std::s
     // 超时时间设置为当前超时时间的 1.5 倍，给异步操作留出足够时间
     auto timeout_duration = m_timeout * 3 / 2;
     if (future.wait_for(timeout_duration) == std::future_status::timeout) {
-        // 超时后主动停止 io_context，取消所有待处理的异步操作
-        // 这样可以让后台线程快速退出，避免析构时死锁
+        // 超时后停止 io_context，强制取消所有 pending 操作
+        // 注意：这会中断正在执行的协程
         if (m_own_ctx) {
             m_own_ctx->stop();
+        }
+
+        // 等待 future 完成（会以异常形式返回）
+        // 设置一个较短的超时，避免永久阻塞
+        try {
+            future.wait_for(std::chrono::milliseconds(100));
+        } catch (...) {
+            // 忽略等待过程中的任何异常
         }
 
         HKU_THROW_EXCEPTION(
@@ -1644,10 +1652,18 @@ AsioHttpStreamResponse AsioHttpClient::requestStream(
     // 带超时保护的等待
     auto timeout_duration = m_timeout * 3 / 2;
     if (future.wait_for(timeout_duration) == std::future_status::timeout) {
-        // 超时后主动停止 io_context，取消所有待处理的异步操作
-        // 这样可以让后台线程快速退出，避免析构时死锁
+        // 超时后停止 io_context，强制取消所有 pending 操作
+        // 注意：这会中断正在执行的协程
         if (m_own_ctx) {
             m_own_ctx->stop();
+        }
+
+        // 等待 future 完成（会以异常形式返回）
+        // 设置一个较短的超时，避免永久阻塞
+        try {
+            future.wait_for(std::chrono::milliseconds(100));
+        } catch (...) {
+            // 忽略等待过程中的任何异常
         }
 
         HKU_THROW_EXCEPTION(
