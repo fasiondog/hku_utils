@@ -298,7 +298,8 @@ target("hku_utils")
         import("lib.detect.find_library")
         if target:is_plat("linux") then
             -- boost.mysql 依赖的 charconv 会自动检测包含__float128
-            local quadmath = find_library("quadmath", {"/usr/lib", "/usr/lib64", "/usr/local/lib"})
+            local quadmath = find_library("quadmath*", {"/usr/lib", "/usr/lib64", "/usr/local/lib"})
+            print(quadmath)
             if quadmath ~= nil then
                 target:add("syslinks", "quadmath")
             end
