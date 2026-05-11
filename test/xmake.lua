@@ -56,8 +56,7 @@ target("unit-test")
         add_packages("gzip-hpp")
     end
 
-    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1", "BOOST_CHARCONV_NO_QUADMATH=1")
-    add_undefines("BOOST_HAS_FLOAT128")
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
 
     add_includedirs("..", ".")
 
@@ -134,7 +133,7 @@ target("unit-test")
         end       
 
         import("lib.detect.find_library")
-        if target:is_plat("linux") then
+        if is_plat("linux") then
             -- boost.mysql 依赖的 charconv 会自动检测包含__float128
             local quadmath = find_library("quadmath*", {"/usr/lib", "/usr/lib64", "/usr/local/lib",
                      "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"})

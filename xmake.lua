@@ -89,7 +89,6 @@ add_requires("boost", {
     system = false,
     debug = is_mode("debug"),
     configs = {
-      cxflags = {"-UBOOST_HAS_FLOAT128"},
       shared = is_plat("windows"),
       runtimes = get_config("runtime"),
       multi = true,
@@ -198,8 +197,7 @@ target("hku_utils")
 
     add_packages("fmt", "spdlog", "boost", "yas")
     
-    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1", "BOOST_CHARCONV_NO_QUADMATH=1")
-    add_undefines("BOOST_HAS_FLOAT128")
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
     
     add_includedirs(".")
 
@@ -298,11 +296,10 @@ target("hku_utils")
 
     before_build(function(target)
         import("lib.detect.find_library")
-        if target:is_plat("linux") then
+        if is_plat("linux") then
             -- boost.mysql 依赖的 charconv 会自动检测包含__float128
             local quadmath = find_library("quadmath*", {"/usr/lib", "/usr/lib64", "/usr/local/lib",
                      "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"})
-            print(quadmath)
             if quadmath ~= nil then
                 target:add("syslinks", "quadmath")
             end
