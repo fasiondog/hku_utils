@@ -258,10 +258,6 @@ target("hku_utils")
         add_syslinks("pthread")
     end
 
-    if is_plat("linux") then 
-        add_syslinks("quadmath")
-    end
-
     if is_plat("linux", "cross") then
         add_cxflags("-fcoroutines")
     end
@@ -299,10 +295,13 @@ target("hku_utils")
     end
 
     on_config(function(target)
-        -- 未指定 C++标准时，设置最低要求
-        local x = target:get("languages")
-        if x == nil then
-            target:set("languages", "c++20")
+        import("lib.detect.find_library")
+        if target:is_plat("linux") then
+            -- boost.mysql 依赖的 charconv 会自动检测包含__float128
+            local quadmath = find_library("quadmath", {"/usr/lib", "/usr/lib64", "/usr/local/lib"})
+            if quadmath ~= nil then
+                add_syslinks("quadmath")
+            end
         end
     end)
 
