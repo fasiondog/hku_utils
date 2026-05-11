@@ -196,8 +196,9 @@ target("hku_utils")
     end
 
     add_packages("fmt", "spdlog", "boost", "yas")
-
+    
     add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1", "BOOST_CHARCONV_NO_QUADMATH=1")
+    add_undefines("BOOST_HAS_FLOAT128")
     
     add_includedirs(".")
 
