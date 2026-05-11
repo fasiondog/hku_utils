@@ -89,6 +89,9 @@ add_requires("boost", {
     system = false,
     debug = is_mode("debug"),
     configs = {
+    defines = {"BOOST_CHARCONV_NO_QUADMATH",
+            "__FLOAT128__="},
+    cxflags = {"-UBOOST_HAS_FLOAT128"},
       shared = is_plat("windows"),
       runtimes = get_config("runtime"),
       multi = true,
