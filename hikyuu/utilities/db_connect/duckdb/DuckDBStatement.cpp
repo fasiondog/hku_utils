@@ -29,17 +29,7 @@ DuckDBStatement::~DuckDBStatement() {
     duckdb_destroy_result(&m_result);
 }
 
-void DuckDBStatement::_prepare() {
-    std::string sql = _prepareInsertWithReturning(m_sql_string);
-    duckdb_state state = duckdb_prepare(m_connection, sql.c_str(), &m_stmt);
-    if (state != DuckDBSuccess) {
-        const char *error_msg = duckdb_prepare_error(m_stmt);
-        std::string msg = error_msg ? std::string(error_msg) : "Unknown error";
-        SQL_THROW(-1, "Failed prepare sql statement: {}! error msg: {}", sql, msg);
-    }
-}
-
-std::string DuckDBStatement::_prepareInsertWithReturning(const std::string &sql) {
+static std::string prepareInsertWithReturning(const std::string &sql) {
     std::string upper_sql = sql;
     std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(), ::toupper);
 
@@ -59,6 +49,16 @@ std::string DuckDBStatement::_prepareInsertWithReturning(const std::string &sql)
     }
 
     return sql + " RETURNING id";
+}
+
+void DuckDBStatement::_prepare() {
+    std::string sql = prepareInsertWithReturning(m_sql_string);
+    duckdb_state state = duckdb_prepare(m_connection, sql.c_str(), &m_stmt);
+    if (state != DuckDBSuccess) {
+        const char *error_msg = duckdb_prepare_error(m_stmt);
+        std::string msg = error_msg ? std::string(error_msg) : "Unknown error";
+        SQL_THROW(-1, "Failed prepare sql statement: {}! error msg: {}", sql, msg);
+    }
 }
 
 void DuckDBStatement::_reset() {
@@ -90,7 +90,7 @@ bool DuckDBStatement::sub_moveNext() {
     }
 
     m_current_row++;
-    return m_current_row <= m_row_count;
+    return true;
 }
 
 int DuckDBStatement::sub_getNumColumns() const {

@@ -13,6 +13,7 @@
 #include <hikyuu/utilities/os.h>
 
 using namespace hku;
+namespace net = hku::net;
 
 TEST_CASE("test_sqlite_DBUpgrade") {
     removeFile("测试/test.db");
@@ -39,4 +40,61 @@ TEST_CASE("test_sqlite_DBUpgrade") {
     };
     DBUpgrade(con, "test", upgrade_scripts, 2, nullptr);
     CHECK_EQ(con->queryInt("select version from module_version where module='test'", 0), 2);
+}
+
+TEST_CASE("test_async_sqlite_DBUpgrade") {
+    removeFile("测试/test_async.db");
+
+    boost::asio::io_context io_context;
+
+    bool test_passed = false;
+    std::exception_ptr captured_exception;
+
+    boost::asio::co_spawn(
+      io_context,
+      [&]() -> net::awaitable<void> {
+          try {
+              const char *create_script = R"(
+                CREATE TABLE test_table (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name VARCHAR(10)
+                );
+            )";
+
+              Parameter param;
+              param.set<std::string>("db", "测试/test_async.db");
+              param.set<int>("flags", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+              auto con = std::make_shared<AsyncSQLiteConnect>(param);
+
+              // 测试创建数据库
+              REQUIRE(!(co_await con->tableExist("test_table")));
+              co_await DBUpgrade(con, "test", {}, 2, create_script);
+              CHECK_UNARY(co_await con->tableExist("test_table"));
+              CHECK_EQ(
+                co_await con->queryInt("select version from module_version where module='test'", 0),
+                1);
+
+              // 测试升级数据库
+              std::vector<std::string> upgrade_scripts = {
+                R"(CREATE TABLE test_table2 (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(10));)",
+              };
+              co_await DBUpgrade(con, "test", upgrade_scripts, 2, nullptr);
+              CHECK_EQ(
+                co_await con->queryInt("select version from module_version where module='test'", 0),
+                2);
+
+              test_passed = true;
+          } catch (...) {
+              captured_exception = std::current_exception();
+          }
+          co_return;
+      },
+      boost::asio::detached);
+
+    io_context.run();
+
+    if (captured_exception) {
+        std::rethrow_exception(captured_exception);
+    }
+    CHECK(test_passed);
 }

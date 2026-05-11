@@ -1,42 +1,38 @@
 /*
- * DuckDBStatement.h
+ * AsyncSQLiteStatement.h
  *
- *  Copyright (c) 2024, hikyuu.org
+ *  Copyright (c) 2019, hikyuu.org
  *
- *  Created on: 2024-01-01
+ *  Created on: 2026-05-09
  *      Author: fasiondog
  */
 #pragma once
-#ifndef HIKYUU_DB_CONNECT_DUCKDB_DUCKDBSTATEMENT_H
-#define HIKYUU_DB_CONNECT_DUCKDB_DUCKDBSTATEMENT_H
+#ifndef HIKYUU_DB_CONNECT_SQLITE_ASYNCSQLITESTATEMENT_H
+#define HIKYUU_DB_CONNECT_SQLITE_ASYNCSQLITESTATEMENT_H
 
-#include "../SQLStatementBase.h"
-#include <duckdb.h>
+#include "../AsyncSQLStatementBase.h"
+
+#include <memory>
 
 namespace hku {
 
-class DuckDBConnect;
+// 前向声明，避免循环依赖
+class AsyncSQLiteConnect;
 
 /**
- * DuckDB Statement
- * @ingroup DBConnect
+ * SQLite 异步 Statement
+ * @ingroup SQLite
  */
-class HKU_UTILS_API DuckDBStatement : public SQLStatementBase {
+class HKU_UTILS_API AsyncSQLiteStatement : public AsyncSQLStatementBase {
 public:
-    DuckDBStatement() = delete;
+    AsyncSQLiteStatement(AsyncSQLiteConnect *connect, const std::string &sql);
+    virtual ~AsyncSQLiteStatement() override;
 
-    /**
-     * 构造函数
-     * @param driver 数据库连接
-     * @param sql_statement SQL语句
-     */
-    DuckDBStatement(DBConnectBase *driver, const std::string &sql_statement);
+    AsyncSQLiteStatement(const AsyncSQLiteStatement &) = delete;
+    AsyncSQLiteStatement &operator=(const AsyncSQLiteStatement &) = delete;
 
-    /** 析构函数 */
-    virtual ~DuckDBStatement() override;
-
-    virtual void sub_exec() override;
-    virtual bool sub_moveNext() override;
+    virtual net::awaitable<void> sub_exec() override;
+    virtual net::awaitable<bool> sub_moveNext() override;
     virtual uint64_t sub_getLastRowid() override;
 
     virtual void sub_bindNull(int idx) override;
@@ -57,18 +53,13 @@ public:
     virtual void sub_getColumnAsBlob(int idx, std::vector<char> &item) override;
 
 private:
-    void _prepare();
     void _reset();
 
 private:
-    duckdb_connection m_connection;
-    duckdb_prepared_statement m_stmt;
-    duckdb_result m_result;
-    bool m_has_result;
-    idx_t m_current_row;
-    idx_t m_row_count;
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
 }  // namespace hku
 
-#endif /* HIKYUU_DB_CONNECT_DUCKDB_DUCKDBSTATEMENT_H */
+#endif /* HIKYUU_DB_CONNECT_SQLITE_ASYNCSQLITESTATEMENT_H */

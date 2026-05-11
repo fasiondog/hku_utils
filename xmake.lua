@@ -6,7 +6,7 @@ set_version("1.3.9", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每�
 -- set warning all as error
 -- set_warnings("all", "error")
 
--- 最低 c++ 17, 协程最低C++20
+-- 最低 c++ 20，协程需要 C++20 支持
 set_languages("c++20")
 
 add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
@@ -14,7 +14,10 @@ add_rules("mode.debug", "mode.release", "mode.coverage", "mode.profile")
 set_objectdir("$(builddir)/$(mode)/$(plat)/$(arch)/.objs")
 set_targetdir("$(builddir)/$(mode)/$(plat)/$(arch)/lib")
 
-option("mysql", {description = "Enable sqlite driver.", default = false})
+option("mysql", {description = "Enable mysql driver.", default = false})
+-- boost mysql 同步模式下大数据量批量获取比 libmysqlclient 慢很多，可根据场景自行配置
+option("disable_libmysqlclient", {description = "Disable use libmysqlclient", default = true})
+
 option("sqlite", {description = "Enable sqlite driver.", default = true})
 option("duckdb", {description = "Enable duckdb driver.", default = false})
 option("sqlcipher", {description = "Enalbe sqlchiper driver.", default = false})
@@ -92,11 +95,28 @@ add_requires("boost", {
       date_time = has_config("datetime"),
       filesystem = false,
       serialization = false,
-      system = false,
+      system = true,
       python = false,
-      cmake = false,
+      cmake = true,
+      asio = true,
+      openssl = has_config("mysql"),
+      mysql = has_config("mysql"),
+      charconv = has_config("mysql"),  -- boost.mysql 需要 charconv
     },
   })
+
+if has_config("mysql") then 
+    add_requires("openssl3", {system = false, configs = {shared = true}})
+    if not has_config("disable_libmysqlclient") then 
+        local mysql_version = "8.0.31"
+        if is_plat("windows") or (is_plat("linux", "cross") and is_arch("aarch64", "arm64.*")) then 
+            mysql_version = "8.0.21" 
+        elseif is_plat("macosx") then
+            mysql_version = "8.0.40"
+        end
+        add_requires("mysql " .. mysql_version, { system = false })
+    end
+end  
 
 -- 使用 sqlcipher 时，忽略 sqlite3
 if has_config("sqlcipher") then
@@ -107,14 +127,6 @@ if has_config("sqlcipher") then
     end
 elseif has_config("sqlite") then
     add_requires("sqlite3", {system = false, configs = {shared = true, safe_mode="2"}})
-end
-
-if has_config("mysql") then 
-    if is_plat("linux") and linuxos.name() == "ubuntu" then
-        add_requires("apt::libmysqlclient-dev", {alias = "mysql"})
-    else
-        add_requires("mysql")
-    end
 end
 
 if get_config("duckdb") then 
@@ -161,6 +173,7 @@ target("hku_utils")
     add_configfiles("$(projectdir)/config.h.in")
 
     set_configvar("HKU_ENABLE_MYSQL", has_config("mysql") and 1 or 0)
+    set_configvar("HKU_DISABLE_LIBMYSQLCLIENT", has_config("disable_libmysqlclient") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLITE", (has_config("sqlite") or has_config("sqlcipher")) and 1 or 0)
     set_configvar("HKU_ENABLE_DUCKDB", has_config("duckdb") and 1 or 0)
     set_configvar("HKU_ENABLE_SQLCIPHER", has_config("sqlcipher") and 1 or 0)
@@ -177,16 +190,20 @@ target("hku_utils")
     set_configvar("HKU_USE_SPDLOG_ASYNC_LOGGER", has_config("async_log") and 1 or 0)
     set_configvar("HKU_LOG_ACTIVE_LEVEL", get_config("log_level"))
 
-    -- 保证 openssl3 在boost之前
-    if has_config("http_client_ssl") then
+    -- 保证在 boost 之前
+    if has_config("mysql") or has_config("http_client_ssl") then
         add_packages("openssl3")
-    end    
+    end
 
     add_packages("fmt", "spdlog", "boost", "yas")
 
-    add_defines("BOOST_ASIO_HAS_CO_AWAIT=1", "BOOST_ASIO_HAS_CXX20_COROUTINES=1", "DBOOST_ASIO_DISABLE_DEPRECATED=1")
-
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
+    
     add_includedirs(".")
+
+    if has_config("mysql") and not has_config("disable_libmysqlclient") then
+        add_packages("mysql")
+    end
 
     if has_config("sqlcipher") then
         add_packages("sqlcipher")
@@ -195,10 +212,6 @@ target("hku_utils")
         if is_plat("cross") then
             add_syslinks("dl")
         end
-    end
-
-    if has_config("mysql") then
-        add_packages("mysql")
     end
 
     if has_config("duckdb") then
@@ -245,6 +258,10 @@ target("hku_utils")
         add_syslinks("pthread")
     end
 
+    if is_plat("linux") then 
+        add_syslinks("quadmath")
+    end
+
     if is_plat("linux", "cross") then
         add_cxflags("-fcoroutines")
     end
@@ -265,7 +282,7 @@ target("hku_utils")
 
     if has_config("mysql") then
         add_files("hikyuu/utilities/db_connect/*.cpp")
-        add_files("hikyuu/utilities/db_connect/mysql/*.cpp")
+        add_files("hikyuu/utilities/db_connect/mysql/mysql_imp.cpp")
     end
 
     if has_config("ini_parser") then
@@ -281,12 +298,11 @@ target("hku_utils")
         add_files("hikyuu/utilities/http_client/url.cpp")
     end
 
-    before_build(function(target)
-        -- 注：windows 使用 dll 需要 c++17, linux 使用静态库最低需要 C++ 17
-        -- 未指定 C++标准时，设置最低要求 c++11
+    on_config(function(target)
+        -- 未指定 C++标准时，设置最低要求
         local x = target:get("languages")
         if x == nil then
-            target:set("languages", "cxx17")
+            target:set("languages", "c++20")
         end
     end)
 

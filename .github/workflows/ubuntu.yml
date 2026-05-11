@@ -16,6 +16,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         kind: [static, shared]
+        arch: [aarch64, x86_64]
     
     steps:
     - uses: actions/checkout@v4
@@ -27,11 +28,11 @@ jobs:
         cache-name: cache-node-modules
       with:
         path: ~/.xmake
-        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
         restore-keys: |
-          ${{ runner.os }}-build-${{ env.cache-name }}-
-          ${{ runner.os }}-build-
-          ${{ runner.os }}-
+          ${{ runner.os }}-${{ runner.arch }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-${{ runner.arch }}-build-
+          ${{ runner.os }}-${{ runner.arch }}-
 
     - uses: xmake-io/github-action-setup-xmake@v1
       with:
@@ -45,7 +46,7 @@ jobs:
 
     - name: build
       run: |
-        xmake -b unit-test
+        xmake -bvD unit-test
   
     - name: test
       run: |

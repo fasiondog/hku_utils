@@ -29,7 +29,12 @@ target("unit-test")
     add_deps("testplugin")
     add_packages("doctest", "spdlog")
 
-    if get_config("mysql") then
+    if has_config("mysql") or has_config("http_client_ssl") then
+        -- MySQL 使用 boost.mysql，需要 OpenSSL 支持, 必须在 boost 之前
+        add_packages("openssl3")
+    end
+
+    if has_config("mysql") and not has_config("disable_libmysqlclient") then 
         add_packages("mysql")
     end
 
@@ -45,23 +50,23 @@ target("unit-test")
 
     if has_config("http_client") or has_config("node") then
         add_packages("nng", "nlohmann_json")
-        
-        if has_config("http_client_ssl") then
-            add_packages("openssl")
-        end
     end
 
     if has_config("http_client_zip") then
         add_packages("gzip-hpp")
     end
 
-    add_defines("BOOST_ASIO_HAS_CO_AWAIT=1", "BOOST_ASIO_HAS_CXX20_COROUTINES=1", "DBOOST_ASIO_DISABLE_DEPRECATED=1")
+    add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
 
     add_includedirs("..", ".")
 
     if is_plat("macosx", "linux", "cross") then
         add_cxflags("-fPIC")
         add_syslinks("pthread")
+    end
+
+    if is_plat("linux") then 
+        add_syslinks("quadmath")
     end
 
     if is_plat("macosx", "iphoneos") then
@@ -98,6 +103,12 @@ target("unit-test")
         add_files("utilities/db_connect/duckdb/*.cpp")
     end
 
+    if get_config("mysql") then
+        add_files("utilities/db_connect/test_mysql.cpp")
+        add_files("utilities/db_connect/test_async_mysql.cpp")
+        add_files("utilities/db_connect/test_AsyncTransAction.cpp")
+    end
+
     if get_config("tdengine") then
         add_includedirs("/usr/local/include")
         add_files("utilities/db_connect/tdengine/*.cpp")
@@ -110,6 +121,14 @@ target("unit-test")
     if has_config("node") then
         add_files("utilities/node/*.cpp")
     end
+
+    on_config(function(target)
+        -- 未指定 C++标准时，设置最低要求
+        local x = target:get("languages")
+        if x == nil then
+            target:set("languages", "c++20")
+        end
+    end)    
 
     before_build(function(target)
         -- 未指定 C++标准时，设置最低要求 c++11
