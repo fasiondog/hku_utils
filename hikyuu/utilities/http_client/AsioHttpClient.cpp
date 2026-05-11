@@ -511,21 +511,22 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
 
 #else
     // 其他平台使用 Boost.ASIO 异步 DNS解析
-    auto resolver = tcp::resolver{*m_ctx};
+    // 注意：resolver 必须与 op 有相同的生命周期，避免悬空引用导致卡死
+    auto resolver = std::make_shared<tcp::resolver>(*m_ctx);
 
     struct ResolveOp {
-        tcp::resolver& resolver;
+        std::shared_ptr<tcp::resolver> resolver;  // 改为 shared_ptr，延长生命周期
         std::string host, port;
         tcp::resolver::results_type endpoints;
         net::error_code ec;
         bool done = false;
 
-        ResolveOp(tcp::resolver& r, const std::string& h, const std::string& p)
+        ResolveOp(std::shared_ptr<tcp::resolver> r, const std::string& h, const std::string& p)
         : resolver(r), host(h), port(p) {}
 
         net::awaitable<net::error_code> run() {
             auto [e, eps] =
-              co_await resolver.async_resolve(host, port, net::as_tuple(net::use_awaitable));
+              co_await resolver->async_resolve(host, port, net::as_tuple(net::use_awaitable));
             ec = e;
             endpoints = std::move(eps);
             done = true;
@@ -539,10 +540,11 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
     auto timer = net::steady_timer{*m_ctx};
     timer.expires_after(m_timeout);
 
-    timer.async_wait([&resolver, &op](const net::error_code& ec) {
+    timer.async_wait([resolver, op](const net::error_code& ec) {
         if (!ec && !op->done) {
             // 超时后取消 resolver 的所有异步操作
-            resolver.cancel();
+            // 现在 resolver 是 shared_ptr，确保 lifetime 安全
+            resolver->cancel();
         }
     });
 
@@ -1606,17 +1608,8 @@ AsioHttpResponse AsioHttpClient::request(const std::string& method, const std::s
     auto timeout_duration = m_timeout * 3 / 2;
     if (future.wait_for(timeout_duration) == std::future_status::timeout) {
         // 超时后停止 io_context，强制取消所有 pending 操作
-        // 注意：这会中断正在执行的协程
         if (m_own_ctx) {
             m_own_ctx->stop();
-        }
-
-        // 等待 future 完成（会以异常形式返回）
-        // 设置一个较短的超时，避免永久阻塞
-        try {
-            future.wait_for(std::chrono::milliseconds(100));
-        } catch (...) {
-            // 忽略等待过程中的任何异常
         }
 
         HKU_THROW_EXCEPTION(
@@ -1653,17 +1646,8 @@ AsioHttpStreamResponse AsioHttpClient::requestStream(
     auto timeout_duration = m_timeout * 3 / 2;
     if (future.wait_for(timeout_duration) == std::future_status::timeout) {
         // 超时后停止 io_context，强制取消所有 pending 操作
-        // 注意：这会中断正在执行的协程
         if (m_own_ctx) {
             m_own_ctx->stop();
-        }
-
-        // 等待 future 完成（会以异常形式返回）
-        // 设置一个较短的超时，避免永久阻塞
-        try {
-            future.wait_for(std::chrono::milliseconds(100));
-        } catch (...) {
-            // 忽略等待过程中的任何异常
         }
 
         HKU_THROW_EXCEPTION(
