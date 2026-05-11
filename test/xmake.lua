@@ -124,7 +124,7 @@ target("unit-test")
             -- boost.mysql 依赖的 charconv 会自动检测包含__float128
             local quadmath = find_library("quadmath", {"/usr/lib", "/usr/lib64", "/usr/local/lib"})
             if quadmath ~= nil then
-                add_syslinks("quadmath")
+                target:add("syslinks", "quadmath")
             end
         end
     end)
