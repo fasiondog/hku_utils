@@ -142,9 +142,9 @@ target("unit-test")
                 "/usr/lib/x86_64-linux-gnu",
                 "/usr/lib/aarch64-linux-gnu",
                 "/usr/lib/arm-linux-gnueabihf",
-                "/usr/lib/gcc/x86_64-linux-gnu",
-                "/usr/lib/gcc/aarch64-linux-gnu",
-                "/usr/lib/gcc/arm-linux-gnueabihf"
+                "/usr/lib/gcc/x86_64-linux-gnu/**",
+                "/usr/lib/gcc/aarch64-linux-gnu/**",
+                "/usr/lib/gcc/arm-linux-gnueabihf/**"
             })
             print(quadmath)
             if quadmath ~= nil then
