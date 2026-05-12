@@ -43,7 +43,7 @@ target("unit-test")
     end    
 
     add_deps("hku_utils")
-    add_packages("fmt", "yas", "boost")
+    add_packages("fmt", "yas", "boost", "tl_expected")
     if get_config("sqlite") then 
         add_packages("sqlite3")
     end

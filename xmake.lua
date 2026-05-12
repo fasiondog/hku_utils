@@ -85,6 +85,7 @@ add_requires("fmt", {configs = {header_only = true}})
 add_requires("spdlog", {configs = {header_only = true, fmt_external = true}})
 add_requireconfs("spdlog.fmt", {override = true, configs = {header_only = true}})
 add_requires("yas")
+add_requires("tl_expected")
 add_requires("boost", {
     system = false,
     debug = is_mode("debug"),
