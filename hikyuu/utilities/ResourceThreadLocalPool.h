@@ -127,7 +127,7 @@ public:
         m_freeCount = 0;
     }
 
-    /** 资源删除器，用于 unique_ptr 自动归还资源 */
+    /** 资源删除器，用于 shared_ptr 自动归还资源 */
     struct ResourceDeleter {
         ResourceThreadLocalPool *pool;
 
@@ -140,8 +140,8 @@ public:
         }
     };
 
-    /** 资源实例指针类型 */
-    typedef std::unique_ptr<ResourceType, ResourceDeleter> ResourcePtr;
+    /** 资源实例指针类型（使用 shared_ptr 管理生命周期） */
+    typedef std::shared_ptr<ResourceType> ResourcePtr;
 
     /**
      * 获取可用资源
@@ -149,7 +149,7 @@ public:
      * @return ResourcePtr 的 expected 对象，成功时包含资源指针，失败时包含错误信息
      *
      * @note 完全无锁操作，性能极高
-     * @note 返回的 unique_ptr 在析构时会自动归还资源到池
+     * @note 返回的 shared_ptr 在析构时会自动归还资源到池（通过自定义删除器）
      * @note 如果当前资源数已达上限且无空闲资源，返回错误信息
      */
     stdx::expected<ResourcePtr, std::string> get() {
