@@ -102,14 +102,15 @@ public:
     ResourceHybridPool &operator=(ResourceHybridPool &&) noexcept = default;
 
     /**
-     * 同步获取资源（两级策略）
+     * 同步获取资源（两级策略：TLS Pool → Global Pool）
      *
      * @return ResourcePtr 的 expected 对象，成功时包含资源指针，失败时包含错误信息
      *
      * @note 获取策略：
      *       1. 首先尝试从 TLS Pool 获取（快速路径，无锁）
-     *       2. 如果 TLS Pool 失败（资源耗尽），返回错误
-     *       3. 如需异步等待，请使用 asyncGet()
+     *       2. 如果 TLS Pool 失败，自动降级到全局共享池获取（同步方式）
+     *       3. 如果两者都失败，返回组合错误信息
+     *       4. 如需异步等待，请使用 asyncGet()
      *
      * @example
      * @code
@@ -129,8 +130,16 @@ public:
             return tls_result;  // TLS Pool 成功，直接返回 shared_ptr
         }
 
-        // TLS Pool 失败，返回错误信息
-        return stdx::unexpected(fmt::format("TLS Pool exhausted: {}", tls_result.error()));
+        // TLS Pool 失败，尝试从全局共享池获取（同步方式）
+        auto global_result = m_global_pool->get();
+        if (global_result) {
+            return global_result;  // 全局池成功，返回 shared_ptr
+        }
+
+        // 两者都失败，返回错误信息
+        return stdx::unexpected(
+          fmt::format("Both TLS and Global Pool exhausted. TLS: {}, Global: {}", tls_result.error(),
+                      global_result.error()));
     }
 
     /**

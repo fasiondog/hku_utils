@@ -104,6 +104,59 @@ public:
     typedef std::shared_ptr<ResourceType> ResourcePtr;
 
     /**
+     * 同步获取可用资源（不等待，无空闲资源直接返回失败）
+     *
+     * @return std::expected<ResourcePtr, std::string>
+     *         成功时包含资源指针，失败时包含错误信息
+     *
+     * @note 获取策略：
+     *       1. 优先从空闲队列获取资源并检查版本
+     *       2. 如果资源版本过旧，销毁该资源并尝试创建新资源
+     *       3. 如果无空闲但未达上限，创建新版本资源
+     *       4. 如果已达上限且无空闲，立即返回失败（不等待）
+     *       5. 如需异步等待，请使用 asyncGet()
+     *
+     * @example
+     * @code
+     * auto result = pool.get();
+     * if (result) {
+     *     auto resource = result.value();
+     *     // 资源保证是当前最新版本
+     *     resource->doWork();
+     * } else {
+     *     HKU_ERROR("Failed to get resource: {}", result.error());
+     * }
+     * @endcode
+     */
+    stdx::expected<ResourcePtr, std::string> get() {
+        // 1. 尝试从空闲队列获取资源
+        ResourceType *p = nullptr;
+        if (m_resourceList.pop(p)) {
+            m_idleCount.fetch_sub(1);
+            return stdx::expected<ResourcePtr, std::string>(ResourcePtr(p, ResourceCloser(this)));
+        }
+
+        // 2. 无空闲但未达上限 → 创建新资源
+        if (m_maxCount == 0 || m_count.load() < m_maxCount.load()) {
+            try {
+                p = new ResourceType(m_param);
+            } catch (const std::exception &e) {
+                return stdx::unexpected(
+                  std::string(fmt::format("Failed create a new Resource! {}", e.what())));
+            } catch (...) {
+                return stdx::unexpected(
+                  std::string("Failed create a new Resource! Unknown error!"));
+            }
+            m_count.fetch_add(1);
+            return stdx::expected<ResourcePtr, std::string>(ResourcePtr(p, ResourceCloser(this)));
+        }
+
+        // 3. 已达上限且无空闲资源 → 直接返回失败
+        return stdx::unexpected(fmt::format("No available resource, max_count={}, current_count={}",
+                                            m_maxCount.load(), m_count.load()));
+    }
+
+    /**
      * 协程方式获取可用资源
      * @return awaitable<std::expected<ResourcePtr, std::string>>
      * 可等待的结果，成功时包含资源指针，失败时包含错误信息
@@ -120,7 +173,7 @@ public:
      */
     awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet(
       std::chrono::steady_clock::duration timeout) {
-        // 1. 尝试从空闲队列获取资源
+        // 尝试从空闲队列获取资源
         ResourceType *p = nullptr;
         if (m_resourceList.pop(p)) {
             m_idleCount.fetch_sub(1);
@@ -128,7 +181,7 @@ public:
               ResourcePtr(p, ResourceCloser(this)));
         }
 
-        // 2. 无空闲但未达上限 → 创建新资源
+        // 无空闲但未达上限 → 创建新资源
         if (m_maxCount == 0 || m_count.load() < m_maxCount.load()) {
             try {
                 p = new ResourceType(m_param);
@@ -144,7 +197,7 @@ public:
               ResourcePtr(p, ResourceCloser(this)));
         }
 
-        // 3. 已达上限 → 进入等待队列
+        // 已达上限 → 进入等待队列
         auto executor = co_await this_coro::executor;
         auto timer = std::make_shared<net::steady_timer>(executor);
         timer->expires_after(timeout);
@@ -449,6 +502,56 @@ public:
     typedef std::shared_ptr<ResourceType> ResourcePtr;
 
     /**
+     * 同步获取可用资源（不等待，无空闲资源直接返回失败）
+     * @return std::expected<ResourcePtr, std::string>
+     * 成功时包含资源指针，失败时包含错误信息
+     */
+    stdx::expected<ResourcePtr, std::string> get() {
+        // 1. 尝试从空闲队列获取资源
+        ResourceType *p = nullptr;
+        if (m_resourceList.pop(p)) {
+            m_idleCount.fetch_sub(1);
+
+            // 检查资源版本，如果版本过旧则销毁
+            if (p->getVersion() != m_version.load()) {
+                delete p;
+                m_count.fetch_sub(1);
+                p = nullptr;
+            } else {
+                return stdx::expected<ResourcePtr, std::string>(
+                  ResourcePtr(p, ResourceCloser(this)));
+            }
+        }
+
+        // 2. 未达上限，创建新资源
+        if (m_maxCount == 0 || m_count.load() < m_maxCount.load()) {
+            try {
+                Parameter current_param;
+                {
+                    std::lock_guard<MutexType> lock(m_mutex);
+                    current_param = m_param;
+                }
+
+                p = new ResourceType(current_param);
+                p->setVersion(m_version.load());
+            } catch (const std::exception &e) {
+                return stdx::unexpected(
+                  std::string(fmt::format("Failed create a new Resource! {}", e.what())));
+            } catch (...) {
+                return stdx::unexpected(
+                  std::string("Failed create a new Resource! Unknown error!"));
+            }
+
+            m_count.fetch_add(1);
+            return stdx::expected<ResourcePtr, std::string>(ResourcePtr(p, ResourceCloser(this)));
+        }
+
+        // 3. 已达上限且无空闲资源 → 直接返回失败
+        return stdx::unexpected(fmt::format("No available resource, max_count={}, current_count={}",
+                                            m_maxCount.load(), m_count.load()));
+    }
+
+    /**
      * 协程方式获取可用资源
      * @return awaitable<std::expected<ResourcePtr, std::string>>
      * 可等待的结果，成功时包含资源指针，失败时包含错误信息
@@ -467,7 +570,7 @@ public:
       std::chrono::steady_clock::duration timeout) {
         auto executor = co_await this_coro::executor;
 
-        // 1. 尝试从空闲队列获取资源
+        // 尝试从空闲队列获取资源
         ResourceType *p = nullptr;
         if (m_resourceList.pop(p)) {
             m_idleCount.fetch_sub(1);
@@ -483,7 +586,7 @@ public:
             }
         }
 
-        // 2. 未达上限，创建新资源
+        // 未达上限，创建新资源
         if (m_maxCount == 0 || m_count.load() < m_maxCount.load()) {
             try {
                 Parameter current_param;
@@ -507,7 +610,7 @@ public:
               ResourcePtr(p, ResourceCloser(this)));
         }
 
-        // 3. 已达上限，进入等待队列
+        // 已达上限，进入等待队列
         auto timer = std::make_shared<net::steady_timer>(executor);
         timer->expires_after(timeout);
 
