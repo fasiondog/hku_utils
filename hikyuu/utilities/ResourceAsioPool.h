@@ -103,13 +103,21 @@ public:
     typedef std::shared_ptr<ResourceType> ResourcePtr;
 
     /**
+     * 协程方式获取可用资源
+     * @return awaitable<ResourcePtr> 可等待的资源指针
+     * @exception CreateResourceException 新资源创建可能抛出异常
+     */
+    awaitable<ResourcePtr> asyncGet() {
+        return asyncGet(std::chrono::seconds(3));
+    }
+
+    /**
      * 协程方式获取可用资源（带超时）
      * @param timeout 超时时间
      * @return awaitable<ResourcePtr> 可等待的资源指针
      * @exception CreateResourceException 新资源创建可能抛出异常
      */
-    awaitable<ResourcePtr> get(
-      std::chrono::steady_clock::duration timeout = std::chrono::seconds(3)) {
+    awaitable<ResourcePtr> asyncGet(std::chrono::steady_clock::duration timeout) {
         // 1. 尝试从空闲队列获取资源
         ResourceType *p = nullptr;
         if (m_resourceList.pop(p)) {
@@ -440,8 +448,8 @@ public:
      * @return awaitable<ResourcePtr> 可等待的资源指针
      * @exception CreateResourceException 新资源创建可能抛出异常
      */
-    awaitable<ResourcePtr> get() {
-        return get(std::chrono::seconds(3));
+    awaitable<ResourcePtr> asyncGet() {
+        return asyncGet(std::chrono::seconds(3));
     }
 
     /**
@@ -450,7 +458,7 @@ public:
      * @return awaitable<ResourcePtr> 可等待的资源指针
      * @exception CreateResourceException 新资源创建可能抛出异常
      */
-    awaitable<ResourcePtr> get(std::chrono::steady_clock::duration timeout) {
+    awaitable<ResourcePtr> asyncGet(std::chrono::steady_clock::duration timeout) {
         auto executor = co_await this_coro::executor;
 
         // 1. 尝试从空闲队列获取资源
