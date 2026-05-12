@@ -128,46 +128,24 @@ public:
     }
 
     /**
-     * 异步获取资源（协程专用，两级策略）
+     * 异步获取资源（优先从 TLS Pool，失败则从 Asio Pool）
      *
-     * @param timeout 超时时间，默认 5 秒
-     * @return awaitable<shared_ptr<ResourceType>> 可等待的资源指针
-     *
-     * @note 获取策略：
-     *       1. 首先尝试从 TLS Pool 获取（快速路径）
-     *       2. 如果 TLS Pool 失败，尝试从 Asio Pool 获取（支持等待）
-     *       3. 如果两者都失败，抛出异常
-     *
-     * @example
-     * @code
-     * co_spawn(io_ctx, [&]() -> net::awaitable<void> {
-     *     try {
-     *         auto resource = co_await pool.asyncGet(std::chrono::seconds(5));
-     *         resource->doWork();
-     *     } catch (const CreateResourceException& e) {
-     *         HKU_ERROR("Failed to get resource: {}", e.what());
-     *     }
-     * }, net::detached);
-     * @endcode
+     * @param timeout 超时时间
+     * @return expected<shared_ptr<ResourceType>, string>
      */
-    net::awaitable<std::shared_ptr<ResourceType>> asyncGet(
+    net::awaitable<stdx::expected<std::shared_ptr<ResourceType>, std::string>> asyncGet(
       std::chrono::steady_clock::duration timeout = std::chrono::seconds(5)) {
         // 1. 首先尝试从 TLS Pool 获取（快速路径）
         auto tls_result =
           ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>::getInstance().get();
         if (tls_result) {
-            // TLS Pool 成功，直接返回 shared_ptr
-            co_return tls_result.value();
+            // TLS Pool 成功，直接返回
+            co_return tls_result;
         }
 
         // 2. TLS Pool 失败，从 Asio Pool 获取（支持协程等待）
-        try {
-            auto asio_resource = co_await m_asio_pool->asyncGet(timeout);
-            co_return asio_resource;
-        } catch (const std::exception &e) {
-            HKU_THROW_EXCEPTION(CreateResourceException, "Both TLS Pool and Asio Pool failed: {}",
-                                e.what());
-        }
+        auto asio_result = co_await m_asio_pool->asyncGet(timeout);
+        co_return asio_result;
     }
 
     /**
@@ -183,15 +161,12 @@ public:
      * 仅从 Asio Pool 获取资源（异步）
      *
      * @param timeout 超时时间
-     * @return awaitable<shared_ptr<ResourceType>>
+     * @return awaitable<expected<shared_ptr<ResourceType>, string>>
      */
-    net::awaitable<std::shared_ptr<ResourceType>> getFromAsioPool(
+    net::awaitable<stdx::expected<std::shared_ptr<ResourceType>, std::string>> getFromAsioPool(
       std::chrono::steady_clock::duration timeout = std::chrono::seconds(5)) {
-        try {
-            co_return co_await m_asio_pool->asyncGet(timeout);
-        } catch (const std::exception &e) {
-            HKU_THROW_EXCEPTION(CreateResourceException, "Asio Pool asyncGet failed: {}", e.what());
-        }
+        auto result = co_await m_asio_pool->asyncGet(timeout);
+        co_return result;
     }
 
     /** 获取 TLS Pool 引用 */

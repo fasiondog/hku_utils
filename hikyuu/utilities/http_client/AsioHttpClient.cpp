@@ -581,7 +581,12 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
     HKU_ASSERT(m_connection_pool != nullptr);
 
     // 从池中获取连接（资源池自动进行版本检查，旧版本连接会被自动淘汰）
-    auto conn_ptr = co_await m_connection_pool->asyncGet();
+    auto conn_result = co_await m_connection_pool->asyncGet();
+    if (!conn_result) {
+        HKU_THROW_EXCEPTION(HttpTimeoutException, "Failed to get connection from pool: {}",
+                            conn_result.error());
+    }
+    auto conn_ptr = std::move(conn_result.value());
     HKU_CHECK(conn_ptr != nullptr, "Failed to get connection from pool");
 
     bool is_new_connection = false;

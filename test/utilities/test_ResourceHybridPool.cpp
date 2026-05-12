@@ -18,6 +18,19 @@
 
 using namespace hku;
 
+namespace {
+
+// 辅助宏：检查 expected 结果并获取值
+#define CHECK_EXPECTED(result)                           \
+    do {                                                 \
+        CHECK(result.has_value());                       \
+        if (!result) {                                   \
+            MESSAGE("Expected error: ", result.error()); \
+        }                                                \
+    } while (0)
+
+}  // namespace
+
 // 简单的测试资源类
 class HybridTestResource {
 public:
@@ -75,14 +88,14 @@ TEST_CASE("test_ResourceHybridPool_basic_sync") {
     // 同步获取资源（应该从 TLS Pool 获取）
     auto result = pool.get();
     CHECK(result.has_value());
-    
+
     if (result) {
         auto& resource = result.value();
         CHECK_NE(resource, nullptr);
         // 注意：由于 TLS Pool 是全局共享的，参数可能被后续测试覆盖
         // 这里只验证资源不为空即可
         CHECK(resource != nullptr);
-        
+
         // 释放资源（自动归还到 TLS Pool）
         resource.reset();
     }
@@ -98,22 +111,24 @@ TEST_CASE("test_ResourceHybridPool_async_prefer_tls") {
     asio::io_context io_ctx;
 
     bool success = false;
-    
+
     // 启动协程测试
     asio::co_spawn(
-        io_ctx,
-        [&]() -> asio::awaitable<void> {
-            try {
-                // 异步获取（应该优先从 TLS Pool 获取）
-                auto resource = co_await pool.asyncGet(std::chrono::seconds(5));
-                CHECK_NE(resource, nullptr);
-                CHECK_EQ(resource->param().get<std::string>("test_key"), "async_test");
-                success = true;
-            } catch (const std::exception& e) {
-                HKU_ERROR("Async get failed: {}", e.what());
-            }
-        },
-        asio::detached);
+      io_ctx,
+      [&]() -> asio::awaitable<void> {
+          try {
+              // 异步获取（应该优先从 TLS Pool 获取）
+              auto resource_result = co_await pool.asyncGet(std::chrono::seconds(5));
+              CHECK_EXPECTED(resource_result);
+              auto resource = std::move(resource_result.value());
+              CHECK_NE(resource, nullptr);
+              CHECK_EQ(resource->param().get<std::string>("test_key"), "async_test");
+              success = true;
+          } catch (const std::exception& e) {
+              HKU_ERROR("Async get failed: {}", e.what());
+          }
+      },
+      asio::detached);
 
     io_ctx.run();
     CHECK(success);
@@ -135,23 +150,24 @@ TEST_CASE("test_ResourceHybridPool_fallback_to_asio") {
     // 启动多个协程，超过 TLS Pool 容量
     for (int i = 0; i < 5; ++i) {
         asio::co_spawn(
-            io_ctx,
-            [&, i]() -> asio::awaitable<void> {
-                try {
-                    auto resource = co_await pool.asyncGet(std::chrono::seconds(2));
-                    if (resource) {
-                        CHECK_NE(resource, nullptr);
-                        success_count++;
-                        
-                        // 模拟工作
-                        co_await asio::post(asio::use_awaitable);
-                    }
-                } catch (const CreateResourceException& e) {
-                    error_count++;
-                    HKU_WARN("Coroutine {} failed: {}", i, e.what());
-                }
-            },
-            asio::detached);
+          io_ctx,
+          [&, i]() -> asio::awaitable<void> {
+              try {
+                  auto resource_result = co_await pool.asyncGet(std::chrono::seconds(2));
+                  if (resource_result) {
+                      auto resource = std::move(resource_result.value());
+                      CHECK_NE(resource, nullptr);
+                      success_count++;
+
+                      // 模拟工作
+                      co_await asio::post(asio::use_awaitable);
+                  }
+              } catch (const CreateResourceException& e) {
+                  error_count++;
+                  HKU_WARN("Coroutine {} failed: {}", i, e.what());
+              }
+          },
+          asio::detached);
     }
 
     io_ctx.run();
@@ -171,7 +187,7 @@ TEST_CASE("test_ResourceHybridPool_tls_only") {
     // 直接从 TLS Pool 获取
     auto result = pool.getFromTlsPool();
     CHECK(result.has_value());
-    
+
     if (result) {
         auto& resource = result.value();
         CHECK_EQ(resource->param().get<std::string>("source"), "tls_only");
@@ -189,19 +205,21 @@ TEST_CASE("test_ResourceHybridPool_asio_only") {
     bool success = false;
 
     asio::co_spawn(
-        io_ctx,
-        [&]() -> asio::awaitable<void> {
-            try {
-                // 直接从 Asio Pool 获取
-                auto resource = co_await pool.getFromAsioPool(std::chrono::seconds(5));
-                CHECK_NE(resource, nullptr);
-                CHECK_EQ(resource->param().get<std::string>("source"), "asio_only");
-                success = true;
-            } catch (const std::exception& e) {
-                HKU_ERROR("Asio only get failed: {}", e.what());
-            }
-        },
-        asio::detached);
+      io_ctx,
+      [&]() -> asio::awaitable<void> {
+          try {
+              // 直接从 Asio Pool 获取
+              auto resource_result = co_await pool.getFromAsioPool(std::chrono::seconds(5));
+              CHECK_EXPECTED(resource_result);
+              auto resource = std::move(resource_result.value());
+              CHECK_NE(resource, nullptr);
+              CHECK_EQ(resource->param().get<std::string>("source"), "asio_only");
+              success = true;
+          } catch (const std::exception& e) {
+              HKU_ERROR("Asio only get failed: {}", e.what());
+          }
+      },
+      asio::detached);
 
     io_ctx.run();
     CHECK(success);
@@ -225,29 +243,29 @@ TEST_CASE("test_ResourceHybridPool_multithread_concurrent") {
     // 在多个线程中启动协程
     for (int i = 0; i < 12; ++i) {
         asio::co_spawn(
-            thread_pool,
-            [&, i]() -> asio::awaitable<void> {
-                try {
-                    auto resource = co_await pool.asyncGet(std::chrono::seconds(3));
-                    if (resource) {
-                        CHECK_NE(resource, nullptr);
-                        success_count++;
-                        
-                        // 模拟工作
-                        co_await asio::post(asio::use_awaitable);
-                    }
-                } catch (const CreateResourceException& e) {
-                    error_count++;
-                }
-            },
-            asio::detached);
+          thread_pool,
+          [&, i]() -> asio::awaitable<void> {
+              try {
+                  auto resource_result = co_await pool.asyncGet(std::chrono::seconds(3));
+                  if (resource_result) {
+                      auto resource = std::move(resource_result.value());
+                      CHECK_NE(resource, nullptr);
+                      success_count++;
+
+                      // 模拟工作
+                      co_await asio::post(asio::use_awaitable);
+                  }
+              } catch (const CreateResourceException& e) {
+                  error_count++;
+              }
+          },
+          asio::detached);
     }
 
     thread_pool.join();
 
     CHECK_GT(success_count.load(), 0);
-    HKU_INFO("Concurrent test - Success: {}, Error: {}", 
-             success_count.load(), error_count.load());
+    HKU_INFO("Concurrent test - Success: {}, Error: {}", success_count.load(), error_count.load());
 }
 
 // 测试资源池引用访问

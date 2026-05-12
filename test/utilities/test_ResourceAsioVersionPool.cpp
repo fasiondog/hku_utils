@@ -23,6 +23,15 @@ void runCoroutineTest(boost::asio::io_context& ctx, Func&& func) {
     ctx.run();
 }
 
+// 辅助宏：检查 expected 结果并获取值
+#define CHECK_EXPECTED(result)                           \
+    do {                                                 \
+        CHECK(result.has_value());                       \
+        if (!result) {                                   \
+            MESSAGE("Expected error: ", result.error()); \
+        }                                                \
+    } while (0)
+
 }  // namespace
 
 // 带版本的测试资源类
@@ -85,7 +94,9 @@ TEST_CASE("test_ResourceAsioVersionPool_Basic") {
         CHECK_EQ(pool.getVersion(), 0);
 
         // 获取第一个资源
-        auto res1 = co_await pool.asyncGet();
+        auto res1_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res1_result);
+        auto res1 = std::move(res1_result.value());
         CHECK_NE(res1, nullptr);
         CHECK_EQ(pool.count(), 1);
         CHECK_EQ(pool.idleCount(), 0);
@@ -98,14 +109,20 @@ TEST_CASE("test_ResourceAsioVersionPool_Basic") {
         CHECK_EQ(pool.idleCount(), 1);
 
         // 再次获取应该复用同一个资源
-        auto res2 = co_await pool.asyncGet();
+        auto res2_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res2_result);
+        auto res2 = std::move(res2_result.value());
         CHECK_EQ(pool.count(), 1);
         CHECK_EQ(pool.idleCount(), 0);
         CHECK_EQ(res2->getVersion(), 0);
 
         // 获取多个资源
-        auto res3 = co_await pool.asyncGet();
-        auto res4 = co_await pool.asyncGet();
+        auto res3_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res3_result);
+        auto res3 = std::move(res3_result.value());
+        auto res4_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res4_result);
+        auto res4 = std::move(res4_result.value());
         CHECK_EQ(pool.count(), 3);  // res2, res3, res4
         CHECK_EQ(pool.idleCount(), 0);
 
@@ -116,8 +133,6 @@ TEST_CASE("test_ResourceAsioVersionPool_Basic") {
 
         co_return;
     });
-
-    ctx.run();
 }
 
 TEST_CASE("test_ResourceAsioVersionPool_VersionUpdate") {
@@ -129,8 +144,12 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionUpdate") {
         ResourceAsioVersionPool<VersionTestResource> pool(param);
 
         // 获取一些资源
-        auto res1 = co_await pool.asyncGet();
-        auto res2 = co_await pool.asyncGet();
+        auto res1_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res1_result);
+        auto res1 = std::move(res1_result.value());
+        auto res2_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res2_result);
+        auto res2 = std::move(res2_result.value());
         CHECK_EQ(pool.count(), 2);
         CHECK_EQ(pool.getVersion(), 0);
         CHECK_EQ(res1->getVersion(), 0);
@@ -152,7 +171,9 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionUpdate") {
         CHECK_EQ(pool.idleCount(), 0);
 
         // 获取新资源，应该是新版本
-        auto res3 = co_await pool.asyncGet();
+        auto res3_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res3_result);
+        auto res3 = std::move(res3_result.value());
         CHECK_EQ(pool.count(), 2);
         CHECK_EQ(pool.idleCount(), 0);
         CHECK_EQ(res3->getVersion(), 1);
@@ -169,8 +190,6 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionUpdate") {
 
         co_return;
     });
-
-    ctx.run();
 }
 
 TEST_CASE("test_ResourceAsioVersionPool_SetParameter") {
@@ -181,7 +200,9 @@ TEST_CASE("test_ResourceAsioVersionPool_SetParameter") {
         param.set<std::string>("test_param", "v1");
         ResourceAsioVersionPool<VersionTestResource> pool(param);
 
-        auto res1 = co_await pool.asyncGet();
+        auto res1_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res1_result);
+        auto res1 = std::move(res1_result.value());
         CHECK_EQ(res1->getVersion(), 0);
 
         // 使用 setParameter 整体替换参数
@@ -201,15 +222,15 @@ TEST_CASE("test_ResourceAsioVersionPool_SetParameter") {
         CHECK_EQ(pool.count(), 0);
 
         // 获取新资源
-        auto res2 = co_await pool.asyncGet();
+        auto res2_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res2_result);
+        auto res2 = std::move(res2_result.value());
         CHECK_EQ(res2->getVersion(), 1);
         CHECK_EQ(res2->getParam<std::string>("test_param"), "v2");
         CHECK_EQ(res2->getParam<int>("count"), 100);
 
         co_return;
     });
-
-    ctx.run();
 }
 
 TEST_CASE("test_ResourceAsioVersionPool_ReleaseIdleResource") {
@@ -220,9 +241,15 @@ TEST_CASE("test_ResourceAsioVersionPool_ReleaseIdleResource") {
         ResourceAsioVersionPool<VersionTestResource> pool(param);
 
         // 创建一些资源并归还
-        auto res1 = co_await pool.asyncGet();
-        auto res2 = co_await pool.asyncGet();
-        auto res3 = co_await pool.asyncGet();
+        auto res1_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res1_result);
+        auto res1 = std::move(res1_result.value());
+        auto res2_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res2_result);
+        auto res2 = std::move(res2_result.value());
+        auto res3_result = co_await pool.asyncGet();
+        CHECK_EXPECTED(res3_result);
+        auto res3 = std::move(res3_result.value());
 
         res1.reset();
         res2.reset();
@@ -238,8 +265,6 @@ TEST_CASE("test_ResourceAsioVersionPool_ReleaseIdleResource") {
 
         co_return;
     });
-
-    ctx.run();
 }
 
 TEST_CASE("test_ResourceAsioVersionPool_ConcurrentAccess") {
@@ -264,7 +289,9 @@ TEST_CASE("test_ResourceAsioVersionPool_ConcurrentAccess") {
                 io_ctx,
                 [&, i]() -> boost::asio::awaitable<void> {
                     try {
-                        auto res = co_await pool.asyncGet();
+                        auto res_result = co_await pool.asyncGet();
+                        CHECK_EXPECTED(res_result);
+                        auto res = std::move(res_result.value());
                         CHECK_NE(res, nullptr);
                         CHECK_GE(res->getId(), 0);
 
@@ -321,7 +348,9 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionConcurrency") {
           // 先获取一些资源
           std::vector<std::shared_ptr<VersionTestResource>> resources;
           for (int i = 0; i < 5; ++i) {
-              resources.push_back(co_await pool.asyncGet());
+              auto res_result = co_await pool.asyncGet();
+              CHECK_EXPECTED(res_result);
+              resources.push_back(std::move(res_result.value()));
           }
           CHECK_EQ(pool.count(), 5);
 
@@ -335,7 +364,9 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionConcurrency") {
                 io_ctx,
                 [&, i]() -> boost::asio::awaitable<void> {
                     try {
-                        auto res = co_await pool.asyncGet();
+                        auto res_result = co_await pool.asyncGet();
+                        CHECK_EXPECTED(res_result);
+                        auto res = std::move(res_result.value());
                         CHECK_NE(res, nullptr);
 
                         if (res->getVersion() == 0) {
@@ -398,7 +429,9 @@ TEST_CASE("test_ResourceAsioVersionPool_MultithreadedAccess") {
                 io_ctx,
                 [&, i]() -> boost::asio::awaitable<void> {
                     try {
-                        auto res = co_await pool.asyncGet();
+                        auto res_result = co_await pool.asyncGet();
+                        CHECK_EXPECTED(res_result);
+                        auto res = std::move(res_result.value());
                         CHECK_NE(res, nullptr);
                         CHECK_EQ(res->getVersion(), 0);
 
@@ -481,8 +514,6 @@ TEST_CASE("test_ResourceAsioVersionPool_GetParam") {
 
         co_return;
     });
-
-    ctx.run();
 }
 
 TEST_CASE("test_ResourceAsioVersionPool_IncVersion") {

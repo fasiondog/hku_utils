@@ -11,6 +11,19 @@
 
 using namespace hku;
 
+namespace {
+
+// 辅助宏：检查 expected 结果并获取值
+#define CHECK_EXPECTED(result)                           \
+    do {                                                 \
+        CHECK(result.has_value());                       \
+        if (!result) {                                   \
+            MESSAGE("Expected error: ", result.error()); \
+        }                                                \
+    } while (0)
+
+}  // namespace
+
 class TestResource {
 public:
     TestResource(const Parameter& param) {
@@ -49,7 +62,9 @@ TEST_CASE("test_ResourceAsioPool_basic") {
     co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          auto y = co_await pool.asyncGet();
+          auto y_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(y_result);
+          auto y = std::move(y_result.value());
           REQUIRE(y != nullptr);
           CHECK(pool.count() == 1);
           y.reset();
@@ -68,11 +83,15 @@ TEST_CASE("test_ResourceAsioPool_reuse") {
     co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          auto x1 = co_await pool.asyncGet();
+          auto x1_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x1_result);
+          auto x1 = std::move(x1_result.value());
           int id1 = x1->getId();
           x1.reset();
 
-          auto x2 = co_await pool.asyncGet();
+          auto x2_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x2_result);
+          auto x2 = std::move(x2_result.value());
           int id2 = x2->getId();
 
           // 应该重用之前的资源
@@ -97,7 +116,9 @@ TEST_CASE("test_ResourceAsioPool_concurrent") {
         co_spawn(
           io_ctx,
           [&]() -> boost::asio::awaitable<void> {
-              auto a = co_await pool.asyncGet();
+              auto a_result = co_await pool.asyncGet();
+              CHECK_EXPECTED(a_result);
+              auto a = std::move(a_result.value());
               REQUIRE(a != nullptr);
               a->print();
               co_await boost::asio::steady_timer(co_await boost::asio::this_coro::executor,
@@ -122,9 +143,15 @@ TEST_CASE("test_ResourceAsioPool_releaseIdleResource") {
     co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          auto x1 = co_await pool.asyncGet();
-          auto x2 = co_await pool.asyncGet();
-          auto x3 = co_await pool.asyncGet();
+          auto x1_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x1_result);
+          auto x1 = std::move(x1_result.value());
+          auto x2_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x2_result);
+          auto x2 = std::move(x2_result.value());
+          auto x3_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x3_result);
+          auto x3 = std::move(x3_result.value());
 
           REQUIRE(pool.count() == 3);
 
@@ -153,8 +180,12 @@ TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
     co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          auto x1 = co_await pool.asyncGet();
-          auto x2 = co_await pool.asyncGet();
+          auto x1_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x1_result);
+          auto x1 = std::move(x1_result.value());
+          auto x2_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x2_result);
+          auto x2 = std::move(x2_result.value());
 
           REQUIRE(pool.count() == 2);
 
@@ -170,7 +201,9 @@ TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
     co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          auto x3 = co_await pool.asyncGet();
+          auto x3_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(x3_result);
+          auto x3 = std::move(x3_result.value());
           REQUIRE(x3 != nullptr);
           x3.reset();
       },
@@ -197,7 +230,9 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_io_context") {
           io_ctx,
           [&]() -> boost::asio::awaitable<void> {
               try {
-                  auto resource = co_await pool.asyncGet();
+                  auto resource_result = co_await pool.asyncGet();
+                  CHECK_EXPECTED(resource_result);
+                  auto resource = std::move(resource_result.value());
                   REQUIRE(resource != nullptr);
 
                   // 模拟一些异步操作
@@ -248,8 +283,9 @@ TEST_CASE("test_ResourceAsioPool_stress_test") {
           io_ctx,
           [&]() -> boost::asio::awaitable<void> {
               try {
-                  auto resource = co_await pool.asyncGet();
-                  if (resource) {
+                  auto resource_result = co_await pool.asyncGet();
+                  if (resource_result) {
+                      auto resource = std::move(resource_result.value());
                       success_count.fetch_add(1);
                       // 快速归还
                       resource.reset();
@@ -296,7 +332,9 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_executor") {
           io_ctx,
           [&]() -> boost::asio::awaitable<void> {
               try {
-                  auto resource = co_await pool.asyncGet();
+                  auto resource_result = co_await pool.asyncGet();
+                  CHECK_EXPECTED(resource_result);
+                  auto resource = std::move(resource_result.value());
                   REQUIRE(resource != nullptr);
 
                   // 模拟一些异步操作
@@ -359,7 +397,9 @@ TEST_CASE("test_ResourceAsioPool_multithreaded_executor_stress") {
           io_ctx,
           [&]() -> boost::asio::awaitable<void> {
               try {
-                  auto resource = co_await pool.asyncGet();
+                  auto resource_result = co_await pool.asyncGet();
+                  CHECK_EXPECTED(resource_result);
+                  auto resource = std::move(resource_result.value());
                   REQUIRE(resource != nullptr);
 
                   // 记录当前并发数
@@ -424,28 +464,29 @@ TEST_CASE("test_ResourceAsioPool_max_count_limit") {
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
           // 创建达到最大数量的资源
-          auto r1 = co_await pool.asyncGet();
-          auto r2 = co_await pool.asyncGet();
-          auto r3 = co_await pool.asyncGet();
+          auto r1_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(r1_result);
+          auto r1 = std::move(r1_result.value());
+          auto r2_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(r2_result);
+          auto r2 = std::move(r2_result.value());
+          auto r3_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(r3_result);
+          auto r3 = std::move(r3_result.value());
 
           REQUIRE(pool.count() == 3);
 
-          // 尝试获取第4个资源但设置较短超时，应该超时
-          bool timeout_occurred = false;
-          try {
-              auto r4 = co_await pool.asyncGet(std::chrono::milliseconds(100));
-          } catch (const std::exception& e) {
-              // 应该捕获超时异常
-              timeout_occurred = true;
-          }
-
-          CHECK(timeout_occurred);
+          // 尝试获取第4个资源但设置较短超时，应该返回错误
+          auto r4_result = co_await pool.asyncGet(std::chrono::milliseconds(100));
+          CHECK(!r4_result.has_value());
 
           // 释放第一个资源
           r1.reset();
 
           // 现在应该可以获取新的资源了
-          auto r5 = co_await pool.asyncGet(std::chrono::milliseconds(100));
+          auto r5_result = co_await pool.asyncGet(std::chrono::milliseconds(100));
+          CHECK_EXPECTED(r5_result);
+          auto r5 = std::move(r5_result.value());
           CHECK(pool.count() == 3);
 
           r2.reset();
@@ -468,8 +509,9 @@ TEST_CASE("test_ResourceAsioPool_no_max_limit") {
           // 可以创建任意数量的资源
           std::vector<ResourceAsioPool<TestResource>::ResourcePtr> resources;
           for (int i = 0; i < 10; ++i) {
-              auto r = co_await pool.asyncGet();
-              resources.push_back(std::move(r));
+              auto r_result = co_await pool.asyncGet();
+              CHECK_EXPECTED(r_result);
+              resources.push_back(std::move(r_result.value()));
           }
 
           CHECK(pool.count() == 10);
@@ -492,22 +534,24 @@ TEST_CASE("test_ResourceAsioPool_get_timeout") {
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
           // 创建达到最大数量的资源
-          auto r1 = co_await pool.asyncGet();
-          auto r2 = co_await pool.asyncGet();
+          auto r1_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(r1_result);
+          auto r1 = std::move(r1_result.value());
+          auto r2_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(r2_result);
+          auto r2 = std::move(r2_result.value());
 
           REQUIRE(pool.count() == 2);
 
-          // 尝试获取第3个资源，应该超时
-          bool caught_exception = false;
-          try {
-              auto r3 = co_await pool.asyncGet(std::chrono::milliseconds(50));
-          } catch (const std::exception& e) {
-              caught_exception = true;
-              std::string msg = e.what();
+          // 尝试获取第3个资源，应该返回错误
+          auto r3_result = co_await pool.asyncGet(std::chrono::milliseconds(50));
+          CHECK(!r3_result.has_value());
+          if (r3_result) {
+              MESSAGE("Expected error but got value");
+          } else {
+              std::string msg = r3_result.error();
               CHECK(msg.find("timeout") != std::string::npos);
           }
-
-          CHECK(caught_exception);
 
           r1.reset();
           r2.reset();
@@ -529,14 +573,18 @@ TEST_CASE("test_ResourceAsioPool_get_with_timeout_success") {
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
           // 创建达到最大数量的资源
-          auto r1 = co_await pool.asyncGet();
-          auto r2 = co_await pool.asyncGet();
+          auto r1_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(r1_result);
+          auto r1 = std::move(r1_result.value());
+          auto r2_result = co_await pool.asyncGet();
+          CHECK_EXPECTED(r2_result);
+          auto r2 = std::move(r2_result.value());
           REQUIRE(pool.count() == 2);
 
           // 延迟释放第一个资源
           co_spawn(
             io_ctx,
-            [&]() -> boost::asio::awaitable<void> {
+            [r1 = std::move(r1)]() mutable -> boost::asio::awaitable<void> {
                 co_await boost::asio::steady_timer(co_await boost::asio::this_coro::executor,
                                                    std::chrono::milliseconds(50))
                   .async_wait(boost::asio::use_awaitable);
@@ -545,7 +593,9 @@ TEST_CASE("test_ResourceAsioPool_get_with_timeout_success") {
             boost::asio::detached);
 
           // 等待第一个资源释放后，应该可以成功获取
-          auto r3 = co_await pool.asyncGet(std::chrono::milliseconds(200));
+          auto r3_result = co_await pool.asyncGet(std::chrono::milliseconds(200));
+          CHECK_EXPECTED(r3_result);
+          auto r3 = std::move(r3_result.value());
           CHECK(r3 != nullptr);
 
           r2.reset();

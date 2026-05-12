@@ -196,7 +196,7 @@ target("hku_utils")
         add_packages("openssl3")
     end
 
-    add_packages("fmt", "spdlog", "boost", "yas")
+    add_packages("fmt", "spdlog", "boost", "yas", "tl_expected")
     
     add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
     

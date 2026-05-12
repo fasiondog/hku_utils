@@ -19,6 +19,7 @@
 #include "Parameter.h"
 #include "Log.h"
 #include "ResourcePool.h"
+#include "expected.h"
 
 namespace hku {
 
@@ -104,25 +105,27 @@ public:
 
     /**
      * 协程方式获取可用资源
-     * @return awaitable<ResourcePtr> 可等待的资源指针
-     * @exception CreateResourceException 新资源创建可能抛出异常
+     * @return awaitable<std::expected<ResourcePtr, std::string>>
+     * 可等待的结果，成功时包含资源指针，失败时包含错误信息
      */
-    awaitable<ResourcePtr> asyncGet() {
+    awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet() {
         return asyncGet(std::chrono::seconds(3));
     }
 
     /**
      * 协程方式获取可用资源（带超时）
      * @param timeout 超时时间
-     * @return awaitable<ResourcePtr> 可等待的资源指针
-     * @exception CreateResourceException 新资源创建可能抛出异常
+     * @return awaitable<std::expected<ResourcePtr, std::string>>
+     * 可等待的结果，成功时包含资源指针，失败时包含错误信息
      */
-    awaitable<ResourcePtr> asyncGet(std::chrono::steady_clock::duration timeout) {
+    awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet(
+      std::chrono::steady_clock::duration timeout) {
         // 1. 尝试从空闲队列获取资源
         ResourceType *p = nullptr;
         if (m_resourceList.pop(p)) {
             m_idleCount.fetch_sub(1);
-            co_return ResourcePtr(p, ResourceCloser(this));
+            co_return stdx::expected<ResourcePtr, std::string>(
+              ResourcePtr(p, ResourceCloser(this)));
         }
 
         // 2. 无空闲但未达上限 → 创建新资源
@@ -130,14 +133,15 @@ public:
             try {
                 p = new ResourceType(m_param);
             } catch (const std::exception &e) {
-                HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
-                                    e.what());
+                co_return stdx::unexpected(
+                  std::string(fmt::format("Failed create a new Resource! {}", e.what())));
             } catch (...) {
-                HKU_THROW_EXCEPTION(CreateResourceException,
-                                    "Failed create a new Resource! Unknown error!");
+                co_return stdx::unexpected(
+                  std::string("Failed create a new Resource! Unknown error!"));
             }
             m_count.fetch_add(1);
-            co_return ResourcePtr(p, ResourceCloser(this));
+            co_return stdx::expected<ResourcePtr, std::string>(
+              ResourcePtr(p, ResourceCloser(this)));
         }
 
         // 3. 已达上限 → 进入等待队列
@@ -173,16 +177,17 @@ public:
         if (ec == net::error::operation_aborted) {
             // 被唤醒，一定能拿到资源
             if (!m_resourceList.pop(p)) {
-                HKU_THROW_EXCEPTION(CreateResourceException,
-                                    "Unexpected error: no available resource after wakeup");
+                co_return stdx::unexpected(
+                  std::string("Unexpected error: no available resource after wakeup"));
             }
             m_idleCount.fetch_sub(1);
-            co_return ResourcePtr(p, ResourceCloser(this));
+            co_return stdx::expected<ResourcePtr, std::string>(
+              ResourcePtr(p, ResourceCloser(this)));
         } else {
             // 超时
-            HKU_THROW_EXCEPTION(CreateResourceException,
-                                "ResourceAsioPool get timeout, max_count={}, current_count={}",
-                                m_maxCount.load(), m_count.load());
+            co_return stdx::unexpected(
+              fmt::format("ResourceAsioPool get timeout, max_count={}, current_count={}",
+                          m_maxCount.load(), m_count.load()));
         }
     }
 
@@ -445,20 +450,21 @@ public:
 
     /**
      * 协程方式获取可用资源
-     * @return awaitable<ResourcePtr> 可等待的资源指针
-     * @exception CreateResourceException 新资源创建可能抛出异常
+     * @return awaitable<std::expected<ResourcePtr, std::string>>
+     * 可等待的结果，成功时包含资源指针，失败时包含错误信息
      */
-    awaitable<ResourcePtr> asyncGet() {
+    awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet() {
         return asyncGet(std::chrono::seconds(3));
     }
 
     /**
      * 协程方式获取可用资源（带超时）
      * @param timeout 超时时间
-     * @return awaitable<ResourcePtr> 可等待的资源指针
-     * @exception CreateResourceException 新资源创建可能抛出异常
+     * @return awaitable<std::expected<ResourcePtr, std::string>>
+     * 可等待的结果，成功时包含资源指针，失败时包含错误信息
      */
-    awaitable<ResourcePtr> asyncGet(std::chrono::steady_clock::duration timeout) {
+    awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet(
+      std::chrono::steady_clock::duration timeout) {
         auto executor = co_await this_coro::executor;
 
         // 1. 尝试从空闲队列获取资源
@@ -472,7 +478,8 @@ public:
                 m_count.fetch_sub(1);
                 p = nullptr;
             } else {
-                co_return ResourcePtr(p, ResourceCloser(this));
+                co_return stdx::expected<ResourcePtr, std::string>(
+                  ResourcePtr(p, ResourceCloser(this)));
             }
         }
 
@@ -488,15 +495,16 @@ public:
                 p = new ResourceType(current_param);
                 p->setVersion(m_version.load());
             } catch (const std::exception &e) {
-                HKU_THROW_EXCEPTION(CreateResourceException, "Failed create a new Resource! {}",
-                                    e.what());
+                co_return stdx::unexpected(
+                  std::string(fmt::format("Failed create a new Resource! {}", e.what())));
             } catch (...) {
-                HKU_THROW_EXCEPTION(CreateResourceException,
-                                    "Failed create a new Resource! Unknown error!");
+                co_return stdx::unexpected(
+                  std::string("Failed create a new Resource! Unknown error!"));
             }
 
             m_count.fetch_add(1);
-            co_return ResourcePtr(p, ResourceCloser(this));
+            co_return stdx::expected<ResourcePtr, std::string>(
+              ResourcePtr(p, ResourceCloser(this)));
         }
 
         // 3. 已达上限，进入等待队列
@@ -538,8 +546,8 @@ public:
         if (ec == net::error::operation_aborted) {
             // 被唤醒，一定能拿到资源
             if (!m_resourceList.pop(p)) {
-                HKU_THROW_EXCEPTION(CreateResourceException,
-                                    "Unexpected error: no available resource after wakeup");
+                co_return stdx::unexpected(
+                  std::string("Unexpected error: no available resource after wakeup"));
             }
             m_idleCount.fetch_sub(1);
 
@@ -547,17 +555,15 @@ public:
             if (p->getVersion() != m_version.load()) {
                 delete p;
                 m_count.fetch_sub(1);
-                // 需要创建新资源，但此时已经没有空闲资源，这里可能需要递归或重新获取
-                HKU_THROW_EXCEPTION(CreateResourceException,
-                                    "Resource version mismatch after wakeup");
+                co_return stdx::unexpected(std::string("Resource version mismatch after wakeup"));
             }
 
-            co_return ResourcePtr(p, ResourceCloser(this));
+            co_return stdx::expected<ResourcePtr, std::string>(
+              ResourcePtr(p, ResourceCloser(this)));
         } else {
-            HKU_THROW_EXCEPTION(
-              CreateResourceException,
-              "ResourceAsioVersionPool get timeout, max_count={}, current_count={}",
-              m_maxCount.load(), m_count.load());
+            co_return stdx::unexpected(
+              fmt::format("ResourceAsioVersionPool get timeout, max_count={}, current_count={}",
+                          m_maxCount.load(), m_count.load()));
         }
     }
 
