@@ -208,8 +208,8 @@ TEST_CASE("test_ResourceHybridPool_asio_only") {
       io_ctx,
       [&]() -> asio::awaitable<void> {
           try {
-              // 直接从 Asio Pool 获取
-              auto resource_result = co_await pool.getFromAsioPool(std::chrono::seconds(5));
+              // 直接从全局共享池获取
+              auto resource_result = co_await pool.getFromGlobalPool(std::chrono::seconds(5));
               CHECK_EXPECTED(resource_result);
               auto resource = std::move(resource_result.value());
               CHECK_NE(resource, nullptr);
@@ -277,7 +277,7 @@ TEST_CASE("test_ResourceHybridPool_pool_references") {
     auto& tls_pool = pool.tlsPool();
     CHECK_EQ(tls_pool.maxPoolSize(), 32);
 
-    // 获取 Asio Pool 引用
-    auto& asio_pool = pool.asioPool();
-    CHECK_EQ(asio_pool.count(), 0);
+    // 获取全局共享池引用
+    auto& global_pool = pool.globalPool();
+    CHECK_EQ(global_pool.count(), 0);
 }

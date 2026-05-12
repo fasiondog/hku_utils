@@ -10,6 +10,7 @@
 #ifndef HKU_UTILS_RESOURCE_HYBRID_POOL_H
 #define HKU_UTILS_RESOURCE_HYBRID_POOL_H
 
+#include <shared_mutex>
 #include "ResourceThreadLocalPool.h"
 #include "ResourceAsioPool.h"
 
@@ -63,6 +64,12 @@ namespace hku {
 template <typename ResourceType, size_t MAX_TLS_POOL_SIZE = 32>
 class ResourceHybridPool {
 public:
+    /** TLS Pool 类型别名 */
+    using TlsPoolType = ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>;
+
+    /** 全局共享池类型别名（使用 std::shared_mutex 支持多线程并发读取） */
+    using GlobalPoolType = ResourceAsioPool<ResourceType, std::shared_mutex>;
+
     /**
      * 构造函数
      *
@@ -71,14 +78,14 @@ public:
      */
     explicit ResourceHybridPool(const Parameter &param, size_t max_global_pool_size = 64)
     : m_tls_pool_param(param),
-      m_asio_pool_param(param),
+      m_global_pool_param(param),
       m_max_global_pool_size(max_global_pool_size) {
         // 初始化 TLS Pool 的默认参数
-        ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>::init(m_tls_pool_param);
+        TlsPoolType::init(m_tls_pool_param);
 
-        // 创建 Asio Pool（使用运行时指定的大小）
-        m_asio_pool = std::make_unique<ResourceAsioPool<ResourceType>>(m_asio_pool_param,
-                                                                       m_max_global_pool_size);
+        // 创建全局共享池（使用运行时指定的大小，支持多线程并发）
+        m_global_pool =
+          std::make_unique<GlobalPoolType>(m_global_pool_param, m_max_global_pool_size);
     }
 
     /**
@@ -117,8 +124,7 @@ public:
      */
     stdx::expected<std::shared_ptr<ResourceType>, std::string> get() {
         // 优先从 TLS Pool 获取（快速路径）
-        auto tls_result =
-          ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>::getInstance().get();
+        auto tls_result = TlsPoolType::getInstance().get();
         if (tls_result) {
             return tls_result;  // TLS Pool 成功，直接返回 shared_ptr
         }
@@ -136,16 +142,15 @@ public:
     net::awaitable<stdx::expected<std::shared_ptr<ResourceType>, std::string>> asyncGet(
       std::chrono::steady_clock::duration timeout = std::chrono::seconds(5)) {
         // 1. 首先尝试从 TLS Pool 获取（快速路径）
-        auto tls_result =
-          ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>::getInstance().get();
+        auto tls_result = TlsPoolType::getInstance().get();
         if (tls_result) {
             // TLS Pool 成功，直接返回
             co_return tls_result;
         }
 
-        // 2. TLS Pool 失败，从 Asio Pool 获取（支持协程等待）
-        auto asio_result = co_await m_asio_pool->asyncGet(timeout);
-        co_return asio_result;
+        // 2. TLS Pool 失败，从全局共享池获取（支持协程等待）
+        auto global_result = co_await m_global_pool->asyncGet(timeout);
+        co_return global_result;
     }
 
     /**
@@ -154,36 +159,36 @@ public:
      * @return ResourcePtr 的 expected 对象
      */
     stdx::expected<std::shared_ptr<ResourceType>, std::string> getFromTlsPool() {
-        return ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>::getInstance().get();
+        return TlsPoolType::getInstance().get();
     }
 
     /**
-     * 仅从 Asio Pool 获取资源（异步）
+     * 仅从全局共享池获取资源（异步）
      *
      * @param timeout 超时时间
      * @return awaitable<expected<shared_ptr<ResourceType>, string>>
      */
-    net::awaitable<stdx::expected<std::shared_ptr<ResourceType>, std::string>> getFromAsioPool(
+    net::awaitable<stdx::expected<std::shared_ptr<ResourceType>, std::string>> getFromGlobalPool(
       std::chrono::steady_clock::duration timeout = std::chrono::seconds(5)) {
-        auto result = co_await m_asio_pool->asyncGet(timeout);
+        auto result = co_await m_global_pool->asyncGet(timeout);
         co_return result;
     }
 
     /** 获取 TLS Pool 引用 */
-    ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE> &tlsPool() {
-        return ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>::getInstance();
+    TlsPoolType &tlsPool() {
+        return TlsPoolType::getInstance();
     }
 
-    /** 获取 Asio Pool 引用 */
-    ResourceAsioPool<ResourceType> &asioPool() {
-        return *m_asio_pool;
+    /** 获取全局共享池引用 */
+    GlobalPoolType &globalPool() {
+        return *m_global_pool;
     }
 
 private:
-    Parameter m_tls_pool_param;         // TLS Pool 参数
-    Parameter m_asio_pool_param;        // Asio Pool 参数
-    size_t m_max_global_pool_size{64};  // 全局共享池（Asio Pool）最大资源数
-    std::unique_ptr<ResourceAsioPool<ResourceType>> m_asio_pool;  // Asio Pool 实例
+    Parameter m_tls_pool_param;                     // TLS Pool 参数
+    Parameter m_global_pool_param;                  // Global Pool 参数
+    size_t m_max_global_pool_size{64};              // 全局共享池最大资源数
+    std::unique_ptr<GlobalPoolType> m_global_pool;  // 全局共享池实例
 };
 
 }  // namespace hku
