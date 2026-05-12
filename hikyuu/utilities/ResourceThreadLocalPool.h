@@ -1,38 +1,28 @@
-/*
- * ResourceThreadLocalPool.h
- *
- *  Copyright (c) 2025, hikyuu.org
- *
- *  Created on: 2025-03-17
- *      Author: fasiondog
- */
 #pragma once
 #ifndef HKU_UTILS_RESOURCE_THREAD_LOCAL_POOL_H
 #define HKU_UTILS_RESOURCE_THREAD_LOCAL_POOL_H
 
-#include <vector>
+#include <array>
 #include <memory>
+#include <optional>
 #include <chrono>
+#include <type_traits>
 #include "expected.h"
 #include "Parameter.h"
 #include "Log.h"
 #include "exception.h"
 #include "net.h"
 
-namespace hku {
-
-// 使用 net 命名空间中的 asio 别名
-namespace asio = net::asio;
-
 /**
- * 线程局部资源池 - 完全无锁设计
+ * 线程局部资源池 - 完全无锁设计（Ring Buffer 实现）
  *
  * @details 使用 thread_local 存储，每个线程拥有独立的资源池实例。
+ *          内部使用固定数组 + Ring Buffer 管理空闲资源，避免动态内存分配。
  *          适用于协程环境，同一线程内的所有协程共享该线程的资源池。
  *          由于资源完全隔离在线程内部，不需要任何锁或原子操作，性能最优。
  *
  * @tparam ResourceType 资源类型，必须支持构造函数 ResourceType(const Parameter&)
- * @tparam MAX_POOL_SIZE 最大资源池大小限制，默认值为 100
+ * @tparam MAX_POOL_SIZE 最大资源池大小限制，默认值为 32
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -65,7 +55,13 @@ namespace asio = net::asio;
  * @note 构造函数为私有，必须通过 init() + getInstance() 模式使用
  * @note 每个线程有独立的资源池实例，线程间不共享资源
  * @note 同一线程内的所有协程共享该线程的资源池
+ * @note 内部使用 Ring Buffer 管理空闲资源指针，避免 std::vector 的动态扩容
  */
+namespace hku {
+
+// 使用 net 命名空间中的 asio 别名
+namespace asio = net::asio;
+
 template <typename ResourceType, size_t MAX_POOL_SIZE = 32>
 class ResourceThreadLocalPool {
 public:
@@ -77,7 +73,7 @@ public:
      * @note 应在程序启动时调用一次，设置全局默认值
      * @note 后续调用 getInstance() 无参版本时将使用这些默认值
      * @note 如果未调用此方法，将使用 Parameter{}
-     * @note 最大资源数由模板参数 MAX_POOL_SIZE 决定（默认 100）
+     * @note 最大资源数由模板参数 MAX_POOL_SIZE 决定（默认 32）
      *
      * @example
      * @code
@@ -122,12 +118,13 @@ public:
      * 析构函数，释放当前线程的所有缓存资源
      */
     virtual ~ResourceThreadLocalPool() {
-        for (auto *p : m_resourceList) {
-            if (p) {
-                delete p;
+        for (size_t i = 0; i < m_freeCount; ++i) {
+            if (m_resourceList[i]) {
+                delete m_resourceList[i];
+                m_resourceList[i] = nullptr;
             }
         }
-        m_resourceList.clear();
+        m_freeCount = 0;
     }
 
     /** 资源删除器，用于 unique_ptr 自动归还资源 */
@@ -156,10 +153,12 @@ public:
      * @note 如果当前资源数已达上限且无空闲资源，返回错误信息
      */
     stdx::expected<ResourcePtr, std::string> get() {
-        // 1. 尝试从空闲列表获取
-        if (!m_resourceList.empty()) {
-            ResourceType *p = m_resourceList.back();
-            m_resourceList.pop_back();
+        // 1. 尝试从空闲列表获取（Ring Buffer 头部出队）
+        if (m_freeCount > 0) {
+            ResourceType *p = m_resourceList[m_head];
+            m_resourceList[m_head] = nullptr;
+            m_head = (m_head + 1) % MAX_POOL_SIZE;
+            m_freeCount--;
             return ResourcePtr(p, ResourceDeleter{this});
         }
 
@@ -233,7 +232,7 @@ public:
      * }
      * @endcode
      * @note 如果超时时仍无法获取资源，返回错误信息
-     * @note 此方法适用于资源池已满且无空闲资源的场景，会等待其他协程归还资源
+     * @note 此方法适用于资源池已满且无空闲资源的场景，会轮询检查是否有资源被归还
      */
     asio::awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet(
       std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
@@ -241,9 +240,11 @@ public:
         auto executor = co_await asio::this_coro::executor;
 
         // 1. 尝试立即获取（快速路径）
-        if (!m_resourceList.empty()) {
-            ResourceType *p = m_resourceList.back();
-            m_resourceList.pop_back();
+        if (m_freeCount > 0) {
+            ResourceType *p = m_resourceList[m_head];
+            m_resourceList[m_head] = nullptr;
+            m_head = (m_head + 1) % MAX_POOL_SIZE;
+            m_freeCount--;
             co_return ResourcePtr(p, ResourceDeleter{this});
         }
 
@@ -262,22 +263,28 @@ public:
             co_return ResourcePtr(p, ResourceDeleter{this});
         }
 
-        // 3. 资源池已满，等待超时或其他协程归还资源
-        // 使用定时器等待，超时后返回空指针
+        // 3. 资源池已满，轮询等待资源归还
+        // 使用短时间间隔（5ms）反复检查，避免长时间阻塞
         asio::steady_timer timer(executor);
-        timer.expires_after(timeout);
+        constexpr auto poll_interval = std::chrono::milliseconds(5);
+        auto deadline = std::chrono::steady_clock::now() + timeout;
 
-        net::error_code ec;
-        co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+        while (std::chrono::steady_clock::now() < deadline) {
+            // 短暂等待后再次检查
+            timer.expires_after(poll_interval);
+            co_await timer.async_wait(asio::use_awaitable);
 
-        // 超时后再次尝试获取
-        if (!m_resourceList.empty()) {
-            ResourceType *p = m_resourceList.back();
-            m_resourceList.pop_back();
-            co_return ResourcePtr(p, ResourceDeleter{this});
+            // 检查是否有空闲资源
+            if (m_freeCount > 0) {
+                ResourceType *p = m_resourceList[m_head];
+                m_resourceList[m_head] = nullptr;
+                m_head = (m_head + 1) % MAX_POOL_SIZE;
+                m_freeCount--;
+                co_return ResourcePtr(p, ResourceDeleter{this});
+            }
         }
 
-        // 仍然没有资源，返回错误
+        // 超时仍未获取到资源，返回错误
         co_return stdx::unexpected("Timeout waiting for available resource");
     }
 
@@ -288,7 +295,7 @@ public:
 
     /** 当前空闲的资源数 */
     size_t idleCount() const {
-        return m_resourceList.size();
+        return m_freeCount;
     }
 
     /** 获取允许的最大资源数 */
@@ -303,13 +310,15 @@ public:
 
     /** 释放当前所有的空闲资源 */
     void releaseIdleResource() {
-        for (auto *p : m_resourceList) {
-            if (p) {
-                delete p;
+        for (size_t i = 0; i < m_freeCount; ++i) {
+            size_t idx = (m_head + i) % MAX_POOL_SIZE;
+            if (m_resourceList[idx]) {
+                delete m_resourceList[idx];
+                m_resourceList[idx] = nullptr;
             }
         }
-        m_count -= m_resourceList.size();
-        m_resourceList.clear();
+        m_count -= m_freeCount;
+        m_freeCount = 0;
     }
 
 private:
@@ -321,27 +330,38 @@ private:
      *
      * @param param 资源创建参数
      */
-    explicit ResourceThreadLocalPool(const Parameter &param)
-    : m_maxPoolSize(MAX_POOL_SIZE), m_count(0), m_param(param) {}
+    explicit ResourceThreadLocalPool(const Parameter &param) : m_param(param) {
+        m_resourceList.fill(nullptr);
+    }
 
     /**
      * 默认构造函数（私有，仅通过 getInstance() 访问）
      */
-    ResourceThreadLocalPool() : m_maxPoolSize(MAX_POOL_SIZE), m_count(0) {}
+    ResourceThreadLocalPool() {
+        m_resourceList.fill(nullptr);
+    }
 
 private:
-    /** 归还资源到池 */
+    /** 归还资源到池（Ring Buffer 尾部入队） */
     void returnResource(ResourceType *p) {
-        if (p) {
-            m_resourceList.push_back(p);
+        if (p && m_freeCount < MAX_POOL_SIZE) {
+            m_resourceList[m_tail] = p;
+            m_tail = (m_tail + 1) % MAX_POOL_SIZE;
+            m_freeCount++;
+        } else if (p) {
+            // 如果 Ring Buffer 已满，直接删除资源
+            delete p;
         }
     }
 
 private:
-    size_t m_maxPoolSize;                        // 允许的最大资源数，由模板参数 MAX_POOL_SIZE 决定
-    size_t m_count;                              // 当前活动的资源数
-    Parameter m_param;                           // 资源创建参数
-    std::vector<ResourceType *> m_resourceList;  // 空闲资源列表
+    size_t m_maxPoolSize = MAX_POOL_SIZE;  // 允许的最大资源数，由模板参数 MAX_POOL_SIZE 决定
+    size_t m_count = 0;                    // 当前活动的资源数（含空闲和被使用）
+    size_t m_freeCount = 0;                // 空闲资源数量
+    size_t m_head = 0;                     // Ring Buffer 头部索引（出队位置）
+    size_t m_tail = 0;                     // Ring Buffer 尾部索引（入队位置）
+    Parameter m_param;                     // 资源创建参数
+    std::array<ResourceType *, MAX_POOL_SIZE> m_resourceList{};  // 空闲资源数组（Ring Buffer）
 
 private:
     static Parameter ms_defaultParam;
