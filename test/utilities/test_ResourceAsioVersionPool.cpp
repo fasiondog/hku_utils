@@ -34,8 +34,10 @@ void runCoroutineTest(boost::asio::io_context& ctx, Func&& func) {
 
 }  // namespace
 
+namespace {
+
 // 带版本的测试资源类
-class VersionTestResource : public AsyncResourceWithVersion {
+class VersionTestResource {
     PARAMETER_SUPPORT
 
 public:
@@ -70,15 +72,27 @@ public:
         return m_id;
     }
 
+    // 版本管理接口
+    int getVersion() const {
+        return m_version;
+    }
+
+    void setVersion(int version) {
+        m_version = version;
+    }
+
 private:
     static int x;
     static std::mutex m_mutex;
     int i = 0;
+    int m_version = 0;  // 版本号
     std::string m_id;
 };
 
 int VersionTestResource::x = 0;
 std::mutex VersionTestResource::m_mutex;
+
+}  // namespace
 
 TEST_CASE("test_ResourceAsioVersionPool_Basic") {
     boost::asio::io_context ctx;
