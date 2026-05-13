@@ -51,21 +51,21 @@ TEST_CASE("test_ResourceTlsPool_default_limit") {
 
     // 验证可以正常获取实例
     auto& pool = ResourceTlsPool<TestResource>::getInstance();
-    CHECK_EQ(pool.maxPoolSize(), 32);
+    CHECK_EQ(pool.maxCount(), 32);
 }
 
-// 测试自定义 MAX_POOL_SIZE
+// 测试自定义 MAX_POOL_SIZE_LIMIT
 TEST_CASE("test_ResourceTlsPool_custom_limit") {
     Parameter param;
 
-    // 使用自定义的 MAX_POOL_SIZE = 50
+    // 使用自定义的 MAX_POOL_SIZE_LIMIT = 50
     using CustomPool = ResourceTlsPool<TestResource, 50>;
 
     CHECK_NOTHROW(CustomPool::init(param));
 
     // 验证最大资源数
     auto& pool = CustomPool::getInstance();
-    CHECK_EQ(pool.maxPoolSize(), 50);
+    CHECK_EQ(pool.maxCount(), 50);
 }
 
 // 测试多线程协程执行

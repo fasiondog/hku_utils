@@ -22,7 +22,7 @@
  *          由于资源完全隔离在线程内部，不需要任何锁或原子操作，性能最优。
  *
  * @tparam ResourceType 资源类型，必须支持构造函数 ResourceType(const Parameter&)
- * @tparam MAX_POOL_SIZE 最大资源池大小限制，默认值为 32
+ * @tparam MAX_POOL_SIZE_LIMIT 物理容量上限（编译期固定），默认值为 32
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -62,7 +62,7 @@ namespace hku {
 // 使用 net 命名空间中的 asio 别名
 namespace asio = net::asio;
 
-template <typename ResourceType, size_t MAX_POOL_SIZE = 32>
+template <typename ResourceType, size_t MAX_POOL_SIZE_LIMIT = 32>
 class ResourceTlsPool {
 public:
     /**
@@ -73,7 +73,7 @@ public:
      * @note 应在程序启动时调用一次，设置全局默认值
      * @note 后续调用 getInstance() 无参版本时将使用这些默认值
      * @note 如果未调用此方法，将使用 Parameter{}
-     * @note 最大资源数由模板参数 MAX_POOL_SIZE 决定（默认 32）
+     * @note 最大资源数由模板参数 MAX_POOL_SIZE_LIMIT 决定（默认 32）
      *
      * @example
      * @code
@@ -97,7 +97,7 @@ public:
      * @return 当前线程的资源池引用
      *
      * @note thread_local 保证每个线程有独立的资源池实例
-     * @note 使用 init() 设置的默认参数创建实例，最大池大小由模板参数 MAX_POOL_SIZE 决定
+     * @note 使用 init() 设置的默认参数创建实例，最大池大小由模板参数 MAX_POOL_SIZE_LIMIT 决定
      * @note 首次调用时创建实例，后续调用返回同一实例
      *
      * @example
@@ -157,13 +157,13 @@ public:
         if (m_freeCount > 0) {
             ResourceType *p = m_resourceList[m_head];
             m_resourceList[m_head] = nullptr;
-            m_head = (m_head + 1) % MAX_POOL_SIZE;
+            m_head = (m_head + 1) % MAX_POOL_SIZE_LIMIT;
             m_freeCount--;
             return ResourcePtr(p, ResourceDeleter{this});
         }
 
         // 2. 无空闲资源，检查是否可以创建新资源
-        if (m_count >= m_maxPoolSize) {
+        if (m_count >= m_maxCount) {
             return stdx::unexpected("No available resources and maximum pool size reached");
         }
 
@@ -243,13 +243,13 @@ public:
         if (m_freeCount > 0) {
             ResourceType *p = m_resourceList[m_head];
             m_resourceList[m_head] = nullptr;
-            m_head = (m_head + 1) % MAX_POOL_SIZE;
+            m_head = (m_head + 1) % MAX_POOL_SIZE_LIMIT;
             m_freeCount--;
             co_return ResourcePtr(p, ResourceDeleter{this});
         }
 
         // 2. 如果可以创建新资源，直接创建
-        if (m_count < m_maxPoolSize) {
+        if (m_count < m_maxCount) {
             ResourceType *p = nullptr;
             try {
                 p = new ResourceType(m_param);
@@ -278,7 +278,7 @@ public:
             if (m_freeCount > 0) {
                 ResourceType *p = m_resourceList[m_head];
                 m_resourceList[m_head] = nullptr;
-                m_head = (m_head + 1) % MAX_POOL_SIZE;
+                m_head = (m_head + 1) % MAX_POOL_SIZE_LIMIT;
                 m_freeCount--;
                 co_return ResourcePtr(p, ResourceDeleter{this});
             }
@@ -298,20 +298,26 @@ public:
         return m_freeCount;
     }
 
-    /** 获取允许的最大资源数 */
-    size_t maxPoolSize() const {
-        return m_maxPoolSize;
+    /** 获取允许的最大资源数（逻辑上限） */
+    size_t maxCount() const {
+        return m_maxCount;
     }
 
-    /** 设置最大资源数 */
-    void maxPoolSize(size_t num) {
-        m_maxPoolSize = num;
+    /** 设置最大资源数（逻辑上限，不能超过物理容量） */
+    void maxCount(size_t num) {
+        if (num > MAX_POOL_SIZE_LIMIT) {
+            HKU_WARN("maxCount({}) exceeds physical limit ({}), truncated to {}", num,
+                     MAX_POOL_SIZE_LIMIT, MAX_POOL_SIZE_LIMIT);
+            m_maxCount = MAX_POOL_SIZE_LIMIT;
+        } else {
+            m_maxCount = num;
+        }
     }
 
     /** 释放当前所有的空闲资源 */
     void releaseIdleResource() {
         for (size_t i = 0; i < m_freeCount; ++i) {
-            size_t idx = (m_head + i) % MAX_POOL_SIZE;
+            size_t idx = (m_head + i) % MAX_POOL_SIZE_LIMIT;
             if (m_resourceList[idx]) {
                 delete m_resourceList[idx];
                 m_resourceList[idx] = nullptr;
@@ -344,9 +350,9 @@ private:
 private:
     /** 归还资源到池（Ring Buffer 尾部入队） */
     void returnResource(ResourceType *p) {
-        if (p && m_freeCount < MAX_POOL_SIZE) {
+        if (p && m_freeCount < MAX_POOL_SIZE_LIMIT) {
             m_resourceList[m_tail] = p;
-            m_tail = (m_tail + 1) % MAX_POOL_SIZE;
+            m_tail = (m_tail + 1) % MAX_POOL_SIZE_LIMIT;
             m_freeCount++;
         } else if (p) {
             // 如果 Ring Buffer 已满，直接删除资源
@@ -355,21 +361,22 @@ private:
     }
 
 private:
-    size_t m_maxPoolSize = MAX_POOL_SIZE;  // 允许的最大资源数，由模板参数 MAX_POOL_SIZE 决定
-    size_t m_count = 0;                    // 当前活动的资源数（含空闲和被使用）
-    size_t m_freeCount = 0;                // 空闲资源数量
-    size_t m_head = 0;                     // Ring Buffer 头部索引（出队位置）
-    size_t m_tail = 0;                     // Ring Buffer 尾部索引（入队位置）
-    Parameter m_param;                     // 资源创建参数
-    std::array<ResourceType *, MAX_POOL_SIZE> m_resourceList{};  // 空闲资源数组（Ring Buffer）
+    size_t m_maxCount = MAX_POOL_SIZE_LIMIT;  // 逻辑资源上限（运行时可配置，不能超过物理容量）
+    size_t m_count = 0;                       // 当前活动的资源数（含空闲和被使用）
+    size_t m_freeCount = 0;                   // 空闲资源数量
+    size_t m_head = 0;                        // Ring Buffer 头部索引（出队位置）
+    size_t m_tail = 0;                        // Ring Buffer 尾部索引（入队位置）
+    Parameter m_param;                        // 资源创建参数
+    std::array<ResourceType *, MAX_POOL_SIZE_LIMIT>
+      m_resourceList{};  // 空闲资源数组（Ring Buffer，物理容量固定）
 
 private:
     static Parameter ms_defaultParam;
 };
 
 // Static member initialization
-template <typename ResourceType, size_t MAX_POOL_SIZE>
-Parameter ResourceTlsPool<ResourceType, MAX_POOL_SIZE>::ms_defaultParam{};
+template <typename ResourceType, size_t MAX_POOL_SIZE_LIMIT>
+Parameter ResourceTlsPool<ResourceType, MAX_POOL_SIZE_LIMIT>::ms_defaultParam{};
 
 }  // namespace hku
 

@@ -307,7 +307,7 @@ TEST_CASE("test_ResourceTlsVersionPool_default_limit") {
 
     // 验证可以正常获取实例
     auto& pool = TestPool::getInstance();
-    CHECK_EQ(pool.maxPoolSize(), 32);
+    CHECK_EQ(pool.maxCount(), 32);
     CHECK_EQ(pool.getVersion(), 0);
 }
 
@@ -321,7 +321,7 @@ TEST_CASE("test_ResourceTlsVersionPool_custom_limit") {
 
     // 验证最大资源数
     auto& pool = TestPool::getInstance();
-    CHECK_EQ(pool.maxPoolSize(), 5);
+    CHECK_EQ(pool.maxCount(), 5);
     CHECK_EQ(pool.getVersion(), 0);
 }
 

@@ -24,7 +24,8 @@ namespace hku {
  *          **重要约束**：ResourceType 必须实现 getVersion() 和 setVersion(int) 方法。
  *
  * @tparam ResourceType 资源类型，必须实现 getVersion() 和 setVersion(int) 方法
- * @tparam MAX_GLOBAL_POOL_SIZE 全局共享池的最大资源数，默认 64
+ * @tparam MAX_GLOBAL_POOL_SIZE_LIMIT TLS 池物理容量上限，默认 64（编译期固定，用于 std::array
+ * 分配）
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -57,15 +58,15 @@ namespace hku {
  * @endcode
  *
  * @note 内部维护两个独立的资源池实例
- * @note TLS Pool 是线程局部的，每个线程有独立实例，大小由模板参数决定
+ * @note TLS Pool 是线程局部的，每个线程有独立实例，大小可在构造时指定（不能超过模板参数）
  * @note Asio Pool 是全局共享的，支持跨线程访问，大小可在构造时指定
  * @note 版本号是全局的，所有线程共享
  */
-template <typename ResourceType, size_t MAX_GLOBAL_POOL_SIZE = 64>
+template <typename ResourceType, size_t MAX_GLOBAL_POOL_SIZE_LIMIT = 64>
 class ResourceHybridVersionPool {
 public:
     /** TLS Pool 类型别名 */
-    using TlsPoolType = ResourceTlsVersionPool<ResourceType, MAX_GLOBAL_POOL_SIZE>;
+    using TlsPoolType = ResourceTlsVersionPool<ResourceType, MAX_GLOBAL_POOL_SIZE_LIMIT>;
 
     /** 全局共享池类型别名（使用 std::shared_mutex 支持多线程并发读取） */
     using GlobalPoolType = ResourceAsioVersionPool<ResourceType, std::shared_mutex>;
@@ -74,12 +75,35 @@ public:
      * 构造函数
      *
      * @param param 资源创建参数
+     * @param max_tls_pool_size TLS 池实际使用的最大资源数，默认等于模板参数
+     * MAX_GLOBAL_POOL_SIZE_LIMIT 此值不能超过 MAX_GLOBAL_POOL_SIZE_LIMIT，否则会被截断
      * @param max_global_pool_size 全局共享池（Asio Pool）的最大资源数，默认 64
+     *
+     * @note TLS 池的实际大小由 max_tls_pool_size 控制，但底层数组容量仍为
+     * MAX_GLOBAL_POOL_SIZE_LIMIT
+     * @note 如果 max_tls_pool_size > MAX_GLOBAL_POOL_SIZE_LIMIT，会自动调整为
+     * MAX_GLOBAL_POOL_SIZE_LIMIT
      */
-    explicit ResourceHybridVersionPool(const Parameter &param, size_t max_global_pool_size = 64)
-    : m_global_pool_param(param), m_max_global_pool_size(max_global_pool_size), m_version(0) {
+    explicit ResourceHybridVersionPool(const Parameter &param,
+                                       size_t max_tls_pool_size = MAX_GLOBAL_POOL_SIZE_LIMIT,
+                                       size_t max_global_pool_size = 64)
+    : m_tls_pool_param(param),
+      m_global_pool_param(param),
+      m_max_global_pool_size(max_global_pool_size),
+      m_max_tls_pool_size(max_tls_pool_size),
+      m_version(0) {
+        // 检查并截断 TLS 池大小
+        if (m_max_tls_pool_size > MAX_GLOBAL_POOL_SIZE_LIMIT) {
+            HKU_WARN("max_tls_pool_size({}) exceeds physical limit ({}), truncated to {}",
+                     m_max_tls_pool_size, MAX_GLOBAL_POOL_SIZE_LIMIT, MAX_GLOBAL_POOL_SIZE_LIMIT);
+            m_max_tls_pool_size = MAX_GLOBAL_POOL_SIZE_LIMIT;
+        }
+
         // 初始化 TLS Pool 的默认参数
-        TlsPoolType::init(m_global_pool_param);
+        TlsPoolType::init(m_tls_pool_param);
+
+        // 设置 TLS Pool 的实际使用大小
+        TlsPoolType::getInstance().maxCount(m_max_tls_pool_size);
 
         // 创建全局共享池（使用运行时指定的大小，支持多线程并发）
         m_global_pool =
@@ -346,12 +370,24 @@ public:
         return *m_global_pool;
     }
 
+    /** 获取 TLS 池实际使用的最大资源数 */
+    size_t maxTlsPoolSize() const {
+        return m_max_tls_pool_size;
+    }
+
+    /** 获取全局共享池最大资源数 */
+    size_t maxGlobalPoolSize() const {
+        return m_max_global_pool_size;
+    }
+
 private:
-    Parameter m_global_pool_param;                  // 全局参数（受锁保护）
-    size_t m_max_global_pool_size{64};              // 全局共享池最大资源数
-    std::unique_ptr<GlobalPoolType> m_global_pool;  // 全局共享池实例
-    std::atomic<int> m_version{0};                  // 全局版本号
-    mutable std::shared_mutex m_param_mutex;        // 保护参数访问的互斥锁
+    Parameter m_tls_pool_param;                              // TLS Pool 参数（受锁保护）
+    Parameter m_global_pool_param;                           // 全局参数（受锁保护）
+    size_t m_max_global_pool_size{64};                       // 全局共享池最大资源数
+    size_t m_max_tls_pool_size{MAX_GLOBAL_POOL_SIZE_LIMIT};  // TLS Pool 实际使用的最大资源数
+    std::unique_ptr<GlobalPoolType> m_global_pool;           // 全局共享池实例
+    std::atomic<int> m_version{0};                           // 全局版本号
+    mutable std::shared_mutex m_param_mutex;                 // 保护参数访问的互斥锁
 };
 
 }  // namespace hku

@@ -29,7 +29,7 @@ namespace hku {
  *          - 当 TLS Pool 资源耗尽时，自动降级到 Asio Pool
  *
  * @tparam ResourceType 资源类型，必须支持构造函数 ResourceType(const Parameter&)
- * @tparam MAX_TLS_POOL_SIZE TLS 池最大大小，默认 32（编译期固定，使用 std::array 优化性能）
+ * @tparam MAX_TLS_POOL_SIZE_LIMIT TLS 池物理容量上限，默认 32（编译期固定，用于 std::array 分配）
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -39,8 +39,11 @@ namespace hku {
  * param.set("host", "localhost");
  * param.set("port", 3306);
  *
- * // 步骤2：创建混合池（可运行时指定全局共享池大小）
+ * // 步骤2a：使用默认的 TLS 池大小（模板参数）
  * ResourceHybridPool<MyResource> pool(param, 64);  // 全局共享池最大 64 个资源
+ *
+ * // 步骤2b：运行时指定 TLS 池实际使用大小（不能超过模板参数）
+ * ResourceHybridPool<MyResource, 64> pool(param, 64, 16);  // TLS 池实际使用 16，全局池 64
  *
  * // 步骤3a：同步获取（优先 TLS Pool）
  * auto result = pool.get();
@@ -58,14 +61,16 @@ namespace hku {
  * @endcode
  *
  * @note 内部维护两个独立的资源池实例
- * @note TLS Pool 是线程局部的，每个线程有独立实例，大小由模板参数决定
- * @note Asio Pool 是全局共享的，支持跨线程访问，大小可在构造时指定
+ * @note TLS Pool 是线程局部的，每个线程有独立实例
+ * @note TLS Pool 的实际使用大小可在构造时指定（通过 max_tls_pool_size 参数），但不能超过模板参数
+ * MAX_TLS_POOL_SIZE_LIMIT
+ * @note Global Pool 的大小也可在构造时指定，不受模板参数限制
  */
-template <typename ResourceType, size_t MAX_TLS_POOL_SIZE = 32>
+template <typename ResourceType, size_t MAX_TLS_POOL_SIZE_LIMIT = 32>
 class ResourceHybridPool {
 public:
     /** TLS Pool 类型别名 */
-    using TlsPoolType = ResourceTlsPool<ResourceType, MAX_TLS_POOL_SIZE>;
+    using TlsPoolType = ResourceTlsPool<ResourceType, MAX_TLS_POOL_SIZE_LIMIT>;
 
     /** 全局共享池类型别名（使用 std::shared_mutex 支持多线程并发读取） */
     using GlobalPoolType = ResourceAsioPool<ResourceType, std::shared_mutex>;
@@ -74,14 +79,32 @@ public:
      * 构造函数
      *
      * @param param 资源创建参数
-     * @param max_global_pool_size 全局共享池（Asio Pool）的最大资源数，默认 64
+     * @param max_tls_pool_size TLS 池实际使用的最大资源数，默认等于模板参数 MAX_TLS_POOL_SIZE_LIMIT
+     *                          此值不能超过 MAX_TLS_POOL_SIZE_LIMIT，否则会被截断
+     * @param max_global_pool_size 全局共享池（Global Pool）的最大资源数，默认 64
+     *
+     * @note TLS 池的实际大小由 max_tls_pool_size 控制，但底层数组容量仍为 MAX_TLS_POOL_SIZE_LIMIT
+     * @note 如果 max_tls_pool_size > MAX_TLS_POOL_SIZE_LIMIT，会自动调整为 MAX_TLS_POOL_SIZE_LIMIT
      */
-    explicit ResourceHybridPool(const Parameter &param, size_t max_global_pool_size = 64)
+    explicit ResourceHybridPool(const Parameter &param,
+                                size_t max_tls_pool_size = MAX_TLS_POOL_SIZE_LIMIT,
+                                size_t max_global_pool_size = 64)
     : m_tls_pool_param(param),
       m_global_pool_param(param),
-      m_max_global_pool_size(max_global_pool_size) {
+      m_max_global_pool_size(max_global_pool_size),
+      m_max_tls_pool_size(max_tls_pool_size) {
+        // 检查并截断 TLS 池大小
+        if (m_max_tls_pool_size > MAX_TLS_POOL_SIZE_LIMIT) {
+            HKU_WARN("max_tls_pool_size({}) exceeds physical limit ({}), truncated to {}",
+                     m_max_tls_pool_size, MAX_TLS_POOL_SIZE_LIMIT, MAX_TLS_POOL_SIZE_LIMIT);
+            m_max_tls_pool_size = MAX_TLS_POOL_SIZE_LIMIT;
+        }
+
         // 初始化 TLS Pool 的默认参数
         TlsPoolType::init(m_tls_pool_param);
+
+        // 设置 TLS Pool 的实际使用大小（通过 getInstance() 后调用 maxCount）
+        TlsPoolType::getInstance().maxCount(m_max_tls_pool_size);
 
         // 创建全局共享池（使用运行时指定的大小，支持多线程并发）
         m_global_pool =
@@ -193,10 +216,22 @@ public:
         return *m_global_pool;
     }
 
+    /** 获取 TLS 池实际使用的最大资源数 */
+    size_t maxTlsPoolSize() const {
+        return m_max_tls_pool_size;
+    }
+
+    /** 获取全局共享池最大资源数 */
+    size_t maxGlobalPoolSize() const {
+        return m_max_global_pool_size;
+    }
+
 private:
-    Parameter m_tls_pool_param;                     // TLS Pool 参数
-    Parameter m_global_pool_param;                  // Global Pool 参数
-    size_t m_max_global_pool_size{64};              // 全局共享池最大资源数
+    Parameter m_tls_pool_param;         // TLS Pool 参数
+    Parameter m_global_pool_param;      // Global Pool 参数
+    size_t m_max_global_pool_size{64};  // 全局共享池最大资源数
+    size_t m_max_tls_pool_size{
+      MAX_TLS_POOL_SIZE_LIMIT};                     // TLS 池实际使用的最大资源数（不超过模板参数）
     std::unique_ptr<GlobalPoolType> m_global_pool;  // 全局共享池实例
 };
 

@@ -619,6 +619,63 @@ TEST_CASE("test_ResourceHybridVersionPool_fallback_strategy") {
     CHECK_NE(res3, nullptr);
 }
 
+// 测试运行时指定 TLS 池大小
+TEST_CASE("test_ResourceHybridVersionPool_custom_tls_pool_size") {
+    Parameter param;
+    param.set<std::string>("custom_tls", "true");
+
+    // 模板参数为 64，但运行时指定 TLS 池实际使用 16，全局池使用 32
+    using LargeTemplatePool = ResourceHybridVersionPool<FallbackTestResource, 64>;
+    LargeTemplatePool pool(param, 16, 32);  // TLS 池 16，全局池 32
+
+    // 验证配置
+    CHECK_EQ(pool.maxTlsPoolSize(), 16);
+    CHECK_EQ(pool.maxGlobalPoolSize(), 32);
+
+    // 验证 TLS Pool 的实际大小
+    auto& tls_pool = pool.tlsPool();
+    CHECK_EQ(tls_pool.maxCount(), 16);
+
+    // 同步获取资源，验证正常工作
+    auto result = pool.get();
+    CHECK(result.has_value());
+    if (result) {
+        CHECK_NE(result.value(), nullptr);
+    }
+}
+
+// 测试 TLS 池大小超过模板参数时的截断行为
+TEST_CASE("test_ResourceHybridVersionPool_tls_size_truncation") {
+    Parameter param;
+    param.set<std::string>("truncation_test", "true");
+
+    // 模板参数为 8，但尝试设置 TLS 池为 16（应该被截断为 8），全局池为 32
+    using SmallTemplatePool = ResourceHybridVersionPool<FallbackTestResource, 8>;
+    SmallTemplatePool pool(param, 16, 32);  // 尝试设置 TLS 池为 16，全局池为 32
+
+    // 验证被截断为模板参数的值
+    CHECK_EQ(pool.maxTlsPoolSize(), 8);      // 应该被截断为 8
+    CHECK_EQ(pool.maxGlobalPoolSize(), 32);  // 全局池不受限制
+
+    auto& tls_pool = pool.tlsPool();
+    CHECK_EQ(tls_pool.maxCount(), 8);
+}
+
+// 测试默认 TLS 池大小（使用模板参数）
+TEST_CASE("test_ResourceHybridVersionPool_default_tls_size") {
+    Parameter param;
+    param.set<std::string>("default_test", "true");
+
+    // 不指定 TLS 池大小，应该使用模板参数的默认值（64），全局池使用默认值 64
+    ResourceHybridVersionPool<FallbackTestResource> pool(param);
+
+    CHECK_EQ(pool.maxTlsPoolSize(), 64);     // 应该等于模板参数默认值
+    CHECK_EQ(pool.maxGlobalPoolSize(), 64);  // 全局池默认值
+
+    auto& tls_pool = pool.tlsPool();
+    CHECK_EQ(tls_pool.maxCount(), 64);
+}
+
 // 测试 TLS Pool 和 Global Pool 的降级策略 (小池测试)
 TEST_CASE("test_ResourceHybridVersionPool_fallback_strategy_small_pool") {
     Parameter param;
