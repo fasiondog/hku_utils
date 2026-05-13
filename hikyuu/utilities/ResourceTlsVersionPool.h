@@ -4,14 +4,12 @@
 
 #include <array>
 #include <memory>
-#include <optional>
-#include <chrono>
-#include <type_traits>
+#include <string>
 #include "expected.h"
 #include "Parameter.h"
 #include "Log.h"
-#include "exception.h"
 #include "net.h"
+#include "ResourceVersionTraits.h"
 
 /**
  * 线程局部版本资源池 - 支持轻量级版本管理的无锁设计（Ring Buffer 实现）
@@ -27,9 +25,14 @@
  *          - 获取资源时检查版本，不匹配则创建新版本资源
  *          - 通过 syncVersion() 方法同步全局版本和参数
  *
- * @tparam ResourceType 资源类型，必须支持构造函数 ResourceType(const Parameter&)
- *                      建议继承 AsyncResourceWithVersion 以支持版本管理
- * @tparam MAX_POOL_SIZE 最大资源池大小限制，默认值为 32
+ * @brief TLS 版本资源池（线程局部存储 + 版本号管理）
+ * @details 每个线程拥有独立的资源池实例，支持协程异步获取资源。
+ *          当参数发生变化时，自动递增版本号并释放所有空闲的旧版本资源。
+ *
+ *          **重要约束**：ResourceType 必须实现 getVersion() 和 setVersion(int) 方法。
+ *
+ * @tparam ResourceType 资源类型，必须实现 getVersion() 和 setVersion(int) 方法
+ * @tparam MAX_POOL_SIZE 每个线程的最大资源数，默认 32
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -73,6 +76,12 @@ namespace asio = net::asio;
 template <typename ResourceType, size_t MAX_POOL_SIZE = 32>
 class ResourceTlsVersionPool {
 public:
+    // 编译期检查：ResourceType 必须支持 getVersion 和 setVersion
+    static_assert(detail::has_resource_getVersion_v<ResourceType>,
+                  "ResourceType must implement getVersion() method.");
+    static_assert(detail::has_resource_setVersion_v<ResourceType>,
+                  "ResourceType must implement setVersion(int) method.");
+
     /**
      * 初始化全局默认参数（可选）
      *
@@ -193,7 +202,7 @@ public:
      * @note 从空闲队列获取时会检查版本，版本不匹配则销毁旧资源并尝试创建新资源
      */
     stdx::expected<ResourcePtr, std::string> get() {
-        // 尝试从空闲列表获取（Ring Buffer 头部出队）
+        // 1. 尝试从空闲列表获取（Ring Buffer 头部出队）
         if (m_freeCount > 0) {
             ResourceType *p = m_resourceList[m_head];
             m_resourceList[m_head] = nullptr;
@@ -201,31 +210,26 @@ public:
             m_freeCount--;
 
             // 检查资源版本是否匹配
-            if constexpr (has_getVersion_v<ResourceType>) {
-                if (p->getVersion() != m_version) {
-                    // 版本不匹配，销毁旧资源
-                    delete p;
-                    m_count--;
+            if (p->getVersion() != m_version) {
+                // 版本不匹配，销毁旧资源
+                delete p;
+                m_count--;
 
-                    // 尝试创建新版本资源
-                    if (m_count < m_maxPoolSize) {
-                        try {
-                            p = new ResourceType(m_param);
-                            if constexpr (has_setVersion_v<ResourceType>) {
-                                p->setVersion(m_version);
-                            }
-                            m_count++;
-                            return ResourcePtr(p, ResourceDeleter{this});
-                        } catch (const std::exception &e) {
-                            return stdx::unexpected(
-                              fmt::format("Failed to create resource: {}", e.what()));
-                        } catch (...) {
-                            return stdx::unexpected("Failed to create resource: Unknown error");
-                        }
-                    } else {
+                // 尝试创建新版本资源
+                if (m_count < m_maxPoolSize) {
+                    try {
+                        p = new ResourceType(m_param);
+                        p->setVersion(m_version);
+                        m_count++;
+                        return ResourcePtr(p, ResourceDeleter{this});
+                    } catch (const std::exception &e) {
                         return stdx::unexpected(
-                          "No available resources and maximum pool size reached");
+                          fmt::format("Failed to create resource: {}", e.what()));
+                    } catch (...) {
+                        return stdx::unexpected("Failed to create resource: Unknown error");
                     }
+                } else {
+                    return stdx::unexpected("No available resources and maximum pool size reached");
                 }
             }
 
@@ -233,18 +237,16 @@ public:
             return ResourcePtr(p, ResourceDeleter{this});
         }
 
-        // 无空闲资源，检查是否可以创建新资源
+        // 2. 无空闲资源，检查是否可以创建新资源
         if (m_count >= m_maxPoolSize) {
             return stdx::unexpected("No available resources and maximum pool size reached");
         }
 
-        // 创建新资源
+        // 3. 创建新资源
         ResourceType *p = nullptr;
         try {
             p = new ResourceType(m_param);
-            if constexpr (has_setVersion_v<ResourceType>) {
-                p->setVersion(m_version);
-            }
+            p->setVersion(m_version);
         } catch (const std::exception &e) {
             return stdx::unexpected(fmt::format("Failed to create resource: {}", e.what()));
         } catch (...) {
@@ -278,9 +280,7 @@ public:
         ResourceType *p = nullptr;
         try {
             p = new ResourceType(m_param);
-            if constexpr (has_setVersion_v<ResourceType>) {
-                p->setVersion(m_version);
-            }
+            p->setVersion(m_version);
         } catch (const std::exception &e) {
             return stdx::unexpected(
               fmt::format("Failed to create standalone resource: {}", e.what()));
@@ -324,31 +324,27 @@ public:
             m_freeCount--;
 
             // 检查资源版本是否匹配
-            if constexpr (has_getVersion_v<ResourceType>) {
-                if (p->getVersion() != m_version) {
-                    // 版本不匹配，销毁旧资源
-                    delete p;
-                    m_count--;
+            if (p->getVersion() != m_version) {
+                // 版本不匹配，销毁旧资源
+                delete p;
+                m_count--;
 
-                    // 尝试创建新版本资源
-                    if (m_count < m_maxPoolSize) {
-                        try {
-                            p = new ResourceType(m_param);
-                            if constexpr (has_setVersion_v<ResourceType>) {
-                                p->setVersion(m_version);
-                            }
-                            m_count++;
-                            co_return ResourcePtr(p, ResourceDeleter{this});
-                        } catch (const std::exception &e) {
-                            co_return stdx::unexpected(
-                              fmt::format("Failed to create resource: {}", e.what()));
-                        } catch (...) {
-                            co_return stdx::unexpected("Failed to create resource: Unknown error");
-                        }
-                    } else {
+                // 尝试创建新版本资源
+                if (m_count < m_maxPoolSize) {
+                    try {
+                        p = new ResourceType(m_param);
+                        p->setVersion(m_version);
+                        m_count++;
+                        co_return ResourcePtr(p, ResourceDeleter{this});
+                    } catch (const std::exception &e) {
                         co_return stdx::unexpected(
-                          "No available resources and maximum pool size reached");
+                          fmt::format("Failed to create resource: {}", e.what()));
+                    } catch (...) {
+                        co_return stdx::unexpected("Failed to create resource: Unknown error");
                     }
+                } else {
+                    co_return stdx::unexpected(
+                      "No available resources and maximum pool size reached");
                 }
             }
 
@@ -361,9 +357,7 @@ public:
             ResourceType *p = nullptr;
             try {
                 p = new ResourceType(m_param);
-                if constexpr (has_setVersion_v<ResourceType>) {
-                    p->setVersion(m_version);
-                }
+                p->setVersion(m_version);
             } catch (const std::exception &e) {
                 co_return stdx::unexpected(fmt::format("Failed to create resource: {}", e.what()));
             } catch (...) {
@@ -393,13 +387,11 @@ public:
                 m_freeCount--;
 
                 // 检查资源版本是否匹配
-                if constexpr (has_getVersion_v<ResourceType>) {
-                    if (p->getVersion() != m_version) {
-                        // 版本不匹配，销毁旧资源
-                        delete p;
-                        m_count--;
-                        continue;  // 继续等待
-                    }
+                if (p->getVersion() != m_version) {
+                    // 版本不匹配，销毁旧资源
+                    delete p;
+                    m_count--;
+                    continue;  // 继续等待
                 }
 
                 co_return ResourcePtr(p, ResourceDeleter{this});
@@ -471,13 +463,11 @@ private:
         }
 
         // 检查资源版本是否匹配
-        if constexpr (has_getVersion_v<ResourceType>) {
-            if (p->getVersion() != m_version) {
-                // 版本不匹配，直接销毁
-                delete p;
-                m_count--;
-                return;
-            }
+        if (p->getVersion() != m_version) {
+            // 版本不匹配，直接销毁
+            delete p;
+            m_count--;
+            return;
         }
 
         // 版本匹配，归还到池
@@ -504,32 +494,6 @@ private:
 
 private:
     static Parameter ms_defaultParam;
-
-    // SFINAE 检测资源类型是否支持 getVersion/setVersion
-    template <typename T>
-    struct has_getVersion {
-        template <typename U>
-        static auto test(int) -> decltype(std::declval<U>().getVersion(), std::true_type{});
-        template <typename>
-        static std::false_type test(...);
-        static constexpr bool value = decltype(test<T>(0))::value;
-    };
-
-    template <typename T>
-    struct has_setVersion {
-        template <typename U>
-        static auto test(int)
-          -> decltype(std::declval<U>().setVersion(std::declval<int>()), std::true_type{});
-        template <typename>
-        static std::false_type test(...);
-        static constexpr bool value = decltype(test<T>(0))::value;
-    };
-
-    template <typename T>
-    static constexpr bool has_getVersion_v = has_getVersion<T>::value;
-
-    template <typename T>
-    static constexpr bool has_setVersion_v = has_setVersion<T>::value;
 };
 
 // Static member initialization

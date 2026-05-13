@@ -17,27 +17,14 @@
 namespace hku {
 
 /**
- * 混合版本资源池 - 结合同步 TLS Version Pool 和异步 Asio Version Pool
+ * @brief 混合版本资源池（TLS + 全局共享池 + 版本号管理）
+ * @details 结合线程局部存储和全局共享池的优势，支持协程异步获取资源。
+ *          当参数发生变化时，自动递增版本号并释放所有空闲的旧版本资源。
  *
- * @details 提供两级资源获取策略，并支持动态参数更新和版本管理：
- *          1. 优先从线程局部同步池（TLS Version Pool）快速获取资源（无锁、高性能）
- *          2. 如果 TLS Pool 不可用，则从异步池（Asio Version Pool）获取资源（支持协程等待）
+ *          **重要约束**：ResourceType 必须实现 getVersion() 和 setVersion(int) 方法。
  *
- *          版本管理机制：
- *          - 维护全局版本号 m_version（atomic）
- *          - 修改参数时自动递增版本号
- *          - 同步获取时检查并同步 TLS Pool 的版本
- *          - 异步获取时直接委托给 Asio Version Pool
- *
- *          这种设计兼顾了性能和灵活性：
- *          - 普通同步代码使用 TLS Pool，获得最佳性能
- *          - 协程代码可以使用 Asio Pool，支持超时等待
- *          - 当 TLS Pool 资源耗尽时，自动降级到 Asio Pool
- *          - 支持运行时动态修改参数，旧版本资源自动淘汰
- *
- * @tparam ResourceType 资源类型，必须支持构造函数 ResourceType(const Parameter&)
- *                      建议继承 AsyncResourceWithVersion 以支持版本管理
- * @tparam MAX_TLS_POOL_SIZE TLS 池最大大小，默认 32（编译期固定，使用 std::array 优化性能）
+ * @tparam ResourceType 资源类型，必须实现 getVersion() 和 setVersion(int) 方法
+ * @tparam MAX_GLOBAL_POOL_SIZE 全局共享池的最大资源数，默认 64
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -74,11 +61,11 @@ namespace hku {
  * @note Asio Pool 是全局共享的，支持跨线程访问，大小可在构造时指定
  * @note 版本号是全局的，所有线程共享
  */
-template <typename ResourceType, size_t MAX_TLS_POOL_SIZE = 32>
+template <typename ResourceType, size_t MAX_GLOBAL_POOL_SIZE = 64>
 class ResourceHybridVersionPool {
 public:
     /** TLS Pool 类型别名 */
-    using TlsPoolType = ResourceTlsVersionPool<ResourceType, MAX_TLS_POOL_SIZE>;
+    using TlsPoolType = ResourceTlsVersionPool<ResourceType, MAX_GLOBAL_POOL_SIZE>;
 
     /** 全局共享池类型别名（使用 std::shared_mutex 支持多线程并发读取） */
     using GlobalPoolType = ResourceAsioVersionPool<ResourceType, std::shared_mutex>;
@@ -141,7 +128,7 @@ public:
         m_version.fetch_add(1, std::memory_order_release);
 
         // 更新全局共享池的参数
-        m_global_pool->setParam<ValueType>(name, value);
+        m_global_pool->template setParam<ValueType>(name, value);
 
         // 注意：TLS Pool 的参数会在下次 get() 时懒更新
     }

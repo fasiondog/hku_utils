@@ -10,15 +10,18 @@
 #ifndef HKU_UTILS_RESOURCE_ASIO_POOL_H
 #define HKU_UTILS_RESOURCE_ASIO_POOL_H
 
-#include <boost/lockfree/queue.hpp>
-#include "hikyuu/utilities/net.h"
+#include <memory>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include <chrono>
 #include <vector>
-#include <atomic>
-#include <condition_variable>
+#include <boost/lockfree/queue.hpp>
+
+#include "ResourceVersionTraits.h"
 #include "Parameter.h"
 #include "Log.h"
-#include "ResourcePool.h"
+#include "net.h"
 #include "expected.h"
 
 namespace hku {
@@ -347,43 +350,25 @@ private:
 };
 
 /**
- * @brief 带版本的资源接口，可由需要版本管理的资源继承
- * @details 自带的 getVersion 和 setVerion 方法由 ResourceAsioVersionPool 调用，不建议带有其他用途
- */
-class AsyncResourceWithVersion {
-public:
-    /** 默认构造函数 */
-    AsyncResourceWithVersion() : m_version(0) {}
-
-    /** 析构函数 */
-    virtual ~AsyncResourceWithVersion() {}
-
-    /** 获取资源版本 */
-    int getVersion() const {
-        return m_version;
-    }
-
-    /** 设置资源版本 **/
-    void setVersion(int version) {
-        m_version = version;
-    }
-
-protected:
-    int m_version;
-};
-
-/**
- * 通用版本的共享资源池(协程版本),当资源池参数变更时,保证新资源使用新参数,老版本的资源在使用完毕后被自动回收
- * @details 要求资源类具备 int getVersion() 和 void setVersion(int) 两个接口函数,建议继承
- * AsyncResourceWithVersion
- * @tparam ResourceType 资源类型,必须支持构造函数 ResourceType(const Parameter&) 且继承
- * AsyncResourceWithVersion
- * @tparam MutexType 互斥锁类型,默认为 NullLock(适用于单线程 io_context)
+ * @brief 带版本的资源池（强制要求资源类型支持版本接口）
+ * @details 使用 boost::lockfree::queue 实现无锁空闲队列，支持协程异步获取资源。
+ *          当参数发生变化时，自动递增版本号并释放所有空闲的旧版本资源。
+ *
+ *          **重要约束**：ResourceType 必须实现 getVersion() 和 setVersion(int) 方法。
+ *
+ * @tparam ResourceType 资源类型，必须实现 getVersion() 和 setVersion(int) 方法
+ * @tparam MutexType 互斥锁类型，默认 std::mutex
  * @ingroup Utilities
  */
-template <typename ResourceType, typename MutexType = rap::NullLock>
+template <typename ResourceType, typename MutexType = std::mutex>
 class ResourceAsioVersionPool {
 public:
+    // 编译期检查：ResourceType 必须支持 getVersion 和 setVersion
+    static_assert(hku::detail::has_resource_getVersion_v<ResourceType>,
+                  "ResourceType must implement getVersion() method.");
+    static_assert(hku::detail::has_resource_setVersion_v<ResourceType>,
+                  "ResourceType must implement setVersion(int) method.");
+
     ResourceAsioVersionPool() = delete;
     ResourceAsioVersionPool(const ResourceAsioVersionPool &) = delete;
     ResourceAsioVersionPool &operator=(const ResourceAsioVersionPool &) = delete;

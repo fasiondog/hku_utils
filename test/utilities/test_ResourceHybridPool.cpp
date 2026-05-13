@@ -152,19 +152,17 @@ TEST_CASE("test_ResourceHybridPool_fallback_to_asio") {
         asio::co_spawn(
           io_ctx,
           [&, i]() -> asio::awaitable<void> {
-              try {
-                  auto resource_result = co_await pool.asyncGet(std::chrono::seconds(2));
-                  if (resource_result) {
-                      auto resource = std::move(resource_result.value());
-                      CHECK_NE(resource, nullptr);
-                      success_count++;
+              auto resource_result = co_await pool.asyncGet(std::chrono::seconds(2));
+              if (resource_result) {
+                  auto resource = std::move(resource_result.value());
+                  CHECK_NE(resource, nullptr);
+                  success_count++;
 
-                      // 模拟工作
-                      co_await asio::post(asio::use_awaitable);
-                  }
-              } catch (const CreateResourceException& e) {
+                  // 模拟工作
+                  co_await asio::post(asio::use_awaitable);
+              } else {
                   error_count++;
-                  HKU_WARN("Coroutine {} failed: {}", i, e.what());
+                  HKU_WARN("Coroutine {} failed: {}", i, resource_result.error());
               }
           },
           asio::detached);
@@ -245,17 +243,15 @@ TEST_CASE("test_ResourceHybridPool_multithread_concurrent") {
         asio::co_spawn(
           thread_pool,
           [&, i]() -> asio::awaitable<void> {
-              try {
-                  auto resource_result = co_await pool.asyncGet(std::chrono::seconds(3));
-                  if (resource_result) {
-                      auto resource = std::move(resource_result.value());
-                      CHECK_NE(resource, nullptr);
-                      success_count++;
+              auto resource_result = co_await pool.asyncGet(std::chrono::seconds(3));
+              if (resource_result) {
+                  auto resource = std::move(resource_result.value());
+                  CHECK_NE(resource, nullptr);
+                  success_count++;
 
-                      // 模拟工作
-                      co_await asio::post(asio::use_awaitable);
-                  }
-              } catch (const CreateResourceException& e) {
+                  // 模拟工作
+                  co_await asio::post(asio::use_awaitable);
+              } else {
                   error_count++;
               }
           },

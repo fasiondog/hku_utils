@@ -94,14 +94,24 @@ AsioHttpStreamResponse& AsioHttpStreamResponse::operator=(AsioHttpStreamResponse
 }
 
 // HttpConnection 类定义 - 用于连接池的可复用连接
-struct HttpConnection : public AsyncResourceWithVersion {
+struct HttpConnection {
     using SocketType = tcp::socket;
 
     std::vector<tcp::endpoint> endpoints;                  // DNS 解析结果缓存
     std::chrono::steady_clock::time_point last_used_time;  // 最后使用时间
+    int m_version = 0;                                     // 版本号
 
     // socket 在连接被获取时创建
     std::optional<SocketType> socket;
+
+    // 版本管理接口
+    int getVersion() const {
+        return m_version;
+    }
+
+    void setVersion(int version) {
+        m_version = version;
+    }
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
     std::optional<ssl::stream<tcp::socket>> ssl_socket;
