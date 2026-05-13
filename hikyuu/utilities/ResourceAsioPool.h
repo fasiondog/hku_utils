@@ -400,7 +400,6 @@ public:
         m_is_destroying.store(true);
 
         // 等待所有活跃资源归还
-        // 当 m_count == m_idleCount 时，说明所有资源都已归还到空闲队列
         std::unique_lock<MutexType> lock(m_destroy_mutex);
         m_destroy_cv.wait(lock, [this]() { return m_count.load() == m_idleCount.load(); });
 
