@@ -1,6 +1,6 @@
 #pragma once
-#ifndef HKU_UTILS_RESOURCE_THREAD_LOCAL_POOL_H
-#define HKU_UTILS_RESOURCE_THREAD_LOCAL_POOL_H
+#ifndef HKU_UTILS_RESOURCE_TLS_POOL_H
+#define HKU_UTILS_RESOURCE_TLS_POOL_H
 
 #include <array>
 #include <memory>
@@ -31,10 +31,10 @@
  * Parameter param;
  * param.set("host", "localhost");
  * param.set("port", 3306);
- * ResourceThreadLocalPool<MyResource>::init(param);
+ * ResourceTlsPool<MyResource>::init(param);
  *
  * // 步骤2：获取线程局部资源池实例
- * auto& pool = ResourceThreadLocalPool<MyResource>::getInstance();
+ * auto& pool = ResourceTlsPool<MyResource>::getInstance();
  *
  * // 步骤3a：同步获取资源
  * auto resource = pool.get();
@@ -44,7 +44,7 @@
  *
  * // 步骤3b：协程中异步获取资源（带超时控制）
  * co_spawn(io_ctx, [&]() -> asio::awaitable<void> {
- *     auto& pool = ResourceThreadLocalPool<MyResource>::getInstance();
+ *     auto& pool = ResourceTlsPool<MyResource>::getInstance();
  *     auto result = co_await pool.asyncGet(std::chrono::seconds(5));
  *     if (result) {
  *         result.value()->doWork();
@@ -63,7 +63,7 @@ namespace hku {
 namespace asio = net::asio;
 
 template <typename ResourceType, size_t MAX_POOL_SIZE = 32>
-class ResourceThreadLocalPool {
+class ResourceTlsPool {
 public:
     /**
      * 初始化全局默认参数（可选）
@@ -81,10 +81,10 @@ public:
      * Parameter defaultParam;
      * defaultParam.set("host", "localhost");
      * defaultParam.set("port", 3306);
-     * ResourceThreadLocalPool<MyResource>::init(defaultParam);
+     * ResourceTlsPool<MyResource>::init(defaultParam);
      *
      * // 后续使用无需传参
-     * auto& pool = ResourceThreadLocalPool<MyResource>::getInstance();
+     * auto& pool = ResourceTlsPool<MyResource>::getInstance();
      * @endcode
      */
     static void init(const Parameter &param) {
@@ -103,21 +103,21 @@ public:
      * @example
      * @code
      * // 先初始化默认参数
-     * ResourceThreadLocalPool<MyResource>::init(param);
+     * ResourceTlsPool<MyResource>::init(param);
      *
      * // 后续直接获取，无需传参
-     * auto& pool = ResourceThreadLocalPool<MyResource>::getInstance();
+     * auto& pool = ResourceTlsPool<MyResource>::getInstance();
      * @endcode
      */
-    static ResourceThreadLocalPool &getInstance() {
-        thread_local static ResourceThreadLocalPool instance(ms_defaultParam);
+    static ResourceTlsPool &getInstance() {
+        thread_local static ResourceTlsPool instance(ms_defaultParam);
         return instance;
     }
 
     /**
      * 析构函数，释放当前线程的所有缓存资源
      */
-    virtual ~ResourceThreadLocalPool() {
+    virtual ~ResourceTlsPool() {
         for (size_t i = 0; i < m_freeCount; ++i) {
             if (m_resourceList[i]) {
                 delete m_resourceList[i];
@@ -129,7 +129,7 @@ public:
 
     /** 资源删除器，用于 shared_ptr 自动归还资源 */
     struct ResourceDeleter {
-        ResourceThreadLocalPool *pool;
+        ResourceTlsPool *pool;
 
         void operator()(ResourceType *resource) const {
             if (resource && pool) {
@@ -322,22 +322,22 @@ public:
     }
 
 private:
-    ResourceThreadLocalPool(const ResourceThreadLocalPool &) = delete;
-    ResourceThreadLocalPool &operator=(const ResourceThreadLocalPool &) = delete;
+    ResourceTlsPool(const ResourceTlsPool &) = delete;
+    ResourceTlsPool &operator=(const ResourceTlsPool &) = delete;
 
     /**
      * 构造函数（私有，仅通过 getInstance() 访问）
      *
      * @param param 资源创建参数
      */
-    explicit ResourceThreadLocalPool(const Parameter &param) : m_param(param) {
+    explicit ResourceTlsPool(const Parameter &param) : m_param(param) {
         m_resourceList.fill(nullptr);
     }
 
     /**
      * 默认构造函数（私有，仅通过 getInstance() 访问）
      */
-    ResourceThreadLocalPool() {
+    ResourceTlsPool() {
         m_resourceList.fill(nullptr);
     }
 
@@ -369,8 +369,8 @@ private:
 
 // Static member initialization
 template <typename ResourceType, size_t MAX_POOL_SIZE>
-Parameter ResourceThreadLocalPool<ResourceType, MAX_POOL_SIZE>::ms_defaultParam{};
+Parameter ResourceTlsPool<ResourceType, MAX_POOL_SIZE>::ms_defaultParam{};
 
 }  // namespace hku
 
-#endif /* HKU_UTILS_RESOURCE_THREAD_LOCAL_POOL_H */
+#endif /* HKU_UTILS_RESOURCE_TLS_POOL_H */

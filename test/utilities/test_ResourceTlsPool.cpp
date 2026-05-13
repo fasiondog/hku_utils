@@ -1,5 +1,5 @@
 /*
- * test_ResourceThreadLocalPool.cpp
+ * test_ResourceTlsPool.cpp
  *
  *  Copyright (c) 2025, hikyuu.org
  *
@@ -13,7 +13,7 @@
 #include <vector>
 #include <cassert>
 #include <atomic>
-#include "hikyuu/utilities/ResourceThreadLocalPool.h"
+#include "hikyuu/utilities/ResourceTlsPool.h"
 #include "hikyuu/utilities/Parameter.h"
 
 using namespace hku;
@@ -42,24 +42,24 @@ private:
 std::atomic<int> TestResource::s_nextId{0};
 
 // 测试默认 MAX_POOL_SIZE
-TEST_CASE("test_ResourceThreadLocalPool_default_limit") {
+TEST_CASE("test_ResourceTlsPool_default_limit") {
     Parameter param;
 
     // 使用默认的 MAX_POOL_SIZE = 32
     // init 只接受 param 参数
-    CHECK_NOTHROW(ResourceThreadLocalPool<TestResource>::init(param));
+    CHECK_NOTHROW(ResourceTlsPool<TestResource>::init(param));
 
     // 验证可以正常获取实例
-    auto& pool = ResourceThreadLocalPool<TestResource>::getInstance();
+    auto& pool = ResourceTlsPool<TestResource>::getInstance();
     CHECK_EQ(pool.maxPoolSize(), 32);
 }
 
 // 测试自定义 MAX_POOL_SIZE
-TEST_CASE("test_ResourceThreadLocalPool_custom_limit") {
+TEST_CASE("test_ResourceTlsPool_custom_limit") {
     Parameter param;
 
     // 使用自定义的 MAX_POOL_SIZE = 50
-    using CustomPool = ResourceThreadLocalPool<TestResource, 50>;
+    using CustomPool = ResourceTlsPool<TestResource, 50>;
 
     CHECK_NOTHROW(CustomPool::init(param));
 
@@ -69,12 +69,12 @@ TEST_CASE("test_ResourceThreadLocalPool_custom_limit") {
 }
 
 // 测试多线程协程执行
-TEST_CASE("test_ResourceThreadLocalPool_multithread_coroutine") {
+TEST_CASE("test_ResourceTlsPool_multithread_coroutine") {
     Parameter param;
     param.set<std::string>("coroutine_test", "true");
 
     // 初始化默认参数（使用自定义 MAX_POOL_SIZE = 5）
-    using TestPool = ResourceThreadLocalPool<TestResource, 5>;
+    using TestPool = ResourceTlsPool<TestResource, 5>;
     TestPool::init(param);
 
     asio::io_context io_ctx;

@@ -11,7 +11,7 @@
 #define HKU_UTILS_RESOURCE_HYBRID_POOL_H
 
 #include <shared_mutex>
-#include "ResourceThreadLocalPool.h"
+#include "ResourceTlsPool.h"
 #include "ResourceAsioPool.h"
 
 namespace hku {
@@ -65,7 +65,7 @@ template <typename ResourceType, size_t MAX_TLS_POOL_SIZE = 32>
 class ResourceHybridPool {
 public:
     /** TLS Pool 类型别名 */
-    using TlsPoolType = ResourceThreadLocalPool<ResourceType, MAX_TLS_POOL_SIZE>;
+    using TlsPoolType = ResourceTlsPool<ResourceType, MAX_TLS_POOL_SIZE>;
 
     /** 全局共享池类型别名（使用 std::shared_mutex 支持多线程并发读取） */
     using GlobalPoolType = ResourceAsioPool<ResourceType, std::shared_mutex>;
