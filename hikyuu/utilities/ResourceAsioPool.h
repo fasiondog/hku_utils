@@ -222,12 +222,7 @@ public:
         // 从等待队列移除
         {
             std::lock_guard<MutexType> lock(m_waiterMutex);
-            if (!m_waiters.empty() && m_waiters.back() == timer) {
-                m_waiters.pop_back();
-            } else {
-                // 如果不是队首，需要查找并移除（超时情况）
-                m_waiters.remove(timer);
-            }
+            m_waiters.remove(timer);
         }
 
         if (ec == net::error::operation_aborted) {
@@ -393,13 +388,12 @@ public:
         // 清空等待队列，取消所有等待的定时器
         {
             std::lock_guard<MutexType> lock(m_waiterMutex);
-            while (!m_waiters.empty()) {
-                auto timer = m_waiters.front();
-                m_waiters.pop();
+            for (auto &timer : m_waiters) {
                 if (timer) {
                     timer->cancel();
                 }
             }
+            m_waiters.clear();
         }
 
         // 标记正在析构，阻止新的资源获取
@@ -602,7 +596,7 @@ public:
         // 加入等待队列
         {
             std::lock_guard<MutexType> lock(m_waiterMutex);
-            m_waiters.push(timer);
+            m_waiters.push_back(timer);
         }
 
         // 等待被唤醒或超时
@@ -616,19 +610,7 @@ public:
         // 从等待队列移除
         {
             std::lock_guard<MutexType> lock(m_waiterMutex);
-            if (!m_waiters.empty() && m_waiters.front() == timer) {
-                m_waiters.pop();
-            } else {
-                std::queue<std::shared_ptr<net::steady_timer>> temp;
-                while (!m_waiters.empty()) {
-                    auto t = m_waiters.front();
-                    m_waiters.pop();
-                    if (t != timer) {
-                        temp.push(t);
-                    }
-                }
-                m_waiters = std::move(temp);
-            }
+            m_waiters.remove(timer);
         }
 
         if (ec == net::error::operation_aborted) {
@@ -738,7 +720,7 @@ private:
                     std::lock_guard<MutexType> lock(m_waiterMutex);
                     if (!m_waiters.empty()) {
                         timer = m_waiters.front();
-                        m_waiters.pop();
+                        m_waiters.pop_front();
                     }
                 }
                 if (timer) {
@@ -759,13 +741,13 @@ private:
         }
     }
 
-    mutable MutexType m_mutex;                                 // 保护参数访问的互斥锁
-    std::atomic<size_t> m_maxCount;                            // 最大资源上限
-    MutexType m_waiterMutex;                                   // 保护等待队列的互斥锁
-    std::queue<std::shared_ptr<net::steady_timer>> m_waiters;  // 等待队列
-    std::atomic<bool> m_is_destroying{false};                  // 标记是否正在析构
-    MutexType m_destroy_mutex;                                 // 保护析构等待的条件变量
-    std::condition_variable_any m_destroy_cv;                  // 用于通知析构函数资源已归还
+    mutable MutexType m_mutex;                                // 保护参数访问的互斥锁
+    std::atomic<size_t> m_maxCount;                           // 最大资源上限
+    MutexType m_waiterMutex;                                  // 保护等待队列的互斥锁
+    std::list<std::shared_ptr<net::steady_timer>> m_waiters;  // 等待队列
+    std::atomic<bool> m_is_destroying{false};                 // 标记是否正在析构
+    MutexType m_destroy_mutex;                                // 保护析构等待的条件变量
+    std::condition_variable_any m_destroy_cv;                 // 用于通知析构函数资源已归还
 };
 
 }  // namespace hku

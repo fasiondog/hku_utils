@@ -1,5 +1,121 @@
 # 版本发布说明
 
+## 1.3.10 - 2026年5月12日
+
+### 新功能特性 (Features)
+
+#### 数据库连接 (db_connect)
+
+- **异步数据库支持**: 添加完整的异步数据库连接功能，包括异步SQLite和MySQL支持
+  - 添加异步SQLite连接和语句支持
+  - 重构AsyncSQLiteStatement线程池管理
+  - 将数据库连接基类中的同步方法转换为异步实现
+  - 为SQL语句操作添加异步支持 (TableMacro)
+- **MySQL增强**:
+  - MySQL连接实现替换为Boost.MySQL
+  - 添加libmysqlclient支持并优化异步MySQL连接
+  - 添加MySQL连接的statement缓存功能
+  - 使用Pimpl模式重构MySQL连接实现
+  - 使用异步操作重构MySQL连接实现
+  - 更新MySQL语句执行逻辑为流式处理
+  - 更新MySQL连接配置以支持MySQL 8.0
+  - 添加HKU_UTILS_API导出标识符
+- **SQLite增强**: 添加数据库检查和备份功能
+
+#### HTTP客户端 (http_client)
+
+- 优化AsioHttpClient的DNS解析逻辑
+- 为macOS平台添加DNS解析超时控制
+- 添加请求超时保护和提前验证
+- 添加URL有效性检查
+- 添加对多种数据格式的JSON解析支持
+
+#### 资源池 (ResourceAsioPool)
+
+- 优化资源池等待队列管理和资源归还逻辑
+
+#### 线程库 (thread)
+
+- 更新协程执行函数使用net::error_code替换boost::system::error_code
+
+#### 日志系统 (Log)
+
+- 添加条件异常抛出宏定义
+
+#### 工具库 (util)
+
+- 在内存分配失败检查中添加unlikely属性优化
+
+#### 测试 (test)
+
+- 添加网络库依赖并引入asio命名空间
+
+#### 构建系统
+
+- 修改配置OpenSSL3依赖项
+- 禁用boost.math的128位浮点数支持
+- 移除boost math的128位浮点数禁用并添加linux平台libquadmath链接
+
+#### CI/CD
+
+- 添加多架构支持并优化缓存策略
+- 更新构建脚本并移除AArch64交叉编译工作流
+
+### 问题修复 (Bug Fixes)
+
+#### 数据库连接 (db_connect)
+
+- 修复MySQL时间戳转换中的缓冲区溢出风险
+- 修复异步MySQL连接析构时未清理语句缓存的问题
+- 修复异步数据库连接中的协程返回问题
+- 修复SQLException异常捕获的命名空间问题
+- 修复MySQL连接ping方法中的逻辑错误
+
+#### HTTP客户端 (http_client)
+
+- 修复HTTP请求超时时的死锁问题
+- 改进异步HTTP请求超时处理机制
+- 修复AsioHttpClient中DNS解析器生命周期问题
+- future使用超时会造成asio卡死
+- 将HTTP请求异常日志级别从ERROR降级为DEBUG
+
+#### 资源池 (ResourceAsioPool)
+
+- 修复资源池析构和资源归还时的竞态条件问题
+- 修复协程执行器中的asio命名空间引用错误
+
+#### 日志系统 (Log)
+
+- 修复日志宏中的命名空间引用问题，使用全局命名空间前缀::以避免潜在的命名冲突
+
+### 代码重构 (Refactoring)
+
+#### 数据库连接 (db_connect)
+
+- 重构MySQL连接实现并修复代码格式
+- 将异步事务实现移入头文件
+- 移除AsyncDBConnectBase中的同步方法声明
+- 移除异步操作改用同步实现提升MySQL连接稳定性
+- 更新头文件包含路径和命名空间引用
+
+#### HTTP客户端 (http_client)
+
+- 统一网络库接口引入net.h抽象层
+- 更新AsioHttpClient执行器类型
+- 移除AsioHttpClient中被注释的超时处理代码
+
+#### 资源池 (ResourceAsioPool)
+
+- 重构资源池析构逻辑并优化并发安全机制
+- 避免在持有锁时调用unbind方法
+- 调整协程执行器获取位置并移除多余代码
+
+#### 线程库 (thread)
+
+- 更新asio库函数调用
+- 更新asio命名空间引用
+- 优化co_run_ec函数中的asio异步初始化类型定义
+
 ## 1.3.9 - 2026年4月18日
 
 去除基于nng的httpclient
