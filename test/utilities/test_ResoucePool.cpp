@@ -347,7 +347,7 @@ TEST_CASE("test_ResourcePool_EmptyPointerReturn") {
 
 // ==================== ResourceWithVersion 测试 ====================
 
-class TTResource : public ResourceWithVersion {
+class TTResource {
     PARAMETER_SUPPORT
 
 public:
@@ -367,6 +367,18 @@ public:
     void print() {
         printf("i am version: %d\n", m_version);
     }
+
+    // 版本管理接口
+    int getVersion() const {
+        return m_version;
+    }
+
+    void setVersion(int version) {
+        m_version = version;
+    }
+
+private:
+    int m_version = 0;
 };
 
 TEST_CASE("test_ResourceVersionPool_BasicVersionControl") {
