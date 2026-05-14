@@ -1,120 +1,192 @@
 # 版本发布说明
 
-## 1.3.10 - 2026年5月12日
+## 1.4.0 - 2026年05月15日
 
 ### 新功能特性 (Features)
 
+#### 资源池管理 (Resource Pool)
+
+- **新增线程局部资源池 (ResourceTlsPool)**:
+
+  - 基于 Ring Buffer 架构实现高性能的线程局部存储资源池
+  - 提供 `get()` 同步接口和 `asyncGet()` 异步接口
+  - 支持非阻塞模式获取资源
+  - 统一使用 `stdx::expected` 进行错误处理
+- **新增混合资源池 (ResourceHybridPool)**:
+
+  - 结合 TLS 本地池和全局共享池的优势
+  - 优先从本地线程池获取资源，失败时自动降级到全局池
+  - 支持运行时动态配置 TLS 池大小
+  - 添加 TLS 池禁用功能，灵活适配不同场景
+- **新增版本化资源池**:
+
+  - ResourceTlsVersionPool: 线程局部版本资源池，每个线程维护独立版本号
+  - ResourceHybridVersionPool: 混合版本资源池，支持全局原子版本号和参数同步
+  - 采用鸭子类型设计，资源类只需实现 `getVersion()` 和 `setVersion()` 方法
+  - 使用编译期检查 (`static_assert`) 强制要求版本接口，零运行时开销
+- **资源池接口统一**:
+
+  - 同步方法统一命名为 `get()`
+  - 异步方法统一使用 `asyncGet()` 前缀
+  - 所有返回值统一使用 `stdx::expected<ResourcePtr, std::string>`
+  - 移除废弃的 `getForce()` 和 `asyncGetForce()` 接口
+  - 新增 `createStandalone()` 创建独立资源（不受池大小限制）
+- **ResourceAsioPool 优化**:
+
+  - 优化等待队列管理和资源归还逻辑
+  - 修复析构和资源归还时的竞态条件问题
+  - 避免在持有锁时调用 unbind 方法
+  - 异步资源获取改用 expected 类型返回结果
+
 #### 数据库连接 (db_connect)
 
-- **异步数据库支持**: 添加完整的异步数据库连接功能，包括异步SQLite和MySQL支持
-  - 添加异步SQLite连接和语句支持
-  - 重构AsyncSQLiteStatement线程池管理
+- **异步数据库支持增强**:
+
+  - 添加完整的异步 SQLite 连接和语句支持
+  - 重构 AsyncSQLiteStatement 线程池管理
+  - 为 SQL 语句操作添加异步支持 (TableMacro)
   - 将数据库连接基类中的同步方法转换为异步实现
-  - 为SQL语句操作添加异步支持 (TableMacro)
-- **MySQL增强**:
-  - MySQL连接实现替换为Boost.MySQL
-  - 添加libmysqlclient支持并优化异步MySQL连接
-  - 添加MySQL连接的statement缓存功能
-  - 使用Pimpl模式重构MySQL连接实现
-  - 使用异步操作重构MySQL连接实现
-  - 更新MySQL语句执行逻辑为流式处理
-  - 更新MySQL连接配置以支持MySQL 8.0
-  - 添加HKU_UTILS_API导出标识符
-- **SQLite增强**: 添加数据库检查和备份功能
+- **MySQL 驱动重构与增强**:
 
-#### HTTP客户端 (http_client)
+  - MySQL 连接实现替换为 Boost.MySQL
+  - 添加 libmysqlclient 支持并优化异步 MySQL 连接
+  - 使用 Pimpl 模式重构 MySQL 连接实现，隐藏实现细节
+  - 添加 MySQL 连接的 statement 缓存功能，提升性能
+  - 更新 MySQL 语句执行逻辑为流式处理
+  - 更新 MySQL 连接配置以支持 MySQL 8.0
+  - 添加 HKU_UTILS_API 导出标识符
 
-- 优化AsioHttpClient的DNS解析逻辑
-- 为macOS平台添加DNS解析超时控制
-- 添加请求超时保护和提前验证
-- 添加URL有效性检查
-- 添加对多种数据格式的JSON解析支持
+#### HTTP 客户端 (http_client)
 
-#### 资源池 (ResourceAsioPool)
+- **DNS 解析优化**:
 
-- 优化资源池等待队列管理和资源归还逻辑
+  - 优化 AsioHttpClient 的 DNS 解析逻辑
+  - 为 macOS 平台添加 DNS 解析超时控制
+  - 修复 DNS 解析器生命周期问题
+- **超时保护机制**:
+
+  - 添加请求超时保护和提前验证
+  - 改进异步 HTTP 请求超时处理机制
+  - 修复 HTTP 请求超时时的死锁问题
+  - future 使用超时会造成 asio 卡死的问题已修复
+- **URL 处理增强**:
+
+  - 添加 URL 有效性检查
+  - 添加对多种数据格式的 JSON 解析支持
+  - 将 HTTP 请求异常日志级别从 ERROR 降级为 DEBUG
 
 #### 线程库 (thread)
 
-- 更新协程执行函数使用net::error_code替换boost::system::error_code
+- **协程支持优化**:
+  - 更新协程执行函数使用 `net::error_code` 替换 `boost::system::error_code`
+  - 优化 `co_run_ec` 函数中的 asio 异步初始化类型定义
+  - 修复协程执行器中的 asio 命名空间引用错误
+  - 更新 asio 库函数调用和命名空间引用
 
 #### 日志系统 (Log)
 
 - 添加条件异常抛出宏定义
+- 修复日志宏中的命名空间引用问题，使用全局命名空间前缀 `::` 以避免潜在的命名冲突
 
 #### 工具库 (util)
 
-- 在内存分配失败检查中添加unlikely属性优化
-
-#### 测试 (test)
-
-- 添加网络库依赖并引入asio命名空间
+- 在内存分配失败检查中添加 `unlikely` 属性优化，提升分支预测性能
 
 #### 构建系统
 
-- 修改配置OpenSSL3依赖项
-- 禁用boost.math的128位浮点数支持
-- 移除boost math的128位浮点数禁用并添加linux平台libquadmath链接
+- **依赖管理优化**:
 
-#### CI/CD
+  - 修改配置 OpenSSL3 依赖项
+  - 禁用 boost.math 的 128 位浮点数支持
+  - 添加 Linux 平台 libquadmath 链接支持
+  - 调整包依赖顺序确保 openssl3 在 boost 之前
+- **CI/CD 改进**:
 
-- 添加多架构支持并优化缓存策略
-- 更新构建脚本并移除AArch64交叉编译工作流
+  - 添加多架构支持并优化缓存策略
+  - 更新构建脚本并移除 AArch64 交叉编译工作流
+  - 添加 Windows 版本定义以支持 Windows 7 及以上系统
+
+#### 其他组件
+
+- **FilterNode**: 添加共享互斥锁支持并改进异常处理
+- **expected 类型支持**: 添加 `stdx::expected` 封装层，统一错误处理机制
 
 ### 问题修复 (Bug Fixes)
 
 #### 数据库连接 (db_connect)
 
-- 修复MySQL时间戳转换中的缓冲区溢出风险
-- 修复异步MySQL连接析构时未清理语句缓存的问题
+- 修复 MySQL 时间戳转换中的缓冲区溢出风险
+- 修复异步 MySQL 连接析构时未清理语句缓存的问题
 - 修复异步数据库连接中的协程返回问题
-- 修复SQLException异常捕获的命名空间问题
-- 修复MySQL连接ping方法中的逻辑错误
+- 修复 SQLException 异常捕获的命名空间问题
+- 修复 MySQL 连接 ping 方法中的逻辑错误
 
-#### HTTP客户端 (http_client)
+#### HTTP 客户端 (http_client)
 
-- 修复HTTP请求超时时的死锁问题
-- 改进异步HTTP请求超时处理机制
-- 修复AsioHttpClient中DNS解析器生命周期问题
-- future使用超时会造成asio卡死
-- 将HTTP请求异常日志级别从ERROR降级为DEBUG
+- 修复 HTTP 请求超时时的死锁问题
+- 修复 AsioHttpClient 中 DNS 解析器生命周期问题
+- 修复 future 使用超时造成的 asio 卡死问题
 
 #### 资源池 (ResourceAsioPool)
 
 - 修复资源池析构和资源归还时的竞态条件问题
-- 修复协程执行器中的asio命名空间引用错误
+- 修复协程执行器中的 asio 命名空间引用错误
 
-#### 日志系统 (Log)
+#### 构建系统
 
-- 修复日志宏中的命名空间引用问题，使用全局命名空间前缀::以避免潜在的命名冲突
+- 修复 Linux 平台下 quadmath 库链接问题
+- 修复 BOOST_HAS_FLOAT128 定义导致的编译问题
+- 移除 OpenSSL3 的 system=false 和 shared 配置
 
 ### 代码重构 (Refactoring)
 
-#### 数据库连接 (db_connect)
+#### 资源池架构重构
 
-- 重构MySQL连接实现并修复代码格式
+- **移除继承基类模式**:
+
+  - 移除 `ResourceWithVersion` 基类，改用编译期检查
+  - 移除 `AsyncResourceWithVersion` 基类，改用 SFINAE 检查
+  - 采用鸭子类型原则，降低耦合度，提高灵活性
+- **重命名优化**:
+
+  - 将 `ResourceThreadLocalPool` 重命名为 `ResourceTlsPool`，更准确表达含义
+- **测试优化**:
+
+  - 重构版本资源池测试代码以避免测试间状态污染
+
+#### 数据库连接重构
+
+- 重构 MySQL 连接实现并修复代码格式
 - 将异步事务实现移入头文件
-- 移除AsyncDBConnectBase中的同步方法声明
-- 移除异步操作改用同步实现提升MySQL连接稳定性
+- 移除 AsyncDBConnectBase 中的同步方法声明
+- 移除异步操作改用同步实现提升 MySQL 连接稳定性
 - 更新头文件包含路径和命名空间引用
 
-#### HTTP客户端 (http_client)
+#### HTTP 客户端重构
 
-- 统一网络库接口引入net.h抽象层
-- 更新AsioHttpClient执行器类型
-- 移除AsioHttpClient中被注释的超时处理代码
+- 统一网络库接口引入 `net.h` 抽象层
+- 更新 AsioHttpClient 执行器类型
+- 移除 AsioHttpClient 中被注释的超时处理代码
+- 移除 nng http 客户端实现
 
-#### 资源池 (ResourceAsioPool)
+#### 资源池重构
 
 - 重构资源池析构逻辑并优化并发安全机制
-- 避免在持有锁时调用unbind方法
+- 避免在持有锁时调用 unbind 方法
 - 调整协程执行器获取位置并移除多余代码
+- 修正注释对齐问题
 
-#### 线程库 (thread)
+#### 线程库重构
 
-- 更新asio库函数调用
-- 更新asio命名空间引用
-- 优化co_run_ec函数中的asio异步初始化类型定义
+- 更新 asio 库函数调用
+- 更新 asio 命名空间引用
+- 优化 co_run_ec 函数中的 asio 异步初始化类型定义
+
+#### 其他重构
+
+- 移除未使用的并发节点映射头文件
+- 移除废弃的异常抛出宏定义
+- 完善资源池单元测试覆盖并发场景
 
 ## 1.3.9 - 2026年4月18日
 
