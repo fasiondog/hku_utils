@@ -89,10 +89,7 @@ public:
     explicit ResourceHybridPool(const Parameter &param,
                                 size_t max_tls_pool_size = MAX_TLS_POOL_SIZE_LIMIT,
                                 size_t max_global_pool_size = 64)
-    : m_tls_pool_param(param),
-      m_global_pool_param(param),
-      m_max_global_pool_size(max_global_pool_size),
-      m_max_tls_pool_size(max_tls_pool_size) {
+    : m_max_global_pool_size(max_global_pool_size), m_max_tls_pool_size(max_tls_pool_size) {
         // 检查并截断 TLS 池大小
         if (m_max_tls_pool_size > MAX_TLS_POOL_SIZE_LIMIT) {
             HKU_WARN("max_tls_pool_size({}) exceeds physical limit ({}), truncated to {}",
@@ -101,14 +98,13 @@ public:
         }
 
         // 初始化 TLS Pool 的默认参数
-        TlsPoolType::init(m_tls_pool_param);
+        TlsPoolType::init(param);
 
         // 设置 TLS Pool 的实际使用大小（通过 getInstance() 后调用 maxCount）
         TlsPoolType::getInstance().maxCount(m_max_tls_pool_size);
 
         // 创建全局共享池（使用运行时指定的大小，支持多线程并发）
-        m_global_pool =
-          std::make_unique<GlobalPoolType>(m_global_pool_param, m_max_global_pool_size);
+        m_global_pool = std::make_unique<GlobalPoolType>(param, m_max_global_pool_size);
     }
 
     /**
@@ -227,8 +223,6 @@ public:
     }
 
 private:
-    Parameter m_tls_pool_param;         // TLS Pool 参数
-    Parameter m_global_pool_param;      // Global Pool 参数
     size_t m_max_global_pool_size{64};  // 全局共享池最大资源数
     size_t m_max_tls_pool_size{
       MAX_TLS_POOL_SIZE_LIMIT};                     // TLS 池实际使用的最大资源数（不超过模板参数）

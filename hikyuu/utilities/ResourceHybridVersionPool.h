@@ -87,8 +87,7 @@ public:
     explicit ResourceHybridVersionPool(const Parameter &param,
                                        size_t max_tls_pool_size = MAX_GLOBAL_POOL_SIZE_LIMIT,
                                        size_t max_global_pool_size = 64)
-    : m_tls_pool_param(param),
-      m_global_pool_param(param),
+    : m_param(param),
       m_max_global_pool_size(max_global_pool_size),
       m_max_tls_pool_size(max_tls_pool_size),
       m_version(0) {
@@ -100,14 +99,13 @@ public:
         }
 
         // 初始化 TLS Pool 的默认参数
-        TlsPoolType::init(m_tls_pool_param);
+        TlsPoolType::init(param);
 
         // 设置 TLS Pool 的实际使用大小
         TlsPoolType::getInstance().maxCount(m_max_tls_pool_size);
 
         // 创建全局共享池（使用运行时指定的大小，支持多线程并发）
-        m_global_pool =
-          std::make_unique<GlobalPoolType>(m_global_pool_param, m_max_global_pool_size);
+        m_global_pool = std::make_unique<GlobalPoolType>(m_param, m_max_global_pool_size);
     }
 
     /**
@@ -147,7 +145,7 @@ public:
         // 更新全局参数和版本号
         {
             std::lock_guard<std::shared_mutex> lock(m_param_mutex);
-            m_global_pool_param.set<ValueType>(name, value);
+            m_param.set<ValueType>(name, value);
         }
         m_version.fetch_add(1, std::memory_order_release);
 
@@ -171,7 +169,7 @@ public:
     void setParameter(const Parameter &param) {
         {
             std::lock_guard<std::shared_mutex> lock(m_param_mutex);
-            m_global_pool_param = param;
+            m_param = param;
         }
         m_version.fetch_add(1, std::memory_order_release);
         m_global_pool->setParameter(param);
@@ -185,10 +183,10 @@ public:
     void setParameter(Parameter &&param) {
         {
             std::lock_guard<std::shared_mutex> lock(m_param_mutex);
-            m_global_pool_param = std::move(param);
+            m_param = std::move(param);
         }
         m_version.fetch_add(1, std::memory_order_release);
-        m_global_pool->setParameter(m_global_pool_param);
+        m_global_pool->setParameter(m_param);
     }
 
     /**
@@ -199,7 +197,7 @@ public:
      */
     bool haveParam(const std::string &name) {
         std::shared_lock<std::shared_mutex> lock(m_param_mutex);
-        return m_global_pool_param.have(name);
+        return m_param.have(name);
     }
 
     /**
@@ -213,7 +211,7 @@ public:
     template <typename ValueType>
     ValueType getParam(const std::string &name) {
         std::shared_lock<std::shared_mutex> lock(m_param_mutex);
-        return m_global_pool_param.get<ValueType>(name);
+        return m_param.get<ValueType>(name);
     }
 
     /**
@@ -269,7 +267,7 @@ public:
             Parameter current_param;
             {
                 std::shared_lock<std::shared_mutex> lock(m_param_mutex);
-                current_param = m_global_pool_param;
+                current_param = m_param;
             }
             tls_pool.syncVersion(current_version, current_param);
         }
@@ -309,7 +307,7 @@ public:
             Parameter current_param;
             {
                 std::shared_lock<std::shared_mutex> lock(m_param_mutex);
-                current_param = m_global_pool_param;
+                current_param = m_param;
             }
             tls_pool.syncVersion(current_version, current_param);
         }
@@ -340,7 +338,7 @@ public:
             Parameter current_param;
             {
                 std::shared_lock<std::shared_mutex> lock(m_param_mutex);
-                current_param = m_global_pool_param;
+                current_param = m_param;
             }
             tls_pool.syncVersion(current_version, current_param);
         }
@@ -381,8 +379,7 @@ public:
     }
 
 private:
-    Parameter m_tls_pool_param;                              // TLS Pool 参数（受锁保护）
-    Parameter m_global_pool_param;                           // 全局参数（受锁保护）
+    Parameter m_param;                                       // 全局参数（受锁保护）
     size_t m_max_global_pool_size{64};                       // 全局共享池最大资源数
     size_t m_max_tls_pool_size{MAX_GLOBAL_POOL_SIZE_LIMIT};  // TLS Pool 实际使用的最大资源数
     std::unique_ptr<GlobalPoolType> m_global_pool;           // 全局共享池实例
