@@ -98,11 +98,12 @@ add_requires("boost", {
       serialization = false,
       system = true,
       python = false,
-      cmake = true,
       asio = true,
+      beast = true,
       openssl = has_config("mysql"),
       mysql = has_config("mysql"),
       charconv = has_config("mysql"),  -- boost.mysql 需要 charconv
+      cmake = false,
     },
   })
 
