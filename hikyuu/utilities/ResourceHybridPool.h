@@ -81,10 +81,12 @@ public:
      * @param param 资源创建参数
      * @param max_tls_pool_size TLS 池实际使用的最大资源数，默认等于模板参数 MAX_TLS_POOL_SIZE_LIMIT
      *                          此值不能超过 MAX_TLS_POOL_SIZE_LIMIT，否则会被截断
+     *                          如果设置为 0，则完全禁用 TLS Pool，所有请求都从全局共享池获取
      * @param max_global_pool_size 全局共享池（Global Pool）的最大资源数，默认 64
      *
      * @note TLS 池的实际大小由 max_tls_pool_size 控制，但底层数组容量仍为 MAX_TLS_POOL_SIZE_LIMIT
      * @note 如果 max_tls_pool_size > MAX_TLS_POOL_SIZE_LIMIT，会自动调整为 MAX_TLS_POOL_SIZE_LIMIT
+     * @note 如果 max_tls_pool_size == 0，TLS Pool 被禁用，直接降级到全局共享池
      */
     explicit ResourceHybridPool(const Parameter &param,
                                 size_t max_tls_pool_size = MAX_TLS_POOL_SIZE_LIMIT,
@@ -143,6 +145,11 @@ public:
      * @endcode
      */
     stdx::expected<std::shared_ptr<ResourceType>, std::string> get() {
+        // 如果 TLS Pool 被禁用（max_tls_pool_size == 0），直接从全局池获取
+        if (m_max_tls_pool_size == 0) {
+            return m_global_pool->get();
+        }
+
         // 优先从 TLS Pool 获取（快速路径）
         auto tls_result = TlsPoolType::getInstance().get();
         if (tls_result) {
@@ -169,6 +176,12 @@ public:
      */
     net::awaitable<stdx::expected<std::shared_ptr<ResourceType>, std::string>> asyncGet(
       std::chrono::steady_clock::duration timeout = std::chrono::seconds(5)) {
+        // 如果 TLS Pool 被禁用（max_tls_pool_size == 0），直接从全局池获取
+        if (m_max_tls_pool_size == 0) {
+            auto global_result = co_await m_global_pool->asyncGet(timeout);
+            co_return global_result;
+        }
+
         // 1. 首先尝试从 TLS Pool 获取（快速路径）
         auto tls_result = TlsPoolType::getInstance().get();
         if (tls_result) {
