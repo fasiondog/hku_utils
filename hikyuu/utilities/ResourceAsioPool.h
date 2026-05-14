@@ -160,22 +160,13 @@ public:
     }
 
     /**
-     * 协程方式获取可用资源
-     * @return awaitable<std::expected<ResourcePtr, std::string>>
-     * 可等待的结果，成功时包含资源指针，失败时包含错误信息
-     */
-    awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet() {
-        return asyncGet(std::chrono::seconds(3));
-    }
-
-    /**
      * 协程方式获取可用资源（带超时）
      * @param timeout 超时时间
      * @return awaitable<std::expected<ResourcePtr, std::string>>
      * 可等待的结果，成功时包含资源指针，失败时包含错误信息
      */
     awaitable<stdx::expected<ResourcePtr, std::string>> asyncGet(
-      std::chrono::steady_clock::duration timeout) {
+      std::chrono::steady_clock::duration timeout = std::chrono::seconds(5)) {
         // 尝试从空闲队列获取资源
         ResourceType *p = nullptr;
         if (m_resourceList.pop(p)) {
