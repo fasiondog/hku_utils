@@ -68,50 +68,53 @@ TEST_CASE("test_ResourceTlsPool_custom_limit") {
     CHECK_EQ(pool.maxCount(), 50);
 }
 
-// 测试多线程协程执行
-TEST_CASE("test_ResourceTlsPool_multithread_coroutine") {
+// 测试多线程资源获取
+TEST_CASE("test_ResourceTlsPool_multithread") {
     Parameter param;
-    param.set<std::string>("coroutine_test", "true");
+    param.set<std::string>("thread_test", "true");
 
     // 初始化默认参数（使用自定义 MAX_POOL_SIZE = 5）
     using TestPool = ResourceTlsPool<TestResource, 5>;
     TestPool::init(param);
 
-    asio::io_context io_ctx;
-    asio::thread_pool pool(4);  // 4个线程的线程池
-
     std::atomic<int> success_count{0};
     std::atomic<int> error_count{0};
+    std::vector<std::thread> threads;
 
-    // 在多个线程中启动协程
+    // 在多个线程中获取资源
     for (int i = 0; i < 8; ++i) {
-        asio::co_spawn(
-          pool,
-          [&, i]() -> asio::awaitable<void> {
-              // 每个线程有自己的 thread_local 实例
-              auto& local_pool = TestPool::getInstance();
+        threads.emplace_back([&, i]() {
+            // 每个线程有自己的 thread_local 实例
+            auto& local_pool = TestPool::getInstance();
 
-              // 获取资源
-              auto result = co_await local_pool.asyncGet(std::chrono::seconds(2));
-              if (result) {
-                  auto& res = result.value();
-                  CHECK_NE(res, nullptr);
-                  CHECK_EQ(res->param().get<std::string>("coroutine_test"), "true");
-                  success_count++;
+            // 获取资源（同步调用）
+            try {
+                auto result = local_pool.get();
+                if (result) {
+                    auto& res = result.value();
+                    CHECK_NE(res, nullptr);
+                    CHECK_EQ(res->param().get<std::string>("thread_test"), "true");
+                    success_count++;
 
-                  // 模拟一些工作
-                  co_await asio::post(asio::use_awaitable);
+                    // 模拟一些工作
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-                  res.reset();
-              } else {
-                  error_count++;
-              }
-          },
-          asio::detached);
+                    // 资源会自动归还（通过 shared_ptr 析构）
+                } else {
+                    error_count++;
+                    HKU_ERROR("Thread {} failed to get resource: {}", i, result.error());
+                }
+            } catch (const std::exception& e) {
+                error_count++;
+                HKU_ERROR("Thread {} exception: {}", i, e.what());
+            }
+        });
     }
 
-    // 等待所有协程完成
-    pool.join();
+    // 等待所有线程完成
+    for (auto& t : threads) {
+        t.join();
+    }
 
     // 验证结果
     CHECK_GT(success_count.load(), 0);

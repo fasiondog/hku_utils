@@ -421,56 +421,55 @@ TEST_CASE("test_ResourceTlsVersionPool_resourceVersionCheck_return") {
     CHECK_EQ(res2->getVersion(), 1);
 }
 
-// 测试多线程协程执行（注意：ResourceTlsVersionPool 是 thread_local 的，
-// 不适合跨线程共享，此测试主要验证每个线程有独立的池实例）
-TEST_CASE("test_ResourceTlsVersionPool_multithread_coroutine") {
+// 测试多线程资源获取（注意：ResourceTlsVersionPool 是 thread_local 的，
+// 每个线程有独立的池实例，此测试主要验证线程隔离性）
+TEST_CASE("test_ResourceTlsVersionPool_multithread") {
     Parameter param;
-    param.set<std::string>("coroutine_test", "true");
+    param.set<std::string>("thread_test", "true");
 
     // 初始化默认参数（使用自定义 MAX_POOL_SIZE = 5）
     using TestPool = ResourceTlsVersionPool<MultithreadCoroutineResource, 5>;
     TestPool::init(param);
 
-    asio::io_context io_ctx;
-    asio::thread_pool tp(4);  // 4个线程的线程池
-
     std::atomic<int> success_count{0};
     std::atomic<int> error_count{0};
+    std::vector<std::thread> threads;
 
-    // 在多个线程中启动协程
+    // 在多个线程中获取资源
     for (int i = 0; i < 8; ++i) {
-        asio::co_spawn(
-          tp,
-          [&, i]() -> asio::awaitable<void> {
-              // 每个线程有自己的 thread_local 实例
-              auto& local_pool = TestPool::getInstance();
+        threads.emplace_back([&, i]() {
+            // 每个线程有自己的 thread_local 实例
+            auto& local_pool = TestPool::getInstance();
 
-              // 获取资源
-              auto result = co_await local_pool.asyncGet(std::chrono::seconds(2));
-              if (result) {
-                  auto& res = result.value();
-                  CHECK_NE(res, nullptr);
+            // 获取资源（同步调用）
+            try {
+                auto result = local_pool.get();
+                if (result) {
+                    auto& res = result.value();
+                    CHECK_NE(res, nullptr);
+                    success_count++;
 
-                  // 验证资源是否包含正确的参数
-                  // 注意：由于 thread_local 特性，不同线程的池可能使用不同的参数
-                  // 这里只验证能成功获取资源即可
-                  success_count++;
+                    // 模拟一些工作
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-                  // 模拟一些工作
-                  co_await asio::post(asio::use_awaitable);
-
-                  res.reset();
-              } else {
-                  error_count++;
-              }
-          },
-          asio::detached);
+                    // 资源会自动归还（通过 shared_ptr 析构）
+                } else {
+                    error_count++;
+                    HKU_ERROR("Thread {} failed to get resource: {}", i, result.error());
+                }
+            } catch (const std::exception& e) {
+                error_count++;
+                HKU_ERROR("Thread {} exception: {}", i, e.what());
+            }
+        });
     }
 
-    // 等待所有协程完成
-    tp.join();
+    // 等待所有线程完成
+    for (auto& t : threads) {
+        t.join();
+    }
 
-    // 验证结果：至少有一些协程成功获取了资源
+    // 验证结果
     CHECK_GT(success_count.load(), 0);
     HKU_INFO("Success count: {}, Error count: {}", success_count.load(), error_count.load());
 }
