@@ -1,5 +1,10 @@
 # 版本发布说明
 
+## 1.4.1 - 2026年5月17日
+
+1. 优化 ResouceAsioPool/ResouceAsioVersionPool 超时等待及可能的竞态问题
+2. ResourceTlsPool/ResourceTlsVersionPool 移除 asyncGet 方法，thread local 资源池通常不使用也不建议 async 方式获取
+
 ## 1.4.0 - 2026年05月15日
 
 ### 新功能特性 (Features)
