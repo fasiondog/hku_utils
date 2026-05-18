@@ -48,11 +48,13 @@ static Parameter loadMySQLConfig() {
             std::string host = parser.get("mysql57", "host", "127.0.0.1");
             int port = parser.getInt("mysql57", "port", "3306");
             std::string user = parser.get("mysql57", "user", "root");
+            std::string database = parser.get("mysql57", "database", "test");
 
             param.set<std::string>("host", host);
             param.set<int>("port", port);
             param.set<std::string>("usr", user);
             param.set<std::string>("pwd", parser.get("mysql57", "pwd", ""));
+            param.set<std::string>("db", database);
         }
     } catch (const std::exception& e) {
         // Ignore errors
@@ -635,7 +637,47 @@ TEST_CASE("test_async_mysql_hybrid_pool") {
                 CHECK(connected == true);
 
                 if (connected) {
-                    test_passed = true;
+                    // 3. 数据保存测试 - 创建测试表
+                    co_await conn->exec(
+                      "CREATE TABLE IF NOT EXISTS test_hybrid_save ("
+                      "id INT AUTO_INCREMENT PRIMARY KEY, "
+                      "name VARCHAR(100), "
+                      "value INT"
+                      ")");
+
+                    // 清空测试数据
+                    co_await conn->exec("DELETE FROM test_hybrid_save");
+
+                    // 插入单条数据
+                    int64_t affected = co_await conn->exec(
+                      "INSERT INTO test_hybrid_save (name, value) VALUES ('test1', 100)");
+                    CHECK(affected == 1);
+
+                    // 批量插入多条数据
+                    affected = co_await conn->exec(
+                      "INSERT INTO test_hybrid_save (name, value) VALUES "
+                      "('test2', 200), ('test3', 300), ('test4', 400)");
+                    CHECK(affected == 3);
+
+                    // 验证数据
+                    auto stmt =
+                      co_await conn->getStatement("SELECT COUNT(*) as cnt FROM test_hybrid_save");
+                    REQUIRE(stmt != nullptr);
+
+                    co_await stmt->exec();
+
+                    if (co_await stmt->moveNext()) {
+                        int count = 0;
+                        stmt->getColumn(0, count);
+                        CHECK(count == 4);  // 1 + 3 = 4 条记录
+
+                        if (count == 4) {
+                            test_passed = true;
+                        }
+                    }
+
+                    // 清理测试表
+                    co_await conn->exec("DROP TABLE IF EXISTS test_hybrid_save");
                 }
 
                 // 释放资源
