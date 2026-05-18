@@ -567,134 +567,6 @@ TEST_CASE("test_async_sql_result_set_null_connect") {
     io_context.run_for(std::chrono::seconds(5));
 }
 
-TEST_CASE("test_async_sql_result_set_basic") {
-    // 注意：AsyncSQLResultSet 目前需要额外的异步 load 支持
-    // 此测试暂时跳过，待完整实现后再启用
-}
-
-TEST_CASE("test_async_sql_result_set_with_condition") {
-    // 注意：AsyncSQLResultSet 目前需要额外的异步 load 支持
-    // 此测试暂时跳过，待完整实现后再启用
-}
-
-TEST_CASE("test_async_sql_result_set_pagination") {
-    // 注意：AsyncSQLResultSet 目前需要额外的异步 load 支持
-    // 此测试暂时跳过，待完整实现后再启用
-}
-
-// ============================================================================
-// AsyncMySQLConnect with ResourceHybridPool 测试
-// ============================================================================
-
-TEST_CASE("test_async_mysql_hybrid_pool") {
-    // 测试使用 ResourceHybridPool 管理 AsyncMySQLConnect 连接
-    Parameter param = loadMySQLConfig();
-
-    if (param.empty()) {
-        return;
-    }
-
-    // 创建混合资源池,TLS Pool 大小为 2,全局池大小为 4
-    ResourceHybridPool<AsyncMySQLConnect, 8> pool(param, 2, 4);
-
-    boost::asio::io_context io_context;
-    bool test_passed = false;
-
-    auto run_test = [&]() -> net::awaitable<void> {
-        try {
-            // 1. 同步获取(从 TLS Pool)
-            auto sync_result = pool.get();
-            CHECK(sync_result.has_value());
-
-            if (sync_result) {
-                auto& conn = sync_result.value();
-                CHECK(conn != nullptr);
-
-                // 验证连接可用
-                bool connected = co_await conn->ping();
-                CHECK(connected == true);
-
-                if (connected) {
-                    // 执行简单查询
-                    int64_t affected = co_await conn->exec("SELECT 1");
-                    CHECK(affected >= 0);
-                }
-
-                // 释放资源(自动归还到 TLS Pool)
-                sync_result.value().reset();
-            }
-
-            // 2. 异步获取(优先 TLS Pool,失败则从全局池)
-            auto async_result = co_await pool.asyncGet(std::chrono::seconds(5));
-            CHECK(async_result.has_value());
-
-            if (async_result) {
-                auto& conn = async_result.value();
-                CHECK(conn != nullptr);
-
-                // 验证连接可用
-                bool connected = co_await conn->ping();
-                CHECK(connected == true);
-
-                if (connected) {
-                    // 3. 数据保存测试 - 创建测试表
-                    co_await conn->exec(
-                      "CREATE TABLE IF NOT EXISTS test_hybrid_save ("
-                      "id INT AUTO_INCREMENT PRIMARY KEY, "
-                      "name VARCHAR(100), "
-                      "value INT"
-                      ")");
-
-                    // 清空测试数据
-                    co_await conn->exec("DELETE FROM test_hybrid_save");
-
-                    // 插入单条数据
-                    int64_t affected = co_await conn->exec(
-                      "INSERT INTO test_hybrid_save (name, value) VALUES ('test1', 100)");
-                    CHECK(affected == 1);
-
-                    // 批量插入多条数据
-                    affected = co_await conn->exec(
-                      "INSERT INTO test_hybrid_save (name, value) VALUES "
-                      "('test2', 200), ('test3', 300), ('test4', 400)");
-                    CHECK(affected == 3);
-
-                    // 验证数据
-                    auto stmt =
-                      co_await conn->getStatement("SELECT COUNT(*) as cnt FROM test_hybrid_save");
-                    REQUIRE(stmt != nullptr);
-
-                    co_await stmt->exec();
-
-                    if (co_await stmt->moveNext()) {
-                        int count = 0;
-                        stmt->getColumn(0, count);
-                        CHECK(count == 4);  // 1 + 3 = 4 条记录
-
-                        if (count == 4) {
-                            test_passed = true;
-                        }
-                    }
-
-                    // 清理测试表
-                    co_await conn->exec("DROP TABLE IF EXISTS test_hybrid_save");
-                }
-
-                // 释放资源
-                async_result.value().reset();
-            }
-
-        } catch (const std::exception& e) {
-            MESSAGE("Hybrid pool test failed: " << e.what());
-        }
-    };
-
-    boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
-    io_context.run_for(std::chrono::seconds(10));
-
-    CHECK(test_passed == true);
-}
-
 TEST_CASE("test_async_mysql_table_macro_save_load_update") {
     // 测试使用 TableMacro 进行异步 save、load、update、batchSave、batchLoad 操作
     Parameter param = loadMySQLConfig();
@@ -836,6 +708,495 @@ TEST_CASE("test_async_mysql_table_macro_save_load_update") {
             MESSAGE("TableMacro test failed with exception: " << e.what());
         } catch (...) {
             MESSAGE("TableMacro test failed with unknown exception");
+        }
+    };
+
+    boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
+    io_context.run_for(std::chrono::seconds(10));
+
+    CHECK(test_passed == true);
+}
+
+TEST_CASE("test_async_sql_result_set_basic") {
+    // 测试 AsyncSQLResultSet 的基本功能
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    boost::asio::io_context io_context;
+    bool test_passed = false;
+
+    auto run_test = [&]() -> net::awaitable<void> {
+        try {
+            auto conn = std::make_shared<AsyncMySQLConnect>(param);
+            bool connected = co_await conn->ping();
+            CHECK(connected == true);
+
+            if (!connected) {
+                co_return;
+            }
+
+            // 切换到 test 数据库
+            bool use_success = true;
+            try {
+                co_await conn->exec("USE test");
+            } catch (...) {
+                use_success = false;
+            }
+
+            if (!use_success) {
+                co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
+                co_await conn->exec("USE test");
+            }
+
+            // 定义测试表结构
+            struct TestRecord {
+                TABLE_BIND4(TestRecord, test_result_set_basic, name, age, score, email)
+
+                void reset() {
+                    name = "";
+                    age = 0;
+                    score = 0.0;
+                    email = "";
+                }
+
+                std::string name;
+                int age;
+                double score;
+                std::string email;
+            };
+
+            // 创建测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_result_set_basic");
+            co_await conn->exec(R"(
+                CREATE TABLE test_result_set_basic (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    age INT,
+                    score DOUBLE,
+                    email VARCHAR(200)
+                )
+            )");
+
+            // 插入测试数据
+            for (int i = 1; i <= 25; ++i) {
+                TestRecord record;
+                record.name = "User" + std::to_string(i);
+                record.age = 20 + i;
+                record.score = 80.0 + i * 0.5;
+                record.email = "user" + std::to_string(i) + "@example.com";
+                co_await conn->save(record);
+            }
+
+            // 创建 AsyncSQLResultSet
+            AsyncSQLResultSet<TestRecord, 10> result_set(conn, "");
+
+            // 测试 size
+            size_t count = co_await result_set.size();
+            CHECK(count == 25);
+
+            // 测试 empty
+            bool is_empty = co_await result_set.empty();
+            CHECK(is_empty == false);
+
+            // 测试 getPageCount
+            size_t page_count = co_await result_set.getPageCount();
+            CHECK(page_count == 3);  // 25条记录，每页10条，共3页
+
+            // 测试 getPage
+            auto page0 = co_await result_set.getPage(0);
+            CHECK(page0.size() == 10);
+            CHECK(page0[0].name == "User1");
+
+            auto page1 = co_await result_set.getPage(1);
+            CHECK(page1.size() == 10);
+            CHECK(page1[0].name == "User11");
+
+            auto page2 = co_await result_set.getPage(2);
+            CHECK(page2.size() == 5);  // 最后一页只有5条
+            CHECK(page2[0].name == "User21");
+
+            // 测试 at 方法
+            auto first_record = co_await result_set.at(0);
+            CHECK(first_record.name == "User1");
+            CHECK(first_record.age == 21);
+
+            auto last_record = co_await result_set.at(24);
+            CHECK(last_record.name == "User25");
+            CHECK(last_record.age == 45);
+
+            // 清理测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_result_set_basic");
+
+            test_passed = true;
+
+        } catch (const hku::SQLException& e) {
+            MESSAGE("AsyncSQLResultSet basic test failed: " << e.what()
+                                                            << ", errcode: " << e.errcode());
+        } catch (const std::exception& e) {
+            MESSAGE("AsyncSQLResultSet basic test exception: " << e.what());
+        }
+    };
+
+    boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
+    io_context.run_for(std::chrono::seconds(10));
+
+    CHECK(test_passed == true);
+}
+
+TEST_CASE("test_async_sql_result_set_with_condition") {
+    // 测试 AsyncSQLResultSet 带条件的查询
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    boost::asio::io_context io_context;
+    bool test_passed = false;
+
+    auto run_test = [&]() -> net::awaitable<void> {
+        try {
+            auto conn = std::make_shared<AsyncMySQLConnect>(param);
+            bool connected = co_await conn->ping();
+            CHECK(connected == true);
+
+            if (!connected) {
+                co_return;
+            }
+
+            // 切换到 test 数据库
+            bool use_success = true;
+            try {
+                co_await conn->exec("USE test");
+            } catch (...) {
+                use_success = false;
+            }
+
+            if (!use_success) {
+                co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
+                co_await conn->exec("USE test");
+            }
+
+            // 定义测试表结构
+            struct TestRecord {
+                TABLE_BIND4(TestRecord, test_result_set_condition, name, age, score, email)
+
+                void reset() {
+                    name = "";
+                    age = 0;
+                    score = 0.0;
+                    email = "";
+                }
+
+                std::string name;
+                int age;
+                double score;
+                std::string email;
+            };
+
+            // 创建测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_result_set_condition");
+            co_await conn->exec(R"(
+                CREATE TABLE test_result_set_condition (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    age INT,
+                    score DOUBLE,
+                    email VARCHAR(200)
+                )
+            )");
+
+            // 插入测试数据
+            for (int i = 1; i <= 20; ++i) {
+                TestRecord record;
+                record.name = "User" + std::to_string(i);
+                record.age = 20 + i;
+                record.score = 80.0 + i * 0.5;
+                record.email = "user" + std::to_string(i) + "@example.com";
+                co_await conn->save(record);
+            }
+
+            // 测试带 WHERE 条件的查询 - 使用 size 方法
+            AsyncSQLResultSet<TestRecord, 10> result_set1(conn, "age > 30");
+            size_t count1 = co_await result_set1.size();
+            CHECK(count1 == 10);  // age > 30 的记录有10条（31-40）
+
+            // 测试带 ORDER BY 的查询
+            AsyncSQLResultSet<TestRecord, 10> result_set2(conn, "1=1 ORDER BY age DESC");
+            size_t count2 = co_await result_set2.size();
+            CHECK(count2 == 20);
+
+            auto first_page = co_await result_set2.getPage(0);
+            CHECK(first_page.size() == 10);
+            CHECK(first_page[0].age == 40);  // 年龄最大的应该是40
+
+            // 测试复合条件
+            AsyncSQLResultSet<TestRecord, 10> result_set3(conn, "age > 25 AND score < 90");
+            size_t count3 = co_await result_set3.size();
+            CHECK(count3 == 14);  // age > 25 (6-20) 且 score < 90 (1-19)，交集是6-19，共14条
+
+            // 清理测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_result_set_condition");
+
+            test_passed = true;
+
+        } catch (const hku::SQLException& e) {
+            MESSAGE("AsyncSQLResultSet condition test failed: " << e.what()
+                                                                << ", errcode: " << e.errcode());
+        } catch (const std::exception& e) {
+            MESSAGE("AsyncSQLResultSet condition test exception: " << e.what());
+        }
+    };
+
+    boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
+    io_context.run_for(std::chrono::seconds(10));
+
+    CHECK(test_passed == true);
+}
+
+TEST_CASE("test_async_sql_result_set_pagination") {
+    // 测试 AsyncSQLResultSet 的分页和迭代器功能
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    boost::asio::io_context io_context;
+    bool test_passed = false;
+
+    auto run_test = [&]() -> net::awaitable<void> {
+        try {
+            auto conn = std::make_shared<AsyncMySQLConnect>(param);
+            bool connected = co_await conn->ping();
+            CHECK(connected == true);
+
+            if (!connected) {
+                co_return;
+            }
+
+            // 切换到 test 数据库
+            bool use_success = true;
+            try {
+                co_await conn->exec("USE test");
+            } catch (...) {
+                use_success = false;
+            }
+
+            if (!use_success) {
+                co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
+                co_await conn->exec("USE test");
+            }
+
+            // 定义测试表结构
+            struct TestRecord {
+                TABLE_BIND4(TestRecord, test_result_set_pagination, name, age, score, email)
+
+                void reset() {
+                    name = "";
+                    age = 0;
+                    score = 0.0;
+                    email = "";
+                }
+
+                std::string name;
+                int age;
+                double score;
+                std::string email;
+            };
+
+            // 创建测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_result_set_pagination");
+            co_await conn->exec(R"(
+                CREATE TABLE test_result_set_pagination (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    age INT,
+                    score DOUBLE,
+                    email VARCHAR(200)
+                )
+            )");
+
+            // 插入测试数据
+            for (int i = 1; i <= 15; ++i) {
+                TestRecord record;
+                record.name = "User" + std::to_string(i);
+                record.age = 20 + i;
+                record.score = 80.0 + i * 0.5;
+                record.email = "user" + std::to_string(i) + "@example.com";
+                co_await conn->save(record);
+            }
+
+            // 创建 AsyncSQLResultSet，每页5条
+            AsyncSQLResultSet<TestRecord, 5> result_set(conn, "");
+
+            // 测试 size 和分页数量
+            size_t total = co_await result_set.size();
+            CHECK(total == 15);
+
+            size_t page_count = co_await result_set.getPageCount();
+            CHECK(page_count == 3);  // 15条记录，每页5条，共3页
+
+            // 测试迭代器
+            size_t iter_count = 0;
+            auto it_begin = co_await result_set.begin();
+            co_await it_begin.init();  // 初始化迭代器
+            auto it_end = result_set.end();
+
+            while (it_begin != it_end) {
+                TestRecord record = *it_begin;
+                CHECK(record.valid() == true);
+                iter_count++;
+                it_begin = co_await it_begin.operator_pre_increment();
+            }
+            CHECK(iter_count == 15);
+
+            // 测试 operator[]
+            auto record5 = co_await result_set.operator_bracket(4);
+            CHECK(record5.name == "User5");
+
+            auto record10 = co_await result_set.operator_bracket(9);
+            CHECK(record10.name == "User10");
+
+            auto record15 = co_await result_set.operator_bracket(14);
+            CHECK(record15.name == "User15");
+
+            // 测试跨页访问（应该自动加载对应的页）
+            auto record1 = co_await result_set.operator_bracket(0);
+            CHECK(record1.name == "User1");
+
+            auto record6 = co_await result_set.operator_bracket(5);
+            CHECK(record6.name == "User6");
+
+            auto record11 = co_await result_set.operator_bracket(10);
+            CHECK(record11.name == "User11");
+
+            // 清理测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_result_set_pagination");
+
+            test_passed = true;
+
+        } catch (const hku::SQLException& e) {
+            MESSAGE("AsyncSQLResultSet pagination test failed: " << e.what()
+                                                                 << ", errcode: " << e.errcode());
+        } catch (const std::exception& e) {
+            MESSAGE("AsyncSQLResultSet pagination test exception: " << e.what());
+        }
+    };
+
+    boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
+    io_context.run_for(std::chrono::seconds(10));
+
+    CHECK(test_passed == true);
+}
+
+// ============================================================================
+// AsyncMySQLConnect with ResourceHybridPool 测试
+// ============================================================================
+
+TEST_CASE("test_async_mysql_hybrid_pool") {
+    // 测试使用 ResourceHybridPool 管理 AsyncMySQLConnect 连接
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    // 创建混合资源池,TLS Pool 大小为 2,全局池大小为 4
+    ResourceHybridPool<AsyncMySQLConnect, 8> pool(param, 2, 4);
+
+    boost::asio::io_context io_context;
+    bool test_passed = false;
+
+    auto run_test = [&]() -> net::awaitable<void> {
+        try {
+            // 1. 同步获取(从 TLS Pool)
+            auto sync_result = pool.get();
+            CHECK(sync_result.has_value());
+
+            if (sync_result) {
+                auto& conn = sync_result.value();
+                CHECK(conn != nullptr);
+
+                // 验证连接可用
+                bool connected = co_await conn->ping();
+                CHECK(connected == true);
+
+                if (connected) {
+                    // 执行简单查询
+                    int64_t affected = co_await conn->exec("SELECT 1");
+                    CHECK(affected >= 0);
+                }
+
+                // 释放资源(自动归还到 TLS Pool)
+                sync_result.value().reset();
+            }
+
+            // 2. 异步获取(优先 TLS Pool,失败则从全局池)
+            auto async_result = co_await pool.asyncGet(std::chrono::seconds(5));
+            CHECK(async_result.has_value());
+
+            if (async_result) {
+                auto& conn = async_result.value();
+                CHECK(conn != nullptr);
+
+                // 验证连接可用
+                bool connected = co_await conn->ping();
+                CHECK(connected == true);
+
+                if (connected) {
+                    // 3. 数据保存测试 - 创建测试表
+                    co_await conn->exec(
+                      "CREATE TABLE IF NOT EXISTS test_hybrid_save ("
+                      "id INT AUTO_INCREMENT PRIMARY KEY, "
+                      "name VARCHAR(100), "
+                      "value INT"
+                      ")");
+
+                    // 清空测试数据
+                    co_await conn->exec("DELETE FROM test_hybrid_save");
+
+                    // 插入单条数据
+                    int64_t affected = co_await conn->exec(
+                      "INSERT INTO test_hybrid_save (name, value) VALUES ('test1', 100)");
+                    CHECK(affected == 1);
+
+                    // 批量插入多条数据
+                    affected = co_await conn->exec(
+                      "INSERT INTO test_hybrid_save (name, value) VALUES "
+                      "('test2', 200), ('test3', 300), ('test4', 400)");
+                    CHECK(affected == 3);
+
+                    // 验证数据
+                    auto stmt =
+                      co_await conn->getStatement("SELECT COUNT(*) as cnt FROM test_hybrid_save");
+                    REQUIRE(stmt != nullptr);
+
+                    co_await stmt->exec();
+
+                    if (co_await stmt->moveNext()) {
+                        int count = 0;
+                        stmt->getColumn(0, count);
+                        CHECK(count == 4);  // 1 + 3 = 4 条记录
+
+                        if (count == 4) {
+                            test_passed = true;
+                        }
+                    }
+
+                    // 清理测试表
+                    co_await conn->exec("DROP TABLE IF EXISTS test_hybrid_save");
+                }
+
+                // 释放资源
+                async_result.value().reset();
+            }
+
+        } catch (const std::exception& e) {
+            MESSAGE("Hybrid pool test failed: " << e.what());
         }
     };
 
