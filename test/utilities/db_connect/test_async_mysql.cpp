@@ -695,4 +695,154 @@ TEST_CASE("test_async_mysql_hybrid_pool") {
     CHECK(test_passed == true);
 }
 
+TEST_CASE("test_async_mysql_table_macro_save_load_update") {
+    // 测试使用 TableMacro 进行异步 save、load、update、batchSave、batchLoad 操作
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    boost::asio::io_context io_context;
+    bool test_passed = false;
+
+    auto run_test = [&]() -> net::awaitable<void> {
+        try {
+            auto conn = std::make_shared<AsyncMySQLConnect>(param);
+
+            bool connected = co_await conn->ping();
+            if (!connected) {
+                co_return;
+            }
+
+            // 选择或创建 test 数据库
+            bool use_success = true;
+            try {
+                co_await conn->exec("USE test");
+            } catch (...) {
+                use_success = false;
+            }
+
+            if (!use_success) {
+                co_await conn->exec("CREATE DATABASE IF NOT EXISTS test");
+                co_await conn->exec("USE test");
+            }
+
+            // 定义测试表结构
+            struct TestRecord {
+                TABLE_BIND4(TestRecord, test_table_macro, name, age, score, email)
+
+                void reset() {
+                    name = "";
+                    age = 0;
+                    score = 0.0;
+                    email = "";
+                }
+
+                std::string name;
+                int age;
+                double score;
+                std::string email;
+            };
+
+            // 创建测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_table_macro");
+            co_await conn->exec(R"(
+                CREATE TABLE test_table_macro (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    age INT,
+                    score DOUBLE,
+                    email VARCHAR(200)
+                )
+            )");
+
+            // 测试 save（插入新记录）
+            TestRecord record1;
+            record1.name = "Alice";
+            record1.age = 25;
+            record1.score = 95.5;
+            record1.email = "alice@example.com";
+
+            co_await conn->save(record1);
+            CHECK(record1.valid() == true);
+            CHECK(record1.rowid() > 0);
+
+            // 测试 load（根据条件查询）
+            TestRecord loaded_record;
+            co_await conn->load(loaded_record, "name='Alice'");
+            CHECK(loaded_record.valid() == true);
+            CHECK(loaded_record.name == "Alice");
+            CHECK(loaded_record.age == 25);
+            CHECK(std::abs(loaded_record.score - 95.5) < 0.001);
+            CHECK(loaded_record.email == "alice@example.com");
+
+            // 测试 update（更新已有记录）
+            loaded_record.age = 26;
+            loaded_record.score = 98.0;
+            co_await conn->save(loaded_record);  // save 会自动判断是 insert 还是 update
+
+            // 验证更新后的数据
+            TestRecord updated_record;
+            co_await conn->load(updated_record, "name='Alice'");
+            CHECK(updated_record.age == 26);
+            CHECK(std::abs(updated_record.score - 98.0) < 0.001);
+
+            // 测试 batchSave（批量保存）- 不使用自动事务
+            std::vector<TestRecord> records;
+            TestRecord r1;
+            r1.name = "Bob";
+            r1.age = 30;
+            r1.score = 88.5;
+            r1.email = "bob@example.com";
+
+            TestRecord r2;
+            r2.name = "Charlie";
+            r2.age = 28;
+            r2.score = 92.0;
+            r2.email = "charlie@example.com";
+
+            records.push_back(r1);
+            records.push_back(r2);
+
+            try {
+                co_await conn->batchSave(records, false);  // 不使用自动事务
+                CHECK(records[0].valid() == true);
+                CHECK(records[1].valid() == true);
+            } catch (const hku::SQLException& e) {
+                throw;
+            } catch (const std::exception& e) {
+                throw;
+            }
+
+            // 测试 batchLoad（批量加载）
+            std::vector<TestRecord> all_records;
+            try {
+                co_await conn->batchLoad(all_records, "1=1 ORDER BY name");
+            } catch (const std::exception& e) {
+                throw;
+            }
+            CHECK(all_records.size() >= 3);  // Alice + Bob + Charlie
+
+            // 清理测试表
+            co_await conn->exec("DROP TABLE IF EXISTS test_table_macro");
+
+            test_passed = true;
+
+        } catch (const hku::SQLException& e) {
+            MESSAGE("TableMacro test failed with SQLException: " << e.what()
+                                                                 << ", errcode: " << e.errcode());
+        } catch (const std::exception& e) {
+            MESSAGE("TableMacro test failed with exception: " << e.what());
+        } catch (...) {
+            MESSAGE("TableMacro test failed with unknown exception");
+        }
+    };
+
+    boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
+    io_context.run_for(std::chrono::seconds(10));
+
+    CHECK(test_passed == true);
+}
+
 #endif  // HKU_ENABLE_MYSQL
