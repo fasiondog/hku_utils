@@ -1,5 +1,10 @@
 # 版本发布说明
 
+## 1.4.2 - 2026年5月19日
+
+1. fixed: MySQL异步连接及补充测试
+2. fixed: AsyncSQLResultSet及补充测试
+
 ## 1.4.1 - 2026年5月17日
 
 1. 优化 ResouceAsioPool/ResouceAsioVersionPool 超时等待及可能的竞态问题
