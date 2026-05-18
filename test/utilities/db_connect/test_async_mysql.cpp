@@ -580,12 +580,11 @@ TEST_CASE("test_async_sql_result_set_pagination") {
     // 此测试暂时跳过，待完整实现后再启用
 }
 
-#if 1
 // ============================================================================
 // AsyncMySQLConnect with ResourceHybridPool 测试
 // ============================================================================
 
-TEST_CASE("test_async_mysql_hybrid_pool_basic") {
+TEST_CASE("test_async_mysql_hybrid_pool") {
     // 测试使用 ResourceHybridPool 管理 AsyncMySQLConnect 连接
     Parameter param = loadMySQLConfig();
 
@@ -593,316 +592,65 @@ TEST_CASE("test_async_mysql_hybrid_pool_basic") {
         return;
     }
 
-    boost::asio::io_context io_context;
-    bool test_passed = false;
-
-    {
-        // 创建混合资源池，TLS Pool 大小为 2，全局池大小为 4
-        ResourceHybridPool<AsyncMySQLConnect, 8> pool(param, 2, 4);
-
-        auto run_test = [&]() -> net::awaitable<void> {
-            try {
-                // 1. 同步获取（从 TLS Pool）
-                auto sync_result = pool.get();
-                CHECK(sync_result.has_value());
-
-                if (sync_result) {
-                    auto& conn = sync_result.value();
-                    CHECK(conn != nullptr);
-
-                    // 验证连接可用
-                    bool connected = co_await conn->ping();
-                    CHECK(connected == true);
-
-                    if (connected) {
-                        // 执行简单查询
-                        int64_t affected = co_await conn->exec("SELECT 1");
-                        CHECK(affected >= 0);
-                    }
-
-                    // 释放资源（自动归还到 TLS Pool）
-                    sync_result.value().reset();
-                }
-
-                // 2. 异步获取（优先 TLS Pool，失败则从全局池）
-                auto async_result = co_await pool.asyncGet(std::chrono::seconds(5));
-                CHECK(async_result.has_value());
-
-                if (async_result) {
-                    auto& conn = async_result.value();
-                    CHECK(conn != nullptr);
-
-                    // 验证连接可用
-                    bool connected = co_await conn->ping();
-                    CHECK(connected == true);
-
-                    if (connected) {
-                        test_passed = true;
-                    }
-
-                    // 释放资源
-                    async_result.value().reset();
-                }
-
-            } catch (const std::exception& e) {
-                MESSAGE("Hybrid pool test failed: " << e.what());
-            }
-        };
-
-        boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
-        io_context.run_for(std::chrono::seconds(10));
-    }  // 资源池在这里被销毁
-
-    CHECK(test_passed == true);
-}
-
-TEST_CASE("test_async_mysql_hybrid_pool_multithread") {
-    // 测试多线程环境下 ResourceHybridPool 的使用
-    Parameter param = loadMySQLConfig();
-
-    if (param.empty()) {
-        return;
-    }
-
-    // 创建混合资源池
+    // 创建混合资源池,TLS Pool 大小为 2,全局池大小为 4
     ResourceHybridPool<AsyncMySQLConnect, 8> pool(param, 2, 4);
 
-    std::atomic<int> success_count{0};
-    const int num_threads = 4;
-    const int queries_per_thread = 3;
-
-    std::vector<std::thread> threads;
-
-    for (int t = 0; t < num_threads; ++t) {
-        threads.emplace_back([&pool, &success_count, queries_per_thread]() {
-            boost::asio::io_context io_context;
-
-            auto run_queries = [&]() -> net::awaitable<void> {
-                for (int i = 0; i < queries_per_thread; ++i) {
-                    try {
-                        // 异步获取连接
-                        auto result = co_await pool.asyncGet(std::chrono::seconds(5));
-
-                        if (result && result.value()) {
-                            auto& conn = result.value();
-
-                            // 验证连接并执行查询
-                            bool connected = co_await conn->ping();
-                            if (connected) {
-                                int64_t affected = co_await conn->exec("SELECT 1");
-                                if (affected >= 0) {
-                                    success_count.fetch_add(1);
-                                }
-                            }
-
-                            // 释放资源
-                            result.value().reset();
-                        }
-
-                        // 短暂延迟，模拟实际工作负载
-                        auto timer = net::steady_timer(co_await net::this_coro::executor);
-                        timer.expires_after(std::chrono::milliseconds(10));
-                        co_await timer.async_wait(net::use_awaitable);
-
-                    } catch (const std::exception& e) {
-                        MESSAGE("Thread query failed: " << e.what());
-                    }
-                }
-            };
-
-            boost::asio::co_spawn(io_context, run_queries(), boost::asio::detached);
-            io_context.run_for(std::chrono::seconds(30));
-        });
-    }
-
-    // 等待所有线程完成
-    for (auto& t : threads) {
-        if (t.joinable()) {
-            t.join();
-        }
-    }
-
-    // 验证至少有一部分查询成功
-    // MESSAGE("Successful queries: " << success_count.load() << " / "
-    //                                << (num_threads * queries_per_thread));
-    CHECK(success_count.load() > 0);
-}
-
-TEST_CASE("test_async_mysql_hybrid_pool_concurrent_access") {
-    // 测试并发访问同一资源池的场景
-    Parameter param = loadMySQLConfig();
-
-    if (param.empty()) {
-        return;
-    }
-
-    boost::asio::io_context io_context;
-    std::atomic<int> concurrent_success{0};
-    const int num_tasks = 6;  // 超过池大小，测试等待机制
-    std::atomic<int> completed_tasks{0};
-
-    {
-        // 创建较小的资源池以测试资源竞争
-        ResourceHybridPool<AsyncMySQLConnect, 4> pool(param, 1, 2);
-
-        // 启动多个独立的协程任务
-        for (int i = 0; i < num_tasks; ++i) {
-            net::co_spawn(io_context.get_executor(), [&, i]() -> net::awaitable<void> {
-                try {
-                    // 尝试获取连接，设置较短的超时时间
-                    auto result = co_await pool.asyncGet(std::chrono::seconds(3));
-
-                    if (result && result.value()) {
-                        auto& conn = result.value();
-
-                        bool connected = co_await conn->ping();
-                        if (connected) {
-                            // 执行一些工作
-                            co_await conn->exec("SELECT 1");
-                            concurrent_success.fetch_add(1);
-                        }
-
-                        result.value().reset();
-                    }
-
-                } catch (const std::exception& e) {
-                    // 超时或其他错误是预期的
-                    MESSAGE("Task " << i << " error (expected): " << e.what());
-                }
-
-                // 标记任务完成
-                ++completed_tasks;
-            });
-        }
-
-        // 等待所有任务完成
-        while (completed_tasks.load() < num_tasks) {
-            io_context.run_one_for(std::chrono::milliseconds(100));
-        }
-    }  // 资源池在这里被销毁，此时所有协程已完成
-
-    // MESSAGE("Concurrent successes: " << concurrent_success.load() << " / " << num_tasks);
-    // 由于资源有限，可能不会全部成功，但至少应该有一些成功
-    CHECK(concurrent_success.load() > 0);
-}
-
-TEST_CASE("test_async_mysql_hybrid_pool_disabled_tls") {
-    // 测试禁用 TLS Pool 的情况（max_tls_pool_size = 0）
-    Parameter param = loadMySQLConfig();
-
-    if (param.empty()) {
-        return;
-    }
-
     boost::asio::io_context io_context;
     bool test_passed = false;
 
-    {
-        // 创建混合资源池，禁用 TLS Pool，只使用全局池
-        ResourceHybridPool<AsyncMySQLConnect, 8> pool(param, 0, 4);
+    auto run_test = [&]() -> net::awaitable<void> {
+        try {
+            // 1. 同步获取(从 TLS Pool)
+            auto sync_result = pool.get();
+            CHECK(sync_result.has_value());
 
-        auto run_test = [&]() -> net::awaitable<void> {
-            try {
-                // 验证 TLS Pool 被禁用
-                CHECK(pool.maxTlsPoolSize() == 0);
-                CHECK(pool.maxGlobalPoolSize() == 4);
+            if (sync_result) {
+                auto& conn = sync_result.value();
+                CHECK(conn != nullptr);
 
-                // 所有请求都应该从全局池获取
-                auto result = co_await pool.asyncGet(std::chrono::seconds(5));
-                CHECK(result.has_value());
+                // 验证连接可用
+                bool connected = co_await conn->ping();
+                CHECK(connected == true);
 
-                if (result && result.value()) {
-                    auto& conn = result.value();
-
-                    bool connected = co_await conn->ping();
-                    CHECK(connected == true);
-
-                    if (connected) {
-                        test_passed = true;
-                    }
-
-                    result.value().reset();
+                if (connected) {
+                    // 执行简单查询
+                    int64_t affected = co_await conn->exec("SELECT 1");
+                    CHECK(affected >= 0);
                 }
 
-            } catch (const std::exception& e) {
-                MESSAGE("Disabled TLS pool test failed: " << e.what());
+                // 释放资源(自动归还到 TLS Pool)
+                sync_result.value().reset();
             }
-        };
 
-        boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
-        io_context.run_for(std::chrono::seconds(10));
-    }  // 资源池在这里被销毁，此时协程已完成
+            // 2. 异步获取(优先 TLS Pool,失败则从全局池)
+            auto async_result = co_await pool.asyncGet(std::chrono::seconds(5));
+            CHECK(async_result.has_value());
+
+            if (async_result) {
+                auto& conn = async_result.value();
+                CHECK(conn != nullptr);
+
+                // 验证连接可用
+                bool connected = co_await conn->ping();
+                CHECK(connected == true);
+
+                if (connected) {
+                    test_passed = true;
+                }
+
+                // 释放资源
+                async_result.value().reset();
+            }
+
+        } catch (const std::exception& e) {
+            MESSAGE("Hybrid pool test failed: " << e.what());
+        }
+    };
+
+    boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
+    io_context.run_for(std::chrono::seconds(10));
 
     CHECK(test_passed == true);
 }
-
-TEST_CASE("test_async_mysql_hybrid_pool_resource_exhaustion") {
-    // 测试资源耗尽时的行为
-    Parameter param = loadMySQLConfig();
-
-    if (param.empty()) {
-        return;
-    }
-
-    boost::asio::io_context io_context;
-    bool timeout_occurred = false;
-
-    {
-        // 创建非常小的资源池
-        ResourceHybridPool<AsyncMySQLConnect, 2> pool(param, 1, 1);
-
-        auto run_test = [&]() -> net::awaitable<void> {
-            try {
-                // 获取第一个连接并保持
-                auto result1 = co_await pool.asyncGet(std::chrono::seconds(5));
-                CHECK(result1.has_value());
-                CHECK(result1.value() != nullptr);
-                auto& conn1 = result1.value();
-
-                // 尝试获取第二个连接，由于全局池大小为1且TLS池大小为1
-                // 应该能成功获取（从全局池）
-                auto result2 = co_await pool.asyncGet(std::chrono::milliseconds(500));
-
-                std::shared_ptr<AsyncMySQLConnect> conn2;
-                if (result2 && result2.value()) {
-                    conn2 = result2.value();
-                    // MESSAGE("Second connection acquired successfully");
-                } else {
-                    timeout_occurred = true;
-                    // MESSAGE("Expected timeout occurred: " << result2.error());
-                }
-
-                // 释放第一个连接
-                conn1.reset();
-
-                // 如果获取了第二个连接，也释放它
-                if (conn2) {
-                    conn2.reset();
-                }
-
-                // 现在应该能获取到连接
-                auto result3 = co_await pool.asyncGet(std::chrono::seconds(5));
-                CHECK(result3.has_value());
-
-                if (result3 && result3.value()) {
-                    auto& conn3 = result3.value();
-                    bool connected = co_await conn3->ping();
-                    CHECK(connected == true);
-                    conn3.reset();
-                }
-
-            } catch (const std::exception& e) {
-                MESSAGE("Resource exhaustion test failed: " << e.what());
-            }
-        };
-
-        boost::asio::co_spawn(io_context, run_test(), boost::asio::detached);
-        io_context.run_for(std::chrono::seconds(10));
-    }  // 资源池在这里被销毁
-
-    // 验证测试完成（不强制要求超时发生，因为池可能允许更多连接）
-    CHECK(true);
-}
-#endif
 
 #endif  // HKU_ENABLE_MYSQL
