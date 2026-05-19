@@ -642,7 +642,8 @@ TEST_CASE("test_async_mysql_table_macro_save_load_update") {
 
             // 测试 load（根据条件查询）
             TestRecord loaded_record;
-            co_await conn->load(loaded_record, "name='Alice'");
+            // co_await conn->load(loaded_record, "name='Alice'");
+            co_await conn->load(loaded_record, Field("name") == "Alice");
             CHECK(loaded_record.valid() == true);
             CHECK(loaded_record.name == "Alice");
             CHECK(loaded_record.age == 25);

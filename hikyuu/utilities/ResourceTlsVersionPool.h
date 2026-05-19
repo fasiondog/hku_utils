@@ -19,6 +19,13 @@
  *          适用于协程环境，同一线程内的所有协程共享该线程的资源池。
  *          由于资源完全隔离在线程内部，不需要任何锁或原子操作，性能最优。
  *
+ *          **跨线程安全检查**：
+ *          - 资源获取时会记录所有者线程 ID
+ *          - 资源归还时检查当前线程是否与所有者线程一致
+ *          - 如果跨线程归还，会直接删除资源并输出警告日志，避免访问 thread_local 变量
+ *          - 此机制确保在多线程协程环境中的安全性，但会导致资源无法复用
+ *          - 对于频繁跨线程的场景，建议使用全局共享池而非 TLS Pool
+ *
  *          与 ResourceTlsPool 的主要区别：
  *          - 支持版本号管理，可检测参数变更
  *          - 归还资源时检查版本，旧版本资源自动销毁
@@ -147,11 +154,24 @@ public:
     /** 资源删除器，用于 shared_ptr 自动归还资源 */
     struct ResourceDeleter {
         ResourceTlsVersionPool *pool;
+        std::thread::id owner_thread_id;  // 记录获取资源时的线程ID
 
         void operator()(ResourceType *resource) const {
-            if (resource && pool) {
+            if (!resource) {
+                return;
+            }
+
+            auto current_thread = std::this_thread::get_id();
+            if (current_thread != owner_thread_id) {
+                // 跨线程归还：直接删除资源，避免访问 thread_local 变量
+                HKU_WARN("Resource returned from different thread, deleting directly to avoid "
+                         "undefined behavior");
+                delete resource;
+            } else if (pool) {
+                // 同线程归还：正常归还到池
                 pool->returnResource(resource);
-            } else if (resource) {
+            } else {
+                // pool 为空（可能在析构期间），直接删除
                 delete resource;
             }
         }
@@ -221,7 +241,7 @@ public:
                         p = new ResourceType(m_param);
                         p->setVersion(m_version);
                         m_count++;
-                        return ResourcePtr(p, ResourceDeleter{this});
+                        return ResourcePtr(p, ResourceDeleter{this, std::this_thread::get_id()});
                     } catch (const std::exception &e) {
                         return stdx::unexpected(
                           fmt::format("Failed to create resource: {}", e.what()));
@@ -234,7 +254,7 @@ public:
             }
 
             // 版本匹配，正常返回
-            return ResourcePtr(p, ResourceDeleter{this});
+            return ResourcePtr(p, ResourceDeleter{this, std::this_thread::get_id()});
         }
 
         // 2. 无空闲资源，检查是否可以创建新资源
@@ -254,7 +274,7 @@ public:
         }
 
         m_count++;
-        return ResourcePtr(p, ResourceDeleter{this});
+        return ResourcePtr(p, ResourceDeleter{this, std::this_thread::get_id()});
     }
 
     /**
