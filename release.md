@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.4.6 - 2026年5月20日
+
+fixed: MySQL异步连接可能未初始化
+
 ## 1.4.5 - 2026年5月20日
 
 fixed(db_connect): 在AsyncMySQLStatement构造函数中添加SQL_CHECK验证，将boost::mysql::tcp_connection的类型转换移到使用位置
