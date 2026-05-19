@@ -1119,21 +1119,48 @@ TEST_CASE("test_async_mysql_multithreaded_executor") {
 
     boost::asio::io_context io_context;
     const int num_tasks = 20;
+    const int table_macro_tasks = 15;
     const int num_threads = 4;
-    const size_t max_connections = 10;  // 最大连接数小于任务数，测试资源复用
+    const size_t max_connections = 35;  // 支持两部分测试的并发需求
     std::atomic<int> completed(0);
     std::atomic<int> success_count(0);
-    std::promise<void> completion_promise;
-    std::future<void> completion_future = completion_promise.get_future();
+    std::atomic<int> table_macro_completed(0);
+    std::atomic<int> table_macro_success(0);
+    std::promise<void> basic_completion_promise;
+    std::future<void> basic_completion_future = basic_completion_promise.get_future();
+    std::promise<void> table_macro_completion_promise;
+    std::future<void> table_macro_completion_future = table_macro_completion_promise.get_future();
+    std::promise<void> total_completion_promise;
+    std::future<void> total_completion_future = total_completion_promise.get_future();
 
     // 创建资源池（默认使用 std::mutex，线程安全）
     ResourceAsioPool<AsyncMySQLConnect> pool(param, max_connections);
+
+    // 定义 TableMacro 测试表结构
+    struct MultithreadTestRecord {
+        TABLE_BIND4(MultithreadTestRecord, test_table_macro_mt, name, age, score, email)
+
+        void reset() {
+            name = "";
+            age = 0;
+            score = 0.0;
+            email = "";
+        }
+
+        std::string name;
+        int age;
+        double score;
+        std::string email;
+    };
 
     // 在协程中执行测试
     boost::asio::co_spawn(
       io_context,
       [&]() -> net::awaitable<void> {
           try {
+              // ==================== 第一部分：基本多线程协程测试 ====================
+              HKU_INFO("Starting basic multithreaded coroutine test...");
+              
               // 使用资源池中的连接初始化数据库和表
               auto init_conn_result = co_await pool.asyncGet();
               CHECK_EXPECTED(init_conn_result);
@@ -1188,7 +1215,7 @@ TEST_CASE("test_async_mysql_multithreaded_executor") {
                                 HKU_WARN("Task {} failed to get connection from pool: {}", i,
                                          conn_result.error());
                                 if (completed.fetch_add(1) + 1 == num_tasks) {
-                                    completion_promise.set_value();
+                                    basic_completion_promise.set_value();
                                 }
                                 co_return;
                             }
@@ -1237,16 +1264,17 @@ TEST_CASE("test_async_mysql_multithreaded_executor") {
 
                         // 使用原子操作检查是否最后一个完成的任务
                         if (completed.fetch_add(1) + 1 == num_tasks) {
-                            completion_promise.set_value();
+                            basic_completion_promise.set_value();
                         }
                     },
                     boost::asio::detached);
               }
 
-              // 等待所有子任务完成
-              co_await net::post(io_context.get_executor(), net::use_awaitable);
-
-              // 由于 promise/future 不能在协程中直接 co_await，我们使用定时器轮询
+              // 注意：不在这里等待子任务完成，让主线程通过 future 等待
+              // 这样避免阻塞事件循环
+              
+              // 但是我们需要等待子任务完成后才能清理表
+              // 使用定时器轮询，不阻塞事件循环
               while (completed.load() < num_tasks) {
                   net::steady_timer timer(co_await net::this_coro::executor);
                   timer.expires_after(std::chrono::milliseconds(10));
@@ -1259,6 +1287,109 @@ TEST_CASE("test_async_mysql_multithreaded_executor") {
                   auto cleanup_conn = std::move(cleanup_conn_result.value());
                   co_await cleanup_conn->exec("DROP TABLE IF EXISTS test_multithread_coroutine");
               }
+
+              HKU_INFO("Basic multithreaded test completed - Success: {}/{}, Pool count: {}",
+                       success_count.load(), num_tasks, pool.count());
+              CHECK_EQ(completed.load(), num_tasks);
+              CHECK_GT(success_count.load(), 0);
+
+              // ==================== 第二部分：TableMacro 多线程测试 ====================
+              HKU_INFO("Starting TableMacro multithreaded test...");
+
+              // 获取连接创建 TableMacro 测试表
+              auto table_init_result = co_await pool.asyncGet();
+              if (!table_init_result) {
+                  MESSAGE("Failed to get connection for TableMacro test initialization");
+                  co_return;
+              }
+              auto table_init_conn = std::move(table_init_result.value());
+
+              // 创建 TableMacro 测试表
+              co_await table_init_conn->exec("DROP TABLE IF EXISTS test_table_macro_mt");
+              co_await table_init_conn->exec(R"(
+                CREATE TABLE test_table_macro_mt (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    age INT,
+                    score DOUBLE,
+                    email VARCHAR(200)
+                )
+            )");
+
+              table_init_conn.reset();
+
+              // 提交多个并发任务，使用 TableMacro 进行数据操作
+              for (int i = 0; i < table_macro_tasks; ++i) {
+                  boost::asio::co_spawn(
+                    io_context,
+                    [&, i]() -> net::awaitable<void> {
+                        try {
+                            // 从资源池获取连接
+                            auto conn_result = co_await pool.asyncGet();
+                            if (!conn_result) {
+                                HKU_WARN("TableMacro Task {} failed to get connection", i);
+                                if (table_macro_completed.fetch_add(1) + 1 == table_macro_tasks) {
+                                    table_macro_completion_promise.set_value();
+                                }
+                                co_return;
+                            }
+                            auto task_conn = std::move(conn_result.value());
+
+                            co_await task_conn->exec("USE test");
+
+                            // 使用 TableMacro 保存数据
+                            MultithreadTestRecord record;
+                            record.name = "User_" + std::to_string(i);
+                            record.age = 20 + (i % 30);
+                            record.score = 80.0 + (i % 20);
+                            record.email = "user" + std::to_string(i) + "@test.com";
+
+                            co_await task_conn->save(record);
+                            CHECK(record.valid() == true);
+
+                            // 使用 TableMacro 加载数据
+                            MultithreadTestRecord loaded;
+                            co_await task_conn->load(loaded, Field("name") == record.name);
+                            
+                            if (loaded.valid() && loaded.name == record.name && 
+                                loaded.age == record.age) {
+                                table_macro_success.fetch_add(1);
+                            }
+
+                            // 模拟异步操作
+                            net::steady_timer timer(co_await net::this_coro::executor);
+                            timer.expires_after(std::chrono::milliseconds(5));
+                            co_await timer.async_wait(net::use_awaitable);
+
+                        } catch (const std::exception& e) {
+                            HKU_WARN("TableMacro Task {} failed: {}", i, e.what());
+                        }
+
+                        if (table_macro_completed.fetch_add(1) + 1 == table_macro_tasks) {
+                            table_macro_completion_promise.set_value();
+                        }
+                    },
+                    boost::asio::detached);
+              }
+
+              // 等待所有 TableMacro 任务完成
+              while (table_macro_completed.load() < table_macro_tasks) {
+                  net::steady_timer timer(co_await net::this_coro::executor);
+                  timer.expires_after(std::chrono::milliseconds(10));
+                  co_await timer.async_wait(net::use_awaitable);
+              }
+
+              // 清理测试表
+              auto cleanup_result = co_await pool.asyncGet();
+              if (cleanup_result) {
+                  auto cleanup_conn = std::move(cleanup_result.value());
+                  co_await cleanup_conn->exec("DROP TABLE IF EXISTS test_table_macro_mt");
+              }
+
+              HKU_INFO("TableMacro multithreaded test completed - Success: {}/{}, Pool count: {}",
+                       table_macro_success.load(), table_macro_tasks, pool.count());
+              CHECK_EQ(table_macro_completed.load(), table_macro_tasks);
+              CHECK_GT(table_macro_success.load(), 0);
 
           } catch (const std::exception& e) {
               HKU_ERROR("Main coroutine failed: {}", e.what());
@@ -1275,10 +1406,15 @@ TEST_CASE("test_async_mysql_multithreaded_executor") {
         workers.emplace_back([&]() { io_context.run(); });
     }
 
-    // 等待所有任务完成或超时
-    if (completion_future.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
-        HKU_ERROR("Multithreaded coroutine test timeout! Completed: {}/{}", completed.load(),
-                  num_tasks);
+    // 等待第一部分任务完成或超时
+    if (basic_completion_future.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
+        HKU_ERROR("Basic multithreaded test timeout! Completed: {}/{}", completed.load(), num_tasks);
+    }
+
+    // 等待第二部分任务完成或超时
+    if (table_macro_completion_future.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
+        HKU_ERROR("TableMacro multithreaded test timeout! Completed: {}/{}", 
+                  table_macro_completed.load(), table_macro_tasks);
     }
 
     // 停止 io_context 并等待所有工作线程
@@ -1289,10 +1425,8 @@ TEST_CASE("test_async_mysql_multithreaded_executor") {
         }
     }
 
-    HKU_INFO("Multithreaded coroutine test completed - Success: {}/{}, Pool count: {}",
-             success_count.load(), num_tasks, pool.count());
-    CHECK_EQ(completed.load(), num_tasks);
-    CHECK_GT(success_count.load(), 0);
+    HKU_INFO("All multithreaded tests completed - Basic: {}/{}, TableMacro: {}/{}, Pool count: {}",
+             success_count.load(), num_tasks, table_macro_success.load(), table_macro_tasks, pool.count());
 }
 
 #endif  // HKU_ENABLE_MYSQL
