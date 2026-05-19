@@ -125,78 +125,42 @@ TEST_CASE("test_ResourceHybridPool_basic_sync") {
     }
 }
 
-// 测试异步获取（优先 TLS Pool）
-TEST_CASE("test_ResourceHybridPool_async_prefer_tls") {
-    Parameter param;
-    param.set<std::string>("test_key", "async_test");
-
-    ResourceHybridPool<HybridTestResource> pool(param);
-
-    asio::io_context io_ctx;
-
-    bool success = false;
-
-    // 启动协程测试
-    asio::co_spawn(
-      io_ctx,
-      [&]() -> asio::awaitable<void> {
-          try {
-              // 异步获取（应该优先从 TLS Pool 获取）
-              auto resource_result = co_await pool.asyncGet(std::chrono::seconds(5));
-              CHECK_EXPECTED(resource_result);
-              auto resource = std::move(resource_result.value());
-              CHECK_NE(resource, nullptr);
-              // 注意：由于 TLS Pool 是线程局部单例，参数可能被之前的测试设置
-              // 这里只验证资源有效即可，不检查具体参数值
-              CHECK(resource != nullptr);
-              success = true;
-          } catch (const std::exception& e) {
-              HKU_ERROR("Async get failed: {}", e.what());
-          }
-      },
-      asio::detached);
-
-    io_ctx.run();
-    CHECK(success);
-}
-
-// 测试 TLS Pool 耗尽后降级到 Asio Pool
-TEST_CASE("test_ResourceHybridPool_fallback_to_asio") {
+// 测试 TLS Pool 耗尽后降级到全局池
+TEST_CASE("test_ResourceHybridPool_fallback_to_global") {
     Parameter param;
     param.set<std::string>("test_key", "fallback_test");
 
-    // 设置较小的 TLS Pool 大小（模板参数）和 Asio Pool 大小（构造参数）
+    // 设置较小的 TLS Pool 大小（模板参数）和全局池大小（构造参数）
     using SmallHybridPool = ResourceHybridPool<HybridTestResource, 2>;
-    SmallHybridPool pool(param, 10);  // Asio Pool 最大 10 个资源
+    SmallHybridPool pool(param, 10);  // 全局池最大 10 个资源
 
-    asio::io_context io_ctx;
     std::atomic<int> success_count{0};
     std::atomic<int> error_count{0};
+    std::vector<std::thread> threads;
 
-    // 启动多个协程，超过 TLS Pool 容量
+    // 启动多个线程，超过 TLS Pool 容量
     for (int i = 0; i < 5; ++i) {
-        asio::co_spawn(
-          io_ctx,
-          [&, i]() -> asio::awaitable<void> {
-              auto resource_result = co_await pool.asyncGet(std::chrono::seconds(2));
-              if (resource_result) {
-                  auto resource = std::move(resource_result.value());
-                  CHECK_NE(resource, nullptr);
-                  success_count++;
+        threads.emplace_back([&, i]() {
+            auto resource_result = pool.get();
+            if (resource_result) {
+                auto resource = std::move(resource_result.value());
+                CHECK_NE(resource, nullptr);
+                success_count++;
 
-                  // 模拟工作
-                  co_await asio::post(asio::use_awaitable);
-              } else {
-                  error_count++;
-                  HKU_WARN("Coroutine {} failed: {}", i, resource_result.error());
-              }
-          },
-          asio::detached);
+                // 模拟工作
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            } else {
+                error_count++;
+                HKU_WARN("Thread {} failed: {}", i, resource_result.error());
+            }
+        });
     }
 
-    io_ctx.run();
+    for (auto& t : threads) {
+        t.join();
+    }
 
-    // 验证：应该有成功的（TLS + Asio），可能有超时的
+    // 验证：应该有成功的（TLS + Global），可能有失败的
     CHECK_GT(success_count.load(), 0);
     HKU_INFO("Success: {}, Error: {}", success_count.load(), error_count.load());
 }
@@ -218,35 +182,19 @@ TEST_CASE("test_ResourceHybridPool_tls_only") {
     }
 }
 
-// 测试仅从 Asio Pool 获取
-TEST_CASE("test_ResourceHybridPool_asio_only") {
+// 测试仅从全局池获取
+TEST_CASE("test_ResourceHybridPool_global_only") {
     Parameter param;
-    param.set<std::string>("source", "asio_only");
+    param.set<std::string>("source", "global_only");
 
     ResourceHybridPool<HybridTestResource> pool(param);
 
-    asio::io_context io_ctx;
-    bool success = false;
-
-    asio::co_spawn(
-      io_ctx,
-      [&]() -> asio::awaitable<void> {
-          try {
-              // 直接从全局共享池获取
-              auto resource_result = co_await pool.getFromGlobalPool(std::chrono::seconds(5));
-              CHECK_EXPECTED(resource_result);
-              auto resource = std::move(resource_result.value());
-              CHECK_NE(resource, nullptr);
-              CHECK_EQ(resource->param().get<std::string>("source"), "asio_only");
-              success = true;
-          } catch (const std::exception& e) {
-              HKU_ERROR("Asio only get failed: {}", e.what());
-          }
-      },
-      asio::detached);
-
-    io_ctx.run();
-    CHECK(success);
+    // 直接从全局共享池获取
+    auto resource_result = pool.getFromGlobalPool();
+    CHECK_EXPECTED(resource_result);
+    auto resource = std::move(resource_result.value());
+    CHECK_NE(resource, nullptr);
+    CHECK_EQ(resource->param().get<std::string>("source"), "global_only");
 }
 
 // 测试多线程并发访问
@@ -254,37 +202,34 @@ TEST_CASE("test_ResourceHybridPool_multithread_concurrent") {
     Parameter param;
     param.set<std::string>("concurrent_test", "true");
 
-    // TLS Pool 大小为 4（模板参数），Asio Pool 大小为 8（构造参数）
+    // TLS Pool 大小为 4（模板参数），全局池大小为 8（构造参数）
     using TestPool = ResourceHybridPool<HybridTestResource, 4>;
     TestPool pool(param, 8);
 
-    asio::io_context io_ctx;
-    asio::thread_pool thread_pool(4);  // 4个线程
-
     std::atomic<int> success_count{0};
     std::atomic<int> error_count{0};
+    std::vector<std::thread> threads;
 
-    // 在多个线程中启动协程
+    // 在多个线程中同步获取资源
     for (int i = 0; i < 12; ++i) {
-        asio::co_spawn(
-          thread_pool,
-          [&, i]() -> asio::awaitable<void> {
-              auto resource_result = co_await pool.asyncGet(std::chrono::seconds(3));
-              if (resource_result) {
-                  auto resource = std::move(resource_result.value());
-                  CHECK_NE(resource, nullptr);
-                  success_count++;
+        threads.emplace_back([&, i]() {
+            auto resource_result = pool.get();
+            if (resource_result) {
+                auto resource = std::move(resource_result.value());
+                CHECK_NE(resource, nullptr);
+                success_count++;
 
-                  // 模拟工作
-                  co_await asio::post(asio::use_awaitable);
-              } else {
-                  error_count++;
-              }
-          },
-          asio::detached);
+                // 模拟工作
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            } else {
+                error_count++;
+            }
+        });
     }
 
-    thread_pool.join();
+    for (auto& t : threads) {
+        t.join();
+    }
 
     CHECK_GT(success_count.load(), 0);
     HKU_INFO("Concurrent test - Success: {}, Error: {}", success_count.load(), error_count.load());
@@ -359,4 +304,147 @@ TEST_CASE("test_ResourceHybridPool_default_tls_size") {
 
     auto& tls_pool = pool.tlsPool();
     CHECK_EQ(tls_pool.maxCount(), 32);
+}
+
+// 测试 getWaitFor 接口
+TEST_CASE("test_ResourceHybridPool_get_wait_for") {
+    Parameter param;
+    param.set<std::string>("wait_test", "true");
+
+    // 创建小容量的混合池，TLS Pool 大小为 1，全局池大小为 2
+    using SmallPool = ResourceHybridPool<HybridTestResource, 1>;
+    SmallPool pool(param, 1, 2);
+
+    // 测试1：正常获取（应该从 TLS Pool 快速获取）
+    auto result1 = pool.getWaitFor(1000);  // 等待最多 1 秒
+    CHECK(result1.has_value());
+    CHECK_NE(result1.value(), nullptr);
+
+    // 测试2：TLS Pool 耗尽后，从全局池等待获取
+    auto result2 = pool.getWaitFor(1000);
+    CHECK(result2.has_value());
+    CHECK_NE(result2.value(), nullptr);
+
+    // 测试3：所有资源都被占用，等待超时
+    auto result3 = pool.getWaitFor(100);  // 等待 100ms
+    // 由于只有 3 个资源（1 TLS + 2 Global），第三个请求应该超时或失败
+    if (!result3) {
+        HKU_INFO("Expected timeout: {}", result3.error());
+    }
+
+    // 释放资源
+    if (result1)
+        result1.value().reset();
+    if (result2)
+        result2.value().reset();
+    if (result3 && result3.value())
+        result3.value().reset();
+}
+
+// 测试 getWaitFor 在多线程环境下的行为
+TEST_CASE("test_ResourceHybridPool_get_wait_for_multithread") {
+    Parameter param;
+    param.set<std::string>("wait_mt_test", "true");
+
+    // TLS Pool 大小为 2，全局池大小为 2
+    using TestPool = ResourceHybridPool<HybridTestResource, 2>;
+    TestPool pool(param, 2, 2);
+
+    std::atomic<int> success_count{0};
+    std::atomic<int> timeout_count{0};
+    std::vector<std::thread> threads;
+
+    // 启动 6 个线程，超过总资源数（4 个）
+    for (int i = 0; i < 6; ++i) {
+        threads.emplace_back([&, i]() {
+            // 等待最多 500ms
+            auto resource_result = pool.getWaitFor(500);
+            if (resource_result) {
+                auto resource = std::move(resource_result.value());
+                CHECK_NE(resource, nullptr);
+                success_count++;
+
+                // 模拟工作 100ms
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            } else {
+                timeout_count++;
+                HKU_WARN("Thread {} timeout: {}", i, resource_result.error());
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // 验证：应该有成功的，也可能有超时的
+    CHECK_GT(success_count.load(), 0);
+    HKU_INFO("WaitFor multithread test - Success: {}, Timeout: {}", success_count.load(),
+             timeout_count.load());
+}
+
+// 测试 getAndWait 接口（无限期等待）
+TEST_CASE("test_ResourceHybridPool_get_and_wait") {
+    Parameter param;
+    param.set<std::string>("wait_forever_test", "true");
+
+    // TLS Pool 大小为 1，全局池大小为 1
+    using SmallPool = ResourceHybridPool<HybridTestResource, 1>;
+    SmallPool pool(param, 1, 1);
+
+    // 测试1：正常获取（应该从 TLS Pool 快速获取）
+    auto result1 = pool.getAndWait();
+    CHECK(result1.has_value());
+    CHECK_NE(result1.value(), nullptr);
+
+    // 测试2：TLS Pool 耗尽后，从全局池等待获取
+    auto result2 = pool.getAndWait();
+    CHECK(result2.has_value());
+    CHECK_NE(result2.value(), nullptr);
+
+    // 注意：不测试第三个请求，因为 getAndWait() 会永久阻塞
+    // 在实际使用中，应确保资源最终会被归还
+
+    // 释放资源
+    if (result1)
+        result1.value().reset();
+    if (result2)
+        result2.value().reset();
+}
+
+// 测试 getAndWait 在多线程环境下的行为
+TEST_CASE("test_ResourceHybridPool_get_and_wait_multithread") {
+    Parameter param;
+    param.set<std::string>("wait_forever_mt_test", "true");
+
+    // TLS Pool 大小为 2，全局池大小为 2
+    using TestPool = ResourceHybridPool<HybridTestResource, 2>;
+    TestPool pool(param, 2, 2);
+
+    std::atomic<int> success_count{0};
+    std::vector<std::thread> threads;
+
+    // 启动 4 个线程，等于总资源数（4 个）
+    for (int i = 0; i < 4; ++i) {
+        threads.emplace_back([&, i]() {
+            // 无限期等待（应该都能成功，因为资源数足够）
+            auto resource_result = pool.getAndWait();
+            if (resource_result) {
+                auto resource = std::move(resource_result.value());
+                CHECK_NE(resource, nullptr);
+                success_count++;
+
+                // 模拟工作 50ms
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // 验证：所有线程都应该成功获取资源
+    CHECK_EQ(success_count.load(), 4);
+    HKU_INFO("GetAndWait multithread test - Success: {}", success_count.load());
 }

@@ -13,6 +13,7 @@
 
 #include "hikyuu/utilities/db_connect/mysql/MySQLConnect.h"
 #include "hikyuu/utilities/ini_parser/IniParser.h"
+#include "hikyuu/utilities/ResourceHybridPool.h"
 #include <doctest/doctest.h>
 #include <filesystem>
 
@@ -411,6 +412,187 @@ TEST_CASE("test_mysql_data_types") {
 
     // 清理
     conn.exec("DROP TABLE IF EXISTS test.test_data_types");
+}
+
+// ============================================================================
+// MySQLConnect with ResourceHybridPool 多线程测试
+// ============================================================================
+
+TEST_CASE("test_mysql_hybrid_pool") {
+    // 测试使用 ResourceHybridPool 管理 MySQLConnect 连接（纯多线程同步场景）
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    // 添加数据库名称
+    param.set<std::string>("db", "test");
+
+    // 创建混合资源池,TLS Pool 大小为 2,全局池大小为 4
+    ResourceHybridPool<MySQLConnect> pool(param, 2, 4);
+
+    bool test_passed = false;
+
+    try {
+        // 1. 同步获取(从 TLS Pool)
+        auto sync_result = pool.get();
+        CHECK(sync_result.has_value());
+
+        if (sync_result) {
+            auto& conn = sync_result.value();
+            CHECK(conn != nullptr);
+
+            // 验证连接可用（通过执行轻量级查询）
+            int64_t affected = conn->exec("SELECT 1");
+            CHECK(affected >= 0);
+
+            // 释放资源(自动归还到 TLS Pool)
+            sync_result.value().reset();
+        }
+
+        // 2. 再次同步获取(可能从 TLS Pool 或全局池)
+        auto sync_result2 = pool.get();
+        CHECK(sync_result2.has_value());
+
+        if (sync_result2) {
+            auto& conn = sync_result2.value();
+            CHECK(conn != nullptr);
+
+            // 验证连接可用
+            int64_t affected = conn->exec("SELECT 1");
+            CHECK(affected >= 0);
+
+            // 3. 数据保存测试 - 创建测试表
+            conn->exec(
+              "CREATE TABLE IF NOT EXISTS test_hybrid_save ("
+              "id INT AUTO_INCREMENT PRIMARY KEY, "
+              "name VARCHAR(100), "
+              "value INT"
+              ")");
+
+            // 清空测试数据
+            conn->exec("DELETE FROM test_hybrid_save");
+
+            // 插入单条数据
+            affected =
+              conn->exec("INSERT INTO test_hybrid_save (name, value) VALUES ('test1', 100)");
+            CHECK(affected == 1);
+
+            // 批量插入多条数据
+            affected = conn->exec(
+              "INSERT INTO test_hybrid_save (name, value) VALUES "
+              "('test2', 200), ('test3', 300), ('test4', 400)");
+            CHECK(affected == 3);
+
+            // 验证数据
+            auto stmt = conn->getStatement("SELECT COUNT(*) as cnt FROM test_hybrid_save");
+            REQUIRE(stmt != nullptr);
+
+            stmt->exec();
+
+            if (stmt->moveNext()) {
+                int count = 0;
+                stmt->getColumn(0, count);
+                CHECK(count == 4);  // 1 + 3 = 4 条记录
+
+                if (count == 4) {
+                    test_passed = true;
+                }
+            }
+
+            // 清理测试表
+            conn->exec("DROP TABLE IF EXISTS test_hybrid_save");
+
+            // 释放资源
+            sync_result2.value().reset();
+        }
+
+    } catch (const std::exception& e) {
+        MESSAGE("Hybrid pool test failed: " << e.what());
+    }
+
+    CHECK(test_passed == true);
+}
+
+// ============================================================================
+// MySQLConnect with ResourceHybridPool 多线程并发测试
+// ============================================================================
+
+TEST_CASE("test_mysql_hybrid_pool_multithread") {
+    // 测试使用 ResourceHybridPool 管理 MySQLConnect 连接（真实多线程并发场景）
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    // 添加数据库名称
+    param.set<std::string>("db", "test");
+
+    // 创建混合资源池,TLS Pool 大小为 2,全局池大小为 4
+    ResourceHybridPool<MySQLConnect> pool(param, 2, 4);
+
+    const int thread_count = 8;    // 8 个线程
+    const int ops_per_thread = 5;  // 每个线程执行 5 次操作
+
+    std::atomic<int> success_count{0};
+    std::atomic<int> error_count{0};
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+
+    try {
+        // 启动多个线程并发访问资源池
+        for (int i = 0; i < thread_count; ++i) {
+            threads.emplace_back([&pool, &success_count, &error_count, i, ops_per_thread]() {
+                try {
+                    for (int j = 0; j < ops_per_thread; ++j) {
+                        // 从池中获取连接
+                        auto result = pool.get();
+
+                        if (!result) {
+                            error_count.fetch_add(1);
+                            continue;
+                        }
+
+                        auto& conn = result.value();
+                        CHECK(conn != nullptr);
+
+                        // 执行查询操作
+                        int64_t affected = conn->exec("SELECT 1");
+                        if (affected >= 0) {
+                            success_count.fetch_add(1);
+                        } else {
+                            error_count.fetch_add(1);
+                        }
+
+                        // 释放资源（自动归还到 TLS Pool）
+                        result.value().reset();
+                    }
+                } catch (const std::exception& e) {
+                    error_count.fetch_add(1);
+                    MESSAGE("Thread " << i << " error: " << e.what());
+                }
+            });
+        }
+
+        // 等待所有线程完成
+        for (auto& t : threads) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+
+    } catch (const std::exception& e) {
+        MESSAGE("Multithread test setup failed: " << e.what());
+    }
+
+    // 验证结果
+    // MESSAGE("Multithread test - Success: " << success_count.load()
+    //                                        << ", Error: " << error_count.load());
+
+    CHECK(success_count.load() == thread_count * ops_per_thread);
+    CHECK(error_count.load() == 0);
 }
 
 #endif  // HKU_ENABLE_MYSQL
