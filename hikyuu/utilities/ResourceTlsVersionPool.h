@@ -49,7 +49,7 @@
  *          **重要约束**：ResourceType 必须实现 getVersion() 和 setVersion(int) 方法。
  *
  * @tparam ResourceType 资源类型，必须实现 getVersion() 和 setVersion(int) 方法
- * @tparam MAX_POOL_SIZE_LIMIT 物理容量上限（编译期固定），默认 32
+ * @tparam MAX_POOL_SIZE_LIMIT 物理容量上限（编译期固定），默认 2
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -84,7 +84,7 @@
  */
 namespace hku {
 
-template <typename ResourceType, size_t MAX_POOL_SIZE_LIMIT = 32>
+template <typename ResourceType, size_t MAX_POOL_SIZE_LIMIT = 2>
 class ResourceTlsVersionPool {
 public:
     // 编译期检查：ResourceType 必须支持 getVersion 和 setVersion

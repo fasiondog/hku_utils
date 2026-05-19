@@ -93,13 +93,13 @@ std::atomic<int> TlsPoolTestResourceMultiThread::s_nextId{0};
 TEST_CASE("test_ResourceTlsPool_default_limit") {
     Parameter param;
 
-    // 使用默认的 MAX_POOL_SIZE = 32
+    // 使用默认的 MAX_POOL_SIZE = 2
     // init 只接受 param 参数
     CHECK_NOTHROW(ResourceTlsPool<TlsPoolTestResourceDefault>::init(param));
 
     // 验证可以正常获取实例
     auto& pool = ResourceTlsPool<TlsPoolTestResourceDefault>::getInstance();
-    CHECK_EQ(pool.maxCount(), 32);
+    CHECK_EQ(pool.maxCount(), 2);  // 默认模板参数为 2
 }
 
 // 测试自定义 MAX_POOL_SIZE_LIMIT

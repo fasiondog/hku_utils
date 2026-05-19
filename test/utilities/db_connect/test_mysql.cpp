@@ -437,10 +437,10 @@ TEST_CASE("test_mysql_hybrid_pool") {
     try {
         // 1. 同步获取(从 TLS Pool)
         auto sync_result = pool.get();
-        CHECK(sync_result.has_value());
+        CHECK_NE(sync_result, nullptr);
 
         if (sync_result) {
-            auto& conn = sync_result.value();
+            auto& conn = sync_result;
             CHECK(conn != nullptr);
 
             // 验证连接可用（通过执行轻量级查询）
@@ -448,15 +448,15 @@ TEST_CASE("test_mysql_hybrid_pool") {
             CHECK(affected >= 0);
 
             // 释放资源(自动归还到 TLS Pool)
-            sync_result.value().reset();
+            sync_result.reset();
         }
 
         // 2. 再次同步获取(可能从 TLS Pool 或全局池)
         auto sync_result2 = pool.get();
-        CHECK(sync_result2.has_value());
+        CHECK_NE(sync_result2, nullptr);
 
         if (sync_result2) {
-            auto& conn = sync_result2.value();
+            auto& conn = sync_result2;
             CHECK(conn != nullptr);
 
             // 验证连接可用
@@ -505,7 +505,7 @@ TEST_CASE("test_mysql_hybrid_pool") {
             conn->exec("DROP TABLE IF EXISTS test_hybrid_save");
 
             // 释放资源
-            sync_result2.value().reset();
+            sync_result2.reset();
         }
 
     } catch (const std::exception& e) {
@@ -548,14 +548,13 @@ TEST_CASE("test_mysql_hybrid_pool_multithread") {
                 try {
                     for (int j = 0; j < ops_per_thread; ++j) {
                         // 从池中获取连接
-                        auto result = pool.get();
+                        auto conn = pool.get();
 
-                        if (!result) {
+                        if (!conn) {
                             error_count.fetch_add(1);
                             continue;
                         }
 
-                        auto& conn = result.value();
                         CHECK(conn != nullptr);
 
                         // 执行查询操作
@@ -567,7 +566,7 @@ TEST_CASE("test_mysql_hybrid_pool_multithread") {
                         }
 
                         // 释放资源（自动归还到 TLS Pool）
-                        result.value().reset();
+                        conn.reset();
                     }
                 } catch (const std::exception& e) {
                     error_count.fetch_add(1);

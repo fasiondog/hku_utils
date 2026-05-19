@@ -307,7 +307,7 @@ TEST_CASE("test_ResourceTlsVersionPool_default_limit") {
 
     // 验证可以正常获取实例
     auto& pool = TestPool::getInstance();
-    CHECK_EQ(pool.maxCount(), 32);
+    CHECK_EQ(pool.maxCount(), 2);  // 默认模板参数为 2
     CHECK_EQ(pool.getVersion(), 0);
 }
 

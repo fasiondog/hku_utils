@@ -352,9 +352,7 @@ TEST_CASE("test_ResourceHybridVersionPool_basic") {
     CHECK_EQ(pool.getParam<std::string>("test_param"), "v1");
 
     // 同步获取资源
-    auto result = pool.get();
-    CHECK(result.has_value());
-    auto res = std::move(result.value());
+    auto res = pool.get();
     CHECK_NE(res, nullptr);
     CHECK_EQ(res->getVersion(), 0);
     CHECK_EQ(res->getParam<std::string>("test_param"), "v1");
@@ -384,9 +382,8 @@ TEST_CASE("test_ResourceHybridVersionPool_setParam") {
     CHECK_EQ(pool.getParam<int>("count"), 100);
 
     // 获取资源，应该是新版本
-    auto result = pool.get();
-    CHECK(result.has_value());
-    auto res = std::move(result.value());
+    auto res = pool.get();
+    CHECK_NE(res, nullptr);
     CHECK_EQ(res->getVersion(), 2);
     CHECK_EQ(res->getParam<std::string>("test_param"), "v2");
     CHECK_EQ(res->getParam<int>("count"), 100);
@@ -400,9 +397,8 @@ TEST_CASE("test_ResourceHybridVersionPool_setParameter") {
     ResourceHybridVersionPool<SetParameterTestResource> pool(param, 64);
 
     // 获取旧版本资源
-    auto res1_result = pool.get();
-    CHECK(res1_result.has_value());
-    auto res1 = std::move(res1_result.value());
+    auto res1 = pool.get();
+    CHECK_NE(res1, nullptr);
     CHECK_EQ(res1->getVersion(), 0);
 
     // 整体替换参数
@@ -417,9 +413,8 @@ TEST_CASE("test_ResourceHybridVersionPool_setParameter") {
     res1.reset();
 
     // 获取新版本资源
-    auto res2_result = pool.get();
-    CHECK(res2_result.has_value());
-    auto res2 = std::move(res2_result.value());
+    auto res2 = pool.get();
+    CHECK_NE(res2, nullptr);
     CHECK_EQ(res2->getVersion(), 1);
     CHECK_EQ(res2->getParam<std::string>("test_param"), "v2");
     CHECK_EQ(res2->getParam<int>("count"), 200);
@@ -456,9 +451,8 @@ TEST_CASE("test_ResourceHybridVersionPool_multithreaded") {
     for (int i = 0; i < num_threads; ++i) {
         threads.emplace_back([&pool, &success_count, &error_count, i]() {
             try {
-                auto result = pool.get();
-                if (result) {
-                    auto res = std::move(result.value());
+                auto res = pool.get();
+                if (res) {
                     CHECK_NE(res, nullptr);
                     CHECK_EQ(res->getParam<std::string>("test_param"), "v1");
                     success_count++;
@@ -494,14 +488,12 @@ TEST_CASE("test_ResourceHybridVersionPool_versionUpdate_resourceEviction") {
     ResourceHybridVersionPool<VersionUpdateTestResource> pool(param, 64);
 
     // 获取一些资源
-    auto res1_result = pool.get();
-    CHECK(res1_result.has_value());
-    auto res1 = std::move(res1_result.value());
+    auto res1 = pool.get();
+    CHECK_NE(res1, nullptr);
     CHECK_EQ(res1->getVersion(), 0);
 
-    auto res2_result = pool.get();
-    CHECK(res2_result.has_value());
-    auto res2 = std::move(res2_result.value());
+    auto res2 = pool.get();
+    CHECK_NE(res2, nullptr);
     CHECK_EQ(res2->getVersion(), 0);
 
     // 更新参数（触发版本递增）
@@ -513,9 +505,8 @@ TEST_CASE("test_ResourceHybridVersionPool_versionUpdate_resourceEviction") {
     res2.reset();
 
     // 获取新资源，应该是新版本
-    auto res3_result = pool.get();
-    CHECK(res3_result.has_value());
-    auto res3 = std::move(res3_result.value());
+    auto res3 = pool.get();
+    CHECK_NE(res3, nullptr);
     CHECK_EQ(res3->getVersion(), 1);
     CHECK_EQ(res3->getParam<std::string>("test_param"), "v2");
 }
@@ -528,18 +519,15 @@ TEST_CASE("test_ResourceHybridVersionPool_fallback_strategy") {
     ResourceHybridVersionPool<FallbackTestResource> pool(param, 64);
 
     // 获取多个资源填满 TLS Pool
-    auto res1_result = pool.get();
-    CHECK(res1_result.has_value());
-    auto res1 = std::move(res1_result.value());
+    auto res1 = pool.get();
+    CHECK_NE(res1, nullptr);
 
-    auto res2_result = pool.get();
-    CHECK(res2_result.has_value());
-    auto res2 = std::move(res2_result.value());
+    auto res2 = pool.get();
+    CHECK_NE(res2, nullptr);
 
     // TLS Pool 已满，继续获取应该降级到 Global Pool
-    auto res3_result = pool.get();
-    CHECK(res3_result.has_value());
-    auto res3 = std::move(res3_result.value());
+    auto res3 = pool.get();
+    CHECK_NE(res3, nullptr);
 
     // 验证所有资源都有效
     CHECK_NE(res1, nullptr);
@@ -565,11 +553,8 @@ TEST_CASE("test_ResourceHybridVersionPool_custom_tls_pool_size") {
     CHECK_EQ(tls_pool.maxCount(), 16);
 
     // 同步获取资源，验证正常工作
-    auto result = pool.get();
-    CHECK(result.has_value());
-    if (result) {
-        CHECK_NE(result.value(), nullptr);
-    }
+    auto resource = pool.get();
+    CHECK_NE(resource, nullptr);
 }
 
 // 测试 TLS 池大小超过模板参数时的截断行为
@@ -594,14 +579,14 @@ TEST_CASE("test_ResourceHybridVersionPool_default_tls_size") {
     Parameter param;
     param.set<std::string>("default_test", "true");
 
-    // 不指定 TLS 池大小，应该使用模板参数的默认值（32），全局池使用默认值 64
+    // 不指定 TLS 池大小，应该使用模板参数的默认值（2），全局池使用默认值 64
     ResourceHybridVersionPool<FallbackTestResource> pool(param);
 
-    CHECK_EQ(pool.maxTlsPoolSize(), 32);     // 应该等于模板参数默认值
+    CHECK_EQ(pool.maxTlsPoolSize(), 2);      // 应该等于模板参数默认值
     CHECK_EQ(pool.maxGlobalPoolSize(), 64);  // 全局池默认值
 
     auto& tls_pool = pool.tlsPool();
-    CHECK_EQ(tls_pool.maxCount(), 32);
+    CHECK_EQ(tls_pool.maxCount(), 2);
 }
 
 // 测试 TLS Pool 和 Global Pool 的降级策略 (小池测试)
@@ -613,18 +598,15 @@ TEST_CASE("test_ResourceHybridVersionPool_fallback_strategy_small_pool") {
     ResourceHybridVersionPool<FallbackTestResource, 2> pool(param, 3);
 
     // 获取多个资源填满 TLS Pool
-    auto res1_result = pool.get();
-    CHECK(res1_result.has_value());
-    auto res1 = std::move(res1_result.value());
+    auto res1 = pool.get();
+    CHECK_NE(res1, nullptr);
 
-    auto res2_result = pool.get();
-    CHECK(res2_result.has_value());
-    auto res2 = std::move(res2_result.value());
+    auto res2 = pool.get();
+    CHECK_NE(res2, nullptr);
 
     // TLS Pool 已满，继续获取应该降级到 Global Pool
-    auto res3_result = pool.get();
-    CHECK(res3_result.has_value());
-    auto res3 = std::move(res3_result.value());
+    auto res3 = pool.get();
+    CHECK_NE(res3, nullptr);
 
     // 验证所有资源都有效
     CHECK_NE(res1, nullptr);
@@ -642,29 +624,29 @@ TEST_CASE("test_ResourceHybridVersionPool_get_wait_for") {
     SmallPool pool(param, 1, 2);
 
     // 测试1：正常获取（应该从 TLS Pool 快速获取）
-    auto result1 = pool.getWaitFor(1000);  // 等待最多 1 秒
-    CHECK(result1.has_value());
-    CHECK_NE(result1.value(), nullptr);
+    auto resource1 = pool.getWaitFor(1000);  // 等待最多 1 秒
+    CHECK_NE(resource1, nullptr);
 
     // 测试2：TLS Pool 耗尽后，从全局池等待获取
-    auto result2 = pool.getWaitFor(1000);
-    CHECK(result2.has_value());
-    CHECK_NE(result2.value(), nullptr);
+    auto resource2 = pool.getWaitFor(1000);
+    CHECK_NE(resource2, nullptr);
 
     // 测试3：所有资源都被占用，等待超时
-    auto result3 = pool.getWaitFor(100);  // 等待 100ms
-    // 由于只有 3 个资源（1 TLS + 2 Global），第三个请求应该超时或失败
-    if (!result3) {
-        HKU_INFO("Expected timeout: {}", result3.error());
+    try {
+        auto resource3 = pool.getWaitFor(100);  // 等待 100ms
+        // 由于只有 3 个资源（1 TLS + 2 Global），第三个请求应该超时或失败
+        if (!resource3) {
+            HKU_INFO("Expected timeout or null resource");
+        }
+    } catch (const GetResourceTimeoutException& e) {
+        HKU_INFO("Expected timeout: {}", e.what());
     }
 
     // 释放资源
-    if (result1)
-        result1.value().reset();
-    if (result2)
-        result2.value().reset();
-    if (result3 && result3.value())
-        result3.value().reset();
+    if (resource1)
+        resource1.reset();
+    if (resource2)
+        resource2.reset();
 }
 
 // 测试 getWaitFor 在多线程环境下的行为
@@ -683,18 +665,24 @@ TEST_CASE("test_ResourceHybridVersionPool_get_wait_for_multithread") {
     // 启动 6 个线程，超过总资源数（4 个）
     for (int i = 0; i < 6; ++i) {
         threads.emplace_back([&, i]() {
-            // 等待最多 500ms
-            auto resource_result = pool.getWaitFor(500);
-            if (resource_result) {
-                auto resource = std::move(resource_result.value());
-                CHECK_NE(resource, nullptr);
-                success_count++;
+            try {
+                // 等待最多 500ms
+                auto resource = pool.getWaitFor(500);
+                if (resource) {
+                    CHECK_NE(resource, nullptr);
+                    success_count++;
 
-                // 模拟工作 100ms
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            } else {
+                    // 模拟工作 100ms
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                } else {
+                    timeout_count++;
+                }
+            } catch (const GetResourceTimeoutException& e) {
                 timeout_count++;
-                HKU_WARN("Thread {} timeout: {}", i, resource_result.error());
+                HKU_WARN("Thread {} timeout: {}", i, e.what());
+            } catch (const std::exception& e) {
+                timeout_count++;
+                HKU_WARN("Thread {} error: {}", i, e.what());
             }
         });
     }
@@ -719,23 +707,21 @@ TEST_CASE("test_ResourceHybridVersionPool_get_and_wait") {
     SmallPool pool(param, 1, 1);
 
     // 测试1：正常获取（应该从 TLS Pool 快速获取）
-    auto result1 = pool.getAndWait();
-    CHECK(result1.has_value());
-    CHECK_NE(result1.value(), nullptr);
+    auto resource1 = pool.getAndWait();
+    CHECK_NE(resource1, nullptr);
 
     // 测试2：TLS Pool 耗尽后，从全局池等待获取
-    auto result2 = pool.getAndWait();
-    CHECK(result2.has_value());
-    CHECK_NE(result2.value(), nullptr);
+    auto resource2 = pool.getAndWait();
+    CHECK_NE(resource2, nullptr);
 
     // 注意：不测试第三个请求，因为 getAndWait() 会永久阻塞
     // 在实际使用中，应确保资源最终会被归还
 
     // 释放资源
-    if (result1)
-        result1.value().reset();
-    if (result2)
-        result2.value().reset();
+    if (resource1)
+        resource1.reset();
+    if (resource2)
+        resource2.reset();
 }
 
 // 测试 getAndWait 在多线程环境下的行为
@@ -753,15 +739,18 @@ TEST_CASE("test_ResourceHybridVersionPool_get_and_wait_multithread") {
     // 启动 4 个线程，等于总资源数（4 个）
     for (int i = 0; i < 4; ++i) {
         threads.emplace_back([&, i]() {
-            // 无限期等待（应该都能成功，因为资源数足够）
-            auto resource_result = pool.getAndWait();
-            if (resource_result) {
-                auto resource = std::move(resource_result.value());
-                CHECK_NE(resource, nullptr);
-                success_count++;
+            try {
+                // 无限期等待（应该都能成功，因为资源数足够）
+                auto resource = pool.getAndWait();
+                if (resource) {
+                    CHECK_NE(resource, nullptr);
+                    success_count++;
 
-                // 模拟工作 50ms
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    // 模拟工作 50ms
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+            } catch (const std::exception& e) {
+                HKU_WARN("Thread {} error: {}", i, e.what());
             }
         });
     }

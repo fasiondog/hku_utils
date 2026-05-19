@@ -38,7 +38,7 @@
  *          - 如果一致：正常归还到池中实现复用
  *
  * @tparam ResourceType 资源类型，必须支持构造函数 ResourceType(const Parameter&)
- * @tparam MAX_POOL_SIZE_LIMIT 物理容量上限（编译期固定），默认值为 32
+ * @tparam MAX_POOL_SIZE_LIMIT 物理容量上限（编译期固定），默认值为 2
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -73,7 +73,7 @@
  */
 namespace hku {
 
-template <typename ResourceType, size_t MAX_POOL_SIZE_LIMIT = 32>
+template <typename ResourceType, size_t MAX_POOL_SIZE_LIMIT = 2>
 class ResourceTlsPool {
 public:
     /**

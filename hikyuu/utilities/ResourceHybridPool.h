@@ -35,7 +35,7 @@ namespace hku {
  *          - 全局池使用 std::mutex 保护，确保线程安全
  *
  * @tparam ResourceType 资源类型，必须支持构造函数 ResourceType(const Parameter&)
- * @tparam MAX_TLS_POOL_SIZE_LIMIT TLS 池物理容量上限，默认 32（编译期固定，用于 std::array 分配）
+ * @tparam MAX_TLS_POOL_SIZE_LIMIT TLS 池物理容量上限，默认 2（编译期固定，用于 std::array 分配）
  * @ingroup Utilities
  *
  * @par 使用示例
@@ -52,9 +52,9 @@ namespace hku {
  * ResourceHybridPool<MyResource, 64> pool(param, 64, 16);  // TLS 池实际使用 16，全局池 64
  *
  * // 步骤3：同步获取（优先 TLS Pool）
- * auto result = pool.get();
- * if (result) {
- *     result.value()->doWork();
+ * auto resource = pool.get();
+ * if (resource) {
+ *     resource->doWork();
  * }
  * @endcode
  *
@@ -65,7 +65,7 @@ namespace hku {
  * @note Global Pool 的大小也可在构造时指定，不受模板参数限制
  * @warning 不建议在协程环境中使用，协程的线程迁移会导致 TLS Pool 资源无法复用
  */
-template <typename ResourceType, size_t MAX_TLS_POOL_SIZE_LIMIT = 32>
+template <typename ResourceType, size_t MAX_TLS_POOL_SIZE_LIMIT = 2>
 class ResourceHybridPool {
 public:
     /** TLS Pool 类型别名 */
@@ -122,192 +122,104 @@ public:
     ResourceHybridPool &operator=(ResourceHybridPool &&) noexcept = default;
 
     /**
-     * 同步获取资源（两级策略：TLS Pool → Global Pool）
+     * 获取可用资源，如超出允许的最大资源数将返回空指针
      *
-     * @return ResourcePtr 的 expected 对象，成功时包含资源指针，失败时包含错误信息
+     * @return ResourcePtr 资源指针，失败时返回 nullptr
      *
      * @note 获取策略：
-     *       1. 首先尝试从 TLS Pool 获取（快速路径，无锁）
-     *       2. 如果 TLS Pool 失败，自动降级到全局共享池获取（同步方式）
-     *       3. 如果两者都失败，返回组合错误信息
+     *       1. 如果 TLS Pool 被禁用，直接从全局池获取
+     *       2. 否则优先从 TLS Pool 获取（快速路径，无锁）
+     *       3. 如果 TLS Pool 失败，自动降级到全局共享池
+     *       4. 如果全局池也失败，返回 nullptr
      *
-     * @example
-     * @code
-     * auto result = pool.get();
-     * if (result) {
-     *     auto& resource = result.value();
-     *     resource->doWork();
-     * } else {
-     *     HKU_ERROR("Failed to get resource: {}", result.error());
-     * }
-     * @endcode
+     * @exception CreateResourceException 新资源创建可能抛出异常
      */
-    stdx::expected<std::shared_ptr<ResourceType>, std::string> get() {
-        // 如果 TLS Pool 被禁用（max_tls_pool_size == 0），直接从全局池获取
+    std::shared_ptr<ResourceType> get() {
+        // 如果 TLS Pool 被禁用，直接从全局池获取
         if (m_max_tls_pool_size == 0) {
-            try {
-                auto resource = m_global_pool->get();
-                if (resource) {
-                    return resource;
-                } else {
-                    return stdx::unexpected("Global Pool exhausted and no available resources");
-                }
-            } catch (const std::exception &e) {
-                return stdx::unexpected(fmt::format("Global Pool error: {}", e.what()));
-            }
+            return m_global_pool->get();
         }
 
         // 优先从 TLS Pool 获取（快速路径）
         auto tls_result = TlsPoolType::getInstance().get();
         if (tls_result) {
-            return tls_result;  // TLS Pool 成功，直接返回 shared_ptr
+            return tls_result.value();  // TLS Pool 成功，提取 shared_ptr
         }
 
-        // TLS Pool 失败，尝试从全局共享池获取（同步方式）
-        try {
-            auto global_resource = m_global_pool->get();
-            if (global_resource) {
-                return global_resource;  // 全局池成功，返回 shared_ptr
-            } else {
-                return stdx::unexpected(fmt::format(
-                  "Both TLS and Global Pool exhausted. TLS: {}, Global: no available resources",
-                  tls_result.error()));
-            }
-        } catch (const std::exception &e) {
-            return stdx::unexpected(
-              fmt::format("Both TLS and Global Pool exhausted. TLS: {}, Global: {}",
-                          tls_result.error(), e.what()));
-        }
+        // TLS Pool 失败，尝试从全局共享池获取
+        return m_global_pool->get();  // 可能返回 nullptr 或抛出 CreateResourceException
     }
 
     /**
-     * 在指定的超时时间内获取可用资源（两级策略：TLS Pool → Global Pool with wait）
+     * 在指定的超时时间内获取可用资源
      *
-     * @param ms_timeout 超时时间，单位毫秒。如果为 0，则无限期等待
-     * @return ResourcePtr 的 expected 对象，成功时包含资源指针，失败时包含错误信息
+     * @param ms_timeout 超时时间，单位毫秒
+     * @return ResourcePtr 资源指针
      *
      * @note 获取策略：
      *       1. 首先尝试从 TLS Pool 获取（快速路径，无锁）
-     *       2. 如果 TLS Pool 失败，自动降级到全局共享池并等待空闲资源（带超时）
-     *       3. 如果超时或两者都失败，返回组合错误信息
+     *       2. 如果 TLS Pool 失败，自动降级到全局共享池并等待指定时间
+     *       3. 如果超时或创建失败，抛出 GetResourceTimeoutException
      *
-     * @note 此方法会阻塞当前线程直到获取到资源或超时
-     * @note 适用于需要确保获取资源的场景，但要注意超时设置避免长时间阻塞
-     *
-     * @example
-     * @code
-     * // 等待最多 5 秒获取资源
-     * auto result = pool.getWaitFor(5000);
-     * if (result) {
-     *     auto& resource = result.value();
-     *     resource->doWork();
-     * } else {
-     *     HKU_ERROR("Failed to get resource within timeout: {}", result.error());
-     * }
-     * @endcode
+     * @exception GetResourceTimeoutException 超时或资源耗尽
+     * @exception CreateResourceException 新资源创建失败
      */
-    stdx::expected<std::shared_ptr<ResourceType>, std::string> getWaitFor(uint64_t ms_timeout) {
+    std::shared_ptr<ResourceType> getWaitFor(uint64_t ms_timeout) {
         // 如果 TLS Pool 被禁用（max_tls_pool_size == 0），直接从全局池等待获取
         if (m_max_tls_pool_size == 0) {
-            try {
-                auto resource = m_global_pool->getWaitFor(ms_timeout);
-                if (resource) {
-                    return resource;
-                } else {
-                    return stdx::unexpected(
-                      "Global Pool exhausted and timeout waiting for resources");
-                }
-            } catch (const GetResourceTimeoutException &e) {
-                return stdx::unexpected(fmt::format("Global Pool timeout: {}", e.what()));
-            } catch (const std::exception &e) {
-                return stdx::unexpected(fmt::format("Global Pool error: {}", e.what()));
-            }
+            return m_global_pool->getWaitFor(ms_timeout);  // 可能抛出异常
         }
 
         // 优先从 TLS Pool 获取（快速路径）
         auto tls_result = TlsPoolType::getInstance().get();
         if (tls_result) {
-            return tls_result;  // TLS Pool 成功，直接返回 shared_ptr
+            return tls_result.value();  // TLS Pool 成功，提取 shared_ptr
         }
 
         // TLS Pool 失败，尝试从全局共享池等待获取（带超时）
-        try {
-            auto global_resource = m_global_pool->getWaitFor(ms_timeout);
-            if (global_resource) {
-                return global_resource;  // 全局池成功，返回 shared_ptr
-            } else {
-                return stdx::unexpected(fmt::format(
-                  "Both TLS and Global Pool exhausted. TLS: {}, Global: timeout or no resources",
-                  tls_result.error()));
-            }
-        } catch (const GetResourceTimeoutException &e) {
-            return stdx::unexpected(
-              fmt::format("Both TLS and Global Pool exhausted. TLS: {}, Global: {}",
-                          tls_result.error(), e.what()));
-        } catch (const std::exception &e) {
-            return stdx::unexpected(
-              fmt::format("Both TLS and Global Pool exhausted. TLS: {}, Global: {}",
-                          tls_result.error(), e.what()));
-        }
+        return m_global_pool->getWaitFor(ms_timeout);  // 可能抛出 GetResourceTimeoutException
     }
 
     /**
      * 获取可用资源，如超出允许的最大资源数，将阻塞等待直到获得空闲资源
      *
-     * @return ResourcePtr 的 expected 对象，成功时包含资源指针，失败时包含错误信息
+     * @return ResourcePtr 资源指针
      *
      * @note 获取策略：
      *       1. 首先尝试从 TLS Pool 获取（快速路径，无锁）
      *       2. 如果 TLS Pool 失败，自动降级到全局共享池并无限期等待空闲资源
-     *       3. 如果创建资源失败，返回错误信息
+     *       3. 如果创建资源失败，抛出 CreateResourceException
      *
      * @note 此方法会阻塞当前线程直到获取到资源
-     * @note ⚠️ 谨慎使用：如果资源池已满且没有资源归还，将永久阻塞
+     * @note 谨慎使用：如果资源池已满且没有资源归还，将永久阻塞
      * @note 适用于必须获取资源的场景，但要确保资源最终会被归还
      *
-     * @example
-     * @code
-     * // 阻塞等待直到获取到资源
-     * auto result = pool.getAndWait();
-     * if (result) {
-     *     auto& resource = result.value();
-     *     resource->doWork();
-     * } else {
-     *     HKU_ERROR("Failed to get resource: {}", result.error());
-     * }
-     * @endcode
+     * @exception GetResourceTimeoutException 理论上不会超时（ms_timeout=0），但可能因其他原因抛出
+     * @exception CreateResourceException 新资源创建失败
      */
-    stdx::expected<std::shared_ptr<ResourceType>, std::string> getAndWait() {
+    std::shared_ptr<ResourceType> getAndWait() {
         return getWaitFor(0);  // 调用 getWaitFor(0) 实现无限期等待
     }
 
     /**
      * 仅从 TLS Pool 获取资源（同步）
      *
-     * @return ResourcePtr 的 expected 对象
+     * @return ResourcePtr 资源指针，失败时返回 nullptr
      */
-    stdx::expected<std::shared_ptr<ResourceType>, std::string> getFromTlsPool() {
-        return TlsPoolType::getInstance().get();
+    std::shared_ptr<ResourceType> getFromTlsPool() {
+        auto result = TlsPoolType::getInstance().get();
+        return result ? result.value() : nullptr;
     }
 
     /**
      * 仅从全局共享池获取资源（同步）
      *
-     * @return ResourcePtr 的 expected 对象，成功时包含资源指针，失败时包含错误信息
+     * @return ResourcePtr 资源指针，失败时返回 nullptr
      *
-     * @note 此方法可能抛出 CreateResourceException 或 GetResourceTimeoutException
+     * @note 此方法可能抛出 CreateResourceException
      */
-    stdx::expected<std::shared_ptr<ResourceType>, std::string> getFromGlobalPool() {
-        try {
-            auto resource = m_global_pool->get();
-            if (resource) {
-                return resource;
-            } else {
-                return stdx::unexpected("Global Pool exhausted and no available resources");
-            }
-        } catch (const std::exception &e) {
-            return stdx::unexpected(fmt::format("Global Pool error: {}", e.what()));
-        }
+    std::shared_ptr<ResourceType> getFromGlobalPool() {
+        return m_global_pool->get();  // 可能返回 nullptr 或抛出 CreateResourceException
     }
 
     /** 获取 TLS Pool 引用 */
