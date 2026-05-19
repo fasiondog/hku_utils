@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.4.3 - 2026年5月19日
+
+修正优化 ResouceTlsPool/ResourceHybirdPool
+
 ## 1.4.2 - 2026年5月19日
 
 1. fixed: MySQL异步连接及补充测试
