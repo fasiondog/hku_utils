@@ -66,6 +66,11 @@ net::awaitable<void> AsyncMySQLStatement::sub_exec() {
         boost::mysql::error_code ec;
         boost::mysql::diagnostics diag;
 
+        // 异步连接在构造时无法主动连接，这里需要先建立连接
+        if (!m_impl->connect->m_impl->initialized) {
+            co_await m_impl->connect->connect();
+        }
+
         m_impl->stmt = co_await m_impl->connect->m_impl->get_statement(m_sql_string, ec, diag);
         m_impl->needs_reset = true;
 
@@ -118,7 +123,6 @@ net::awaitable<void> AsyncMySQLStatement::sub_exec() {
     }
 
     auto* conn = static_cast<boost::mysql::tcp_connection*>(m_impl->connect->getRawConnection());
-    HKU_ASSERT(conn);
 
     try {
         boost::mysql::diagnostics diag;
