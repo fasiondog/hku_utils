@@ -100,7 +100,8 @@ TEST_CASE("test_ResourceAsioVersionPool_Basic") {
     runCoroutineTest(ctx, [&]() -> boost::asio::awaitable<void> {
         Parameter param;
         param.set<std::string>("test_param", "v1");
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+        // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+        ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
         // 初始状态检查
         CHECK_EQ(pool.count(), 0);
@@ -155,7 +156,8 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionUpdate") {
     runCoroutineTest(ctx, [&]() -> boost::asio::awaitable<void> {
         Parameter param;
         param.set<std::string>("test_param", "v1");
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+        // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+        ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
         // 获取一些资源
         auto res1_result = co_await pool.asyncGet();
@@ -212,7 +214,8 @@ TEST_CASE("test_ResourceAsioVersionPool_SetParameter") {
     runCoroutineTest(ctx, [&]() -> boost::asio::awaitable<void> {
         Parameter param;
         param.set<std::string>("test_param", "v1");
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+        // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+        ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
         auto res1_result = co_await pool.asyncGet();
         CHECK_EXPECTED(res1_result);
@@ -252,7 +255,8 @@ TEST_CASE("test_ResourceAsioVersionPool_ReleaseIdleResource") {
 
     runCoroutineTest(ctx, [&]() -> boost::asio::awaitable<void> {
         Parameter param;
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+        // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+        ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
         // 创建一些资源并归还
         auto res1_result = co_await pool.asyncGet();
@@ -295,8 +299,8 @@ TEST_CASE("test_ResourceAsioVersionPool_ConcurrentAccess") {
     boost::asio::co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          // 单线程场景使用默认 NullLock
-          ResourceAsioVersionPool<VersionTestResource> pool(param);
+          // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+          ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
           for (int i = 0; i < num_tasks; ++i) {
               boost::asio::co_spawn(
@@ -356,8 +360,8 @@ TEST_CASE("test_ResourceAsioVersionPool_VersionConcurrency") {
     boost::asio::co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          // 单线程场景使用默认 NullLock
-          ResourceAsioVersionPool<VersionTestResource> pool(param);
+          // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+          ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
           // 先获取一些资源
           std::vector<std::shared_ptr<VersionTestResource>> resources;
@@ -435,8 +439,8 @@ TEST_CASE("test_ResourceAsioVersionPool_MultithreadedAccess") {
     boost::asio::co_spawn(
       io_ctx,
       [&]() -> boost::asio::awaitable<void> {
-          // 多线程场景使用 std::mutex
-          ResourceAsioVersionPool<VersionTestResource, std::mutex> pool(param);
+          // 默认使用 std::mutex，线程安全
+          ResourceAsioVersionPool<VersionTestResource> pool(param);
 
           for (int i = 0; i < num_tasks; ++i) {
               boost::asio::co_spawn(
@@ -515,7 +519,8 @@ TEST_CASE("test_ResourceAsioVersionPool_GetParam") {
         param.set<std::string>("name", "test_pool");
         param.set<int>("max_connections", 100);
 
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+        // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+        ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
         // 检查参数存在性
         CHECK_UNARY(pool.haveParam("name"));
@@ -535,7 +540,8 @@ TEST_CASE("test_ResourceAsioVersionPool_IncVersion") {
 
     runCoroutineTest(ctx, [&]() -> boost::asio::awaitable<void> {
         Parameter param;
-        ResourceAsioVersionPool<VersionTestResource> pool(param);
+        // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+        ResourceAsioVersionPool<VersionTestResource, rap::NullLock> pool(param);
 
         CHECK_EQ(pool.getVersion(), 0);
 

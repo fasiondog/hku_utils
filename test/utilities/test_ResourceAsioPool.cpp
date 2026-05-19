@@ -57,7 +57,8 @@ std::atomic<int> TestResource::counter(0);
 TEST_CASE("test_ResourceAsioPool_basic") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param);
 
     co_spawn(
       io_ctx,
@@ -78,7 +79,8 @@ TEST_CASE("test_ResourceAsioPool_basic") {
 TEST_CASE("test_ResourceAsioPool_reuse") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param);
 
     co_spawn(
       io_ctx,
@@ -107,7 +109,8 @@ TEST_CASE("test_ResourceAsioPool_reuse") {
 TEST_CASE("test_ResourceAsioPool_concurrent") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param);
 
     const int num_tasks = 10;
     std::atomic<int> completed(0);
@@ -138,7 +141,8 @@ TEST_CASE("test_ResourceAsioPool_concurrent") {
 TEST_CASE("test_ResourceAsioPool_releaseIdleResource") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param);
 
     co_spawn(
       io_ctx,
@@ -175,7 +179,8 @@ TEST_CASE("test_ResourceAsioPool_releaseIdleResource") {
 TEST_CASE("test_ResourceAsioPool_multiple_io_context_runs") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param);
 
     co_spawn(
       io_ctx,
@@ -458,7 +463,8 @@ TEST_CASE("test_ResourceAsioPool_max_count_limit") {
     boost::asio::io_context io_ctx;
     Parameter param;
     const size_t max_count = 3;
-    ResourceAsioPool<TestResource> pool(param, max_count);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param, max_count);
 
     co_spawn(
       io_ctx,
@@ -501,7 +507,8 @@ TEST_CASE("test_ResourceAsioPool_max_count_limit") {
 TEST_CASE("test_ResourceAsioPool_no_max_limit") {
     boost::asio::io_context io_ctx;
     Parameter param;
-    ResourceAsioPool<TestResource> pool(param, 0);  // 无限制
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param, 0);  // 无限制
 
     co_spawn(
       io_ctx,
@@ -528,7 +535,8 @@ TEST_CASE("test_ResourceAsioPool_get_timeout") {
     boost::asio::io_context io_ctx;
     Parameter param;
     const size_t max_count = 2;
-    ResourceAsioPool<TestResource> pool(param, max_count);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param, max_count);
 
     co_spawn(
       io_ctx,
@@ -565,7 +573,8 @@ TEST_CASE("test_ResourceAsioPool_get_with_timeout_success") {
     boost::asio::io_context io_ctx;
     Parameter param;
     const size_t max_count = 2;
-    ResourceAsioPool<TestResource> pool(param, max_count);
+    // 单线程协程环境，使用 NullLock 避免不必要的锁开销
+    ResourceAsioPool<TestResource, rap::NullLock> pool(param, max_count);
 
     std::atomic<bool> test_passed{false};
 
