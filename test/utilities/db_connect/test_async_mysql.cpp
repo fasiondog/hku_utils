@@ -17,10 +17,24 @@
 #include "hikyuu/utilities/ini_parser/IniParser.h"
 #include "hikyuu/utilities/net.h"
 #include "hikyuu/utilities/ResourceHybridPool.h"
+#include "hikyuu/utilities/ResourceAsioPool.h"
 #include <doctest/doctest.h>
 #include <filesystem>
 
 using namespace hku;
+
+namespace {
+
+// 辅助宏：检查 expected 结果并获取值
+#define CHECK_EXPECTED(result)                           \
+    do {                                                 \
+        CHECK(result.has_value());                       \
+        if (!result) {                                   \
+            MESSAGE("Expected error: ", result.error()); \
+        }                                                \
+    } while (0)
+
+}  // namespace
 
 // 从 ~/workspace/dev.ini 读取 mysql57 配置
 static Parameter loadMySQLConfig() {
@@ -1092,6 +1106,193 @@ TEST_CASE("test_async_sql_result_set_pagination") {
     io_context.run_for(std::chrono::seconds(10));
 
     CHECK(test_passed == true);
+}
+
+TEST_CASE("test_async_mysql_multithreaded_executor") {
+    // 测试多线程环境下协程执行的正确性
+    // 验证 AsyncMySQLConnect + ResourceAsioPool 在多个线程同时运行 io_context 时的线程安全性
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    boost::asio::io_context io_context;
+    const int num_tasks = 20;
+    const int num_threads = 4;
+    const size_t max_connections = 10;  // 最大连接数小于任务数，测试资源复用
+    std::atomic<int> completed(0);
+    std::atomic<int> success_count(0);
+    std::promise<void> completion_promise;
+    std::future<void> completion_future = completion_promise.get_future();
+
+    // 创建资源池（默认使用 std::mutex，线程安全）
+    ResourceAsioPool<AsyncMySQLConnect> pool(param, max_connections);
+
+    // 在协程中执行测试
+    boost::asio::co_spawn(
+      io_context,
+      [&]() -> net::awaitable<void> {
+          try {
+              // 使用资源池中的连接初始化数据库和表
+              auto init_conn_result = co_await pool.asyncGet();
+              CHECK_EXPECTED(init_conn_result);
+              if (!init_conn_result) {
+                  MESSAGE("Failed to get connection from pool for initialization");
+                  co_return;
+              }
+              auto init_conn = std::move(init_conn_result.value());
+
+              bool connected = co_await init_conn->ping();
+              if (!connected) {
+                  MESSAGE("Failed to connect to MySQL");
+                  co_return;
+              }
+
+              // 选择或创建 test 数据库
+              bool use_success = true;
+              try {
+                  co_await init_conn->exec("USE test");
+              } catch (...) {
+                  use_success = false;
+              }
+
+              if (!use_success) {
+                  co_await init_conn->exec("CREATE DATABASE IF NOT EXISTS test");
+                  co_await init_conn->exec("USE test");
+              }
+
+              // 创建测试表
+              co_await init_conn->exec("DROP TABLE IF EXISTS test_multithread_coroutine");
+              co_await init_conn->exec(R"(
+                CREATE TABLE test_multithread_coroutine (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    task_id INT,
+                    thread_info VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            )");
+
+              // 归还初始化连接
+              init_conn.reset();
+
+              // 提交多个并发任务，每个任务从资源池获取连接
+              for (int i = 0; i < num_tasks; ++i) {
+                  boost::asio::co_spawn(
+                    io_context,
+                    [&, i]() -> net::awaitable<void> {
+                        try {
+                            // 从资源池获取连接（会自动处理并发和资源复用）
+                            auto conn_result = co_await pool.asyncGet();
+                            if (!conn_result) {
+                                HKU_WARN("Task {} failed to get connection from pool: {}", i,
+                                         conn_result.error());
+                                if (completed.fetch_add(1) + 1 == num_tasks) {
+                                    completion_promise.set_value();
+                                }
+                                co_return;
+                            }
+                            auto task_conn = std::move(conn_result.value());
+
+                            // 确保连接到正确的数据库
+                            try {
+                                co_await task_conn->exec("USE test");
+                            } catch (...) {
+                                // 忽略错误，可能已经在使用 test 数据库
+                            }
+
+                            // 每个任务插入一条记录
+                            std::string sql =
+                              "INSERT INTO test_multithread_coroutine (task_id, thread_info) "
+                              "VALUES (" +
+                              std::to_string(i) + ", 'thread_pool')";
+                            co_await task_conn->exec(sql);
+
+                            // 模拟一些异步操作
+                            net::steady_timer timer(co_await net::this_coro::executor);
+                            timer.expires_after(std::chrono::milliseconds(10));
+                            co_await timer.async_wait(net::use_awaitable);
+
+                            // 验证插入的数据
+                            auto stmt = co_await task_conn->getStatement(
+                              "SELECT COUNT(*) FROM test_multithread_coroutine WHERE task_id = ?");
+                            stmt->bind(0, i);
+                            co_await stmt->exec();
+
+                            if (co_await stmt->moveNext()) {
+                                int count = 0;
+                                stmt->getColumn(0, count);
+                                if (count == 1) {
+                                    success_count.fetch_add(1);
+                                }
+                            }
+
+                            stmt.reset();
+
+                            // 连接会在 shared_ptr 销毁时自动归还到资源池
+
+                        } catch (const std::exception& e) {
+                            HKU_WARN("Task {} failed: {}", i, e.what());
+                        }
+
+                        // 使用原子操作检查是否最后一个完成的任务
+                        if (completed.fetch_add(1) + 1 == num_tasks) {
+                            completion_promise.set_value();
+                        }
+                    },
+                    boost::asio::detached);
+              }
+
+              // 等待所有子任务完成
+              co_await net::post(io_context.get_executor(), net::use_awaitable);
+
+              // 由于 promise/future 不能在协程中直接 co_await，我们使用定时器轮询
+              while (completed.load() < num_tasks) {
+                  net::steady_timer timer(co_await net::this_coro::executor);
+                  timer.expires_after(std::chrono::milliseconds(10));
+                  co_await timer.async_wait(net::use_awaitable);
+              }
+
+              // 清理测试表（需要再次从资源池获取连接）
+              auto cleanup_conn_result = co_await pool.asyncGet();
+              if (cleanup_conn_result) {
+                  auto cleanup_conn = std::move(cleanup_conn_result.value());
+                  co_await cleanup_conn->exec("DROP TABLE IF EXISTS test_multithread_coroutine");
+              }
+
+          } catch (const std::exception& e) {
+              HKU_ERROR("Main coroutine failed: {}", e.what());
+          }
+
+          co_return;
+      },
+      boost::asio::detached);
+
+    // 创建多个线程同时运行 io_context（真正的多线程执行器）
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads);
+    for (int i = 0; i < num_threads; ++i) {
+        workers.emplace_back([&]() { io_context.run(); });
+    }
+
+    // 等待所有任务完成或超时
+    if (completion_future.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
+        HKU_ERROR("Multithreaded coroutine test timeout! Completed: {}/{}", completed.load(),
+                  num_tasks);
+    }
+
+    // 停止 io_context 并等待所有工作线程
+    io_context.stop();
+    for (auto& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
+
+    HKU_INFO("Multithreaded coroutine test completed - Success: {}/{}, Pool count: {}",
+             success_count.load(), num_tasks, pool.count());
+    CHECK_EQ(completed.load(), num_tasks);
+    CHECK_GT(success_count.load(), 0);
 }
 
 #endif  // HKU_ENABLE_MYSQL
