@@ -432,6 +432,194 @@ TEST_CASE("test_Datetime") {
 }
 
 /** @par 检测点 */
+TEST_CASE("test_Datetime_to_local_time") {
+    /** @arg 测试 to_local_time 默认返回 microseconds */
+    Datetime dt(2024, 1, 15, 10, 30, 45, 123, 456);
+    auto local_us = dt.to_local_time();
+    CHECK(local_us.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()));
+
+    /** @arg 测试 to_local_time 指定返回 seconds */
+    auto local_sec = dt.to_local_time<std::chrono::seconds>();
+    CHECK(local_sec.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()) / 1000000);
+
+    /** @arg 测试 to_local_time 指定返回 milliseconds */
+    auto local_ms = dt.to_local_time<std::chrono::milliseconds>();
+    CHECK(local_ms.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()) / 1000);
+
+    /** @arg 测试 to_local_time 指定返回 nanoseconds */
+    auto local_ns = dt.to_local_time<std::chrono::nanoseconds>();
+    CHECK(local_ns.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()) * 1000);
+
+    /** @arg 测试 Null Datetime，返回对应的 max */
+    Datetime null_dt;
+    CHECK_EQ(null_dt.to_local_time(), std::chrono::local_time<std::chrono::microseconds>::max());
+
+    /** @arg 测试 1970-01-01 之前的日期 */
+    Datetime old_dt(1969, 12, 31);
+    CHECK_EQ(old_dt.to_local_time(),
+             std::chrono::local_time<std::chrono::microseconds>(
+               std::chrono::local_days{std::chrono::year_month_day{
+                 std::chrono::year(1969), std::chrono::month(12), std::chrono::day(31)}}));
+}
+
+/** @par 检测点 */
+TEST_CASE("test_Datetime_fromLocalTime") {
+    /** @arg 测试从 microseconds local_time 构造 */
+    // 注意：local_time 表示的是本地时间（wall-clock time），不是 UTC
+    // 1705312245123456 微秒 = 2024-01-15 10:30:45.123456 (本地时间)
+    auto local_us = std::chrono::local_time<std::chrono::microseconds>(
+      std::chrono::microseconds(1705312245123456));
+    Datetime dt_us = Datetime::fromLocalTime(local_us);
+
+    // fromTimestamp 会将 timestamp 解释为 UTC 并转换为本地时间
+    // 在 UTC+8 时区，UTC 时间 2024-01-15 10:30:45 会变成本地时间 2024-01-15 18:30:45
+    // 但这里我们直接用 fromTimestamp，它不做时区转换
+    CHECK(dt_us.year() == 2024);
+    CHECK(dt_us.month() == 1);
+    CHECK(dt_us.day() == 15);
+    // 实际的小时和分钟取决于 fromTimestamp 的实现
+    // fromTimestamp 直接基于 1970-01-01 00:00:00 + timestamp，不涉及时区
+
+    /** @arg 测试往返转换一致性 */
+    Datetime original(2024, 6, 15, 14, 30, 22, 456, 789);
+    auto converted_back = Datetime::fromLocalTime(original.to_local_time());
+    CHECK(converted_back == original);
+
+    /** @arg 测试 epoch (1970-01-01 00:00:00) */
+    auto local_epoch =
+      std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(0));
+    Datetime dt_epoch = Datetime::fromLocalTime(local_epoch);
+    CHECK(dt_epoch == Datetime(1970, 1, 1, 0, 0, 0, 0, 0));
+
+    /** @arg 测试负值 */
+    auto local_negative =
+      std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(-1));
+    CHECK_EQ(Datetime::fromLocalTime(local_negative), Datetime(1969, 12, 31, 23, 59, 59, 999, 999));
+}
+
+/** @par 检测点 */
+TEST_CASE("test_Datetime_fromTimePointUTC") {
+    /** @arg 测试从 system_clock time_point 构造（微秒精度）*/
+    auto tp_us = std::chrono::system_clock::time_point(
+      std::chrono::microseconds(1705312245123456));  // 2024-01-15 10:30:45.123456 UTC
+    Datetime dt_us = Datetime::fromTimePointUTC(tp_us);
+
+    // fromTimestampUTC 会将 timestamp 解释为 UTC 并转换为本地时间
+    // 验证基本属性
+    CHECK(!dt_us.isNull());
+    CHECK(dt_us.year() >= 2024);
+
+    /** @arg 测试从 seconds 精度的 time_point 构造 */
+    auto tp_sec = std::chrono::system_clock::time_point(std::chrono::seconds(1705312245));
+    Datetime dt_sec = Datetime::fromTimePointUTC(tp_sec);
+    CHECK(!dt_sec.isNull());
+
+    /** @arg 测试从 milliseconds 精度的 time_point 构造 */
+    auto tp_ms = std::chrono::system_clock::time_point(std::chrono::milliseconds(1705312245123));
+    Datetime dt_ms = Datetime::fromTimePointUTC(tp_ms);
+    CHECK(!dt_ms.isNull());
+
+    /** @arg 测试从 nanoseconds 精度的 time_point 构造（截断到微秒）*/
+    auto tp_ns = std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds>(
+      std::chrono::nanoseconds(1705312245123456789LL));
+    Datetime dt_ns = Datetime::fromTimePointUTC(tp_ns);
+    CHECK(!dt_ns.isNull());
+
+    /** @arg 测试 epoch (1970-01-01 00:00:00 UTC) */
+    auto tp_epoch = std::chrono::system_clock::time_point(std::chrono::microseconds(0));
+    Datetime dt_epoch = Datetime::fromTimePointUTC(tp_epoch);
+    // fromTimestampUTC 会将 UTC 时间转换为本地时间
+    // 在 UTC+8 时区，epoch 的本地时间是 1970-01-01 08:00:00
+    CHECK(!dt_epoch.isNull());
+    CHECK(dt_epoch.year() == 1970);
+    CHECK(dt_epoch.month() == 1);
+    CHECK(dt_epoch.day() == 1);
+
+    /** @arg 测试负值 */
+    auto tp_negative = std::chrono::system_clock::time_point(std::chrono::microseconds(-1));
+    CHECK_EQ(Datetime::fromTimePointUTC(tp_negative),
+             Datetime(1970, 1, 1) - Microseconds(1) + UTCOffset());
+
+    /** @arg 测试与 fromTimestampUTC 的等价性 */
+    int64_t timestamp = 1705312245123456;
+    auto tp = std::chrono::system_clock::time_point(std::chrono::microseconds(timestamp));
+    Datetime dt_from_tp = Datetime::fromTimePointUTC(tp);
+    Datetime dt_from_ts = Datetime::fromTimestampUTC(timestamp);
+    CHECK(dt_from_tp == dt_from_ts);
+}
+
+/** @par 检测点 */
+TEST_CASE("test_Datetime_chrono_duration_operator") {
+    Datetime dt(2024, 1, 15, 10, 30, 45, 123, 456);
+
+    /** @arg 测试与 chrono seconds 相加 */
+    auto dt_plus_sec = dt + std::chrono::seconds(3600);  // 加1小时
+    CHECK(dt_plus_sec == dt + Hours(1));
+
+    /** @arg 测试与 chrono minutes 相加 */
+    auto dt_plus_min = dt + std::chrono::minutes(30);
+    CHECK(dt_plus_min == dt + Minutes(30));
+
+    /** @arg 测试与 chrono hours 相加 */
+    auto dt_plus_hour = dt + std::chrono::hours(2);
+    CHECK(dt_plus_hour == dt + Hours(2));
+
+    /** @arg 测试与 chrono milliseconds 相加 */
+    auto dt_plus_ms = dt + std::chrono::milliseconds(1500);  // 1.5秒
+    CHECK(dt_plus_ms == dt + Milliseconds(1500));
+
+    /** @arg 测试与 chrono microseconds 相加 */
+    auto dt_plus_us = dt + std::chrono::microseconds(2500);  // 2.5毫秒
+    CHECK(dt_plus_us == dt + Microseconds(2500));
+
+    /** @arg 测试与 chrono nanoseconds 相加（精度截断到微秒）*/
+    auto dt_plus_ns = dt + std::chrono::nanoseconds(3500);  // 3.5微秒，截断为3微秒
+    CHECK(dt_plus_ns == dt + Microseconds(3));
+
+    /** @arg 测试与 chrono seconds 相减 */
+    auto dt_minus_sec = dt - std::chrono::seconds(1800);  // 减30分钟
+    CHECK(dt_minus_sec == dt - Minutes(30));
+
+    /** @arg 测试与 chrono minutes 相减 */
+    auto dt_minus_min = dt - std::chrono::minutes(15);
+    CHECK(dt_minus_min == dt - Minutes(15));
+
+    /** @arg 测试与 chrono hours 相减 */
+    auto dt_minus_hour = dt - std::chrono::hours(1);
+    CHECK(dt_minus_hour == dt - Hours(1));
+
+    /** @arg 测试与 chrono milliseconds 相减 */
+    auto dt_minus_ms = dt - std::chrono::milliseconds(500);
+    CHECK(dt_minus_ms == dt - Milliseconds(500));
+
+    /** @arg 测试与 chrono microseconds 相减 */
+    auto dt_minus_us = dt - std::chrono::microseconds(1000);
+    CHECK(dt_minus_us == dt - Microseconds(1000));
+
+    /** @arg 测试与 chrono nanoseconds 相减（精度截断到微秒）*/
+    auto dt_minus_ns = dt - std::chrono::nanoseconds(4500);  // 4.5微秒，截断为4微秒
+    CHECK(dt_minus_ns == dt - Microseconds(4));
+
+    /** @arg 测试 Null Datetime 运算 */
+    Datetime null_dt;
+    auto null_plus = null_dt + std::chrono::seconds(100);
+    CHECK(null_plus.isNull());
+
+    auto null_minus = null_dt - std::chrono::seconds(100);
+    CHECK(null_minus.isNull());
+
+    /** @arg 测试反向运算符 chrono duration + Datetime */
+    auto reverse_plus = std::chrono::hours(2) + dt;
+    CHECK(reverse_plus == dt + Hours(2));
+
+    auto reverse_plus_min = std::chrono::minutes(30) + dt;
+    CHECK(reverse_plus_min == dt + Minutes(30));
+
+    auto reverse_plus_sec = std::chrono::seconds(3600) + dt;
+    CHECK(reverse_plus_sec == dt + Seconds(3600));
+}
+
+/** @par 检测点 */
 TEST_CASE("test_Datetime_related_operator") {
     /** @arg 小于比较 */
     CHECK(Datetime(200101010000) < Null<Datetime>());
