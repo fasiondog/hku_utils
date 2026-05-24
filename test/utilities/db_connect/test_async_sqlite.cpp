@@ -279,7 +279,7 @@ TEST_CASE("test_async_sqlite_multithreaded_concurrent") {
     std::atomic<int> error_count{0};
 
     // 使用文件数据库以便多线程访问
-    std::string db_file = "/tmp/test_async_sqlite_mt.db";
+    std::string db_file = "test_data/tmp/test_async_sqlite_mt.db";
     std::remove(db_file.c_str());  // 清理旧文件
 
     std::vector<std::thread> threads;
@@ -427,7 +427,7 @@ TEST_CASE("test_async_sqlite_asio_pool_lazy_connect") {
 
     // 使用临时文件数据库
     std::string db_path =
-      "/tmp/test_async_sqlite_pool_" + std::to_string(std::time(nullptr)) + ".db";
+      "test_data/tmp/test_async_sqlite_pool_" + std::to_string(std::time(nullptr)) + ".db";
 
     Parameter param;
     param.set("db", db_path);
@@ -532,7 +532,7 @@ TEST_CASE("test_async_sqlite_asio_pool_with_tablemacro") {
 
     // 使用临时文件数据库
     std::string db_path =
-      "/tmp/test_async_sqlite_pool2_" + std::to_string(std::time(nullptr)) + ".db";
+      "test_data/tmp/test_async_sqlite_pool2_" + std::to_string(std::time(nullptr)) + ".db";
 
     struct TestRecord {
         TABLE_BIND3(TestRecord, test_asio_pool_tablemacro, name, age, extra)
