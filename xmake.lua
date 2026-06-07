@@ -40,6 +40,7 @@ option("http_client_zip", {description = "enable http support gzip", default = f
 option("node", {description = "enable node reqrep server/client", default = true})
 
 
+
 -- SPDLOG_ACTIVE_LEVEL 需要单独加
 local log_level = get_config("log_level")
 if log_level == nil then
@@ -106,6 +107,8 @@ add_requires("boost", {
       cmake = false,
     },
   })
+
+add_requires("utf8proc", {system = false})
 
 if has_config("mysql") then 
     add_requires("openssl3", {system = false, configs = {shared = true}})
@@ -197,7 +200,7 @@ target("hku_utils")
         add_packages("openssl3")
     end
 
-    add_packages("fmt", "spdlog", "boost", "yas", "tl_expected")
+    add_packages("fmt", "spdlog", "boost", "yas", "tl_expected", "utf8proc")
     
     add_defines("BOOST_ASIO_DISABLE_DEPRECATED=1")
     
