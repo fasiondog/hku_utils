@@ -141,10 +141,9 @@ end
 if has_config("node") then
     add_requires("nlohmann_json")
     if is_kind("shared") then
-        add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl"), cxflags = "-fPIC"}})
-        add_requireconfs("nng.mbedtls", {configs = {cxflags = "-fPIC"}})
+        add_requires("nng", {cxflags = "-fPIC"})
     else
-        add_requires("nng", {configs = {NNG_ENABLE_TLS = has_config("http_client_ssl")}})
+        add_requires("nng")
     end
 end
 
