@@ -1,5 +1,12 @@
 # 版本发布说明
 
+## 1.5.0 - 2026年6月25日
+
+1. feat(arithmetic): 添加UTF-8字符串大小写转换和比较功能
+2. fixed: 修复GCC编译问题
+3. fixed(workflows): 更新配置以禁用http_client功能
+4. fixed(db_connect): 优化AsyncSQLResultSet和SQLResultSet中的字符串转大写处理
+
 ## 1.4.9 - 2026年5月31日
 
 1. fixed(AsyncMySQLConnect): 重置连接上下文和初始化状态以确保资源正确释放
