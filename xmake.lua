@@ -1,7 +1,7 @@
 set_xmakever("3.0.0")
 
 -- config version
-set_version("1.5.0", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
+set_version("1.5.1", {build="%Y%m%d%H%M"})   --使用 build 参数将导致每次重编译
 
 -- set warning all as error
 -- set_warnings("all", "error")
@@ -139,12 +139,7 @@ if get_config("duckdb") then
 end
 
 if has_config("node") then
-    add_requires("nlohmann_json")
-    if is_kind("shared") then
-        add_requires("nng", {cxflags = "-fPIC"})
-    else
-        add_requires("nng")
-    end
+    add_requires("nlohmann_json", "nng")
 end
 
 if has_config("http_client") then 
