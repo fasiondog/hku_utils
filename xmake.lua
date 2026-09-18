@@ -87,7 +87,7 @@ add_requires("spdlog", {configs = {header_only = true, fmt_external = true}})
 add_requireconfs("spdlog.fmt", {override = true, configs = {header_only = true}})
 add_requires("yas")
 add_requires("tl_expected")
-add_requires("boost", {
+add_requires("boost >=1.92", {
     system = false,
     debug = is_mode("debug"),
     configs = {
@@ -99,8 +99,6 @@ add_requires("boost", {
       serialization = false,
       system = true,
       python = false,
-      asio = true,
-      beast = true,
       openssl = has_config("mysql"),
       mysql = has_config("mysql"),
       charconv = has_config("mysql"),  -- boost.mysql 需要 charconv
