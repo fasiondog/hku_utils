@@ -1,5 +1,9 @@
 # 版本发布说明
 
+## 1.5.2 - 2026年9月19日
+
+fix(xmake): 适配 boost 1.92
+
 ## 1.5.1 - 2026年8月20日
 
 fix(xmake): 移除nng依赖配置中的http_client_ssl选项
