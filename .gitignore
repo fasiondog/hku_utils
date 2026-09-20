@@ -36,6 +36,9 @@ build
 tmp
 .xmake
 .vscode
+# LSP 编译数据库（由 xmake project -k compile_commands 生成，clangd 从工程根自动发现）
+.cache
+compile_commands.json
 cover-*
 cover.info
 coverage.xml

@@ -1,0 +1,10 @@
+# clangd 配置
+#
+# 生成 clangd 能自动发现的编译数据库（工程根 compile_commands.json，已 gitignore）：
+#     xmake project -k compile_commands --lsp=clangd
+# 新增/删除源文件、变更 xmake 配置后需重跑一次。
+CompileFlags:
+  Add:
+    - -std=c++20
+    - -Wno-unknown-warning-option
+    - -Wno-unused-command-line-argument
