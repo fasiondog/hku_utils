@@ -81,6 +81,19 @@ xmake f -m profile -y        # profile
 
 > 说明：`xmake r unit-test` 运行前会自动把 `test_data/` 拷贝到可执行文件目录（见 `test/xmake.lua` 的 `before_run`）。CI 默认以 `xmake f ... --mysql=n --http_client=n` 配置后构建 `unit-test`。
 
+### IDE / LSP 索引（clangd）
+
+源码中普遍使用 `#include "hikyuu/utilities/xxx.h"`（依赖 `xmake.lua` 的 `add_includedirs(".")`），因此 **clangd 必须拿到编译数据库**，否则会退化为 fallback 参数（编译目录 = 文件自身所在目录），对新建文件报成片的 `Unknown type name 'XXX'` —— 这类报错是**索引问题而非代码问题**，不要靠改代码去「修」。
+
+```bash
+# 生成到工程根目录 compile_commands.json（clangd 原生自动发现的 locations）
+xmake project -k compile_commands --lsp=clangd
+```
+
+- 新增/删除源文件、变更 `xmake f` 选项后需重跑一次；生成物已 gitignore，勿提交。
+- 不要用 `.clangd` 的 `-I.` 代替编译数据库：相对路径按编译目录解析，对 fallback 命令会指向源文件所在目录而非工程根，**实测无效**。
+- 工程根 `compile_commands.json` 也可由 `clangd.arguments: --compile-commands-dir=<dir>` 指定目录（如仍想放在 `.vscode/` 下）。
+
 ## 4. 测试
 
 基于 **doctest**，入口为 `test/test_main.cpp`，测试开关定义在 `test/test_config.h`（如 `ENABLE_MYSQL_TEST`）。
