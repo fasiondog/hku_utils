@@ -186,7 +186,7 @@ TEST_CASE("test_ResourcePool_SetMaxPoolSize") {
     Parameter param;
     ResourcePool<TestResource> pool(param, 5, 10);
 
-    CHECK_EQ(pool.maxPoolSize(), 10);  // 注意：这里返回的是 maxIdleSize，可能是 bug
+    CHECK_EQ(pool.maxPoolSize(), 5);
 
     pool.maxPoolSize(3);
     auto r1 = pool.get();
