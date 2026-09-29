@@ -119,6 +119,7 @@ xmake project -k compile_commands --lsp=clangd
 | 大括号 | `BreakBeforeBraces: Attach`（控制语句/函数/类同行） |
 | 指针 | `PointerAlignment: Left`（`type* name`） |
 | 其他 | `SortIncludes: false`、`NamespaceIndentation: None`、`SpacesBeforeTrailingComments: 2` |
+| 注释 | 代码内注释（含 doxygen `/** ... */` 与测试点标注）统一使用**英文**，不包含问题单号（如 ISS-xxx、#NN） |
 
 ### 命名规范（C++）
 
@@ -177,7 +178,7 @@ xmake project -k compile_commands --lsp=clangd
 6. **条件编译**：新增可选能力时，使用 `set_configvar` + `config.h.in` + `#if HKU_*` 的方式接入，避免破坏默认构建。
 7. **测试优先**：改动涉及核心模块时至少运行 `xmake r unit-test`；数据库/网络相关改动若无真实环境，走豁免路径并避免破坏默认（`mysql=n`、`http_client=n`）构建。
 8. **CI 会验证**：`.github/workflows/` 下 `macos.yml`、`ubuntu.yml`、`windows.yml`、`windows_arm64.yml` 四套流水线（分支 `main`，matrix: static/shared，部分含 aarch64/x86_64、arm64），PR 合入前需通过构建。
-9. **提交信息**：仓库使用中文或英文均可，历史中常见 `fix(xxx): 描述` / `feat(xxx): 描述` 的 conventional commits 风格（如 `fix(xmake): 适配 boost 1.92`）。
+9. **提交信息**：统一使用**英文**，简短风格，遵循 conventional commits（`fix(xxx): ...` / `feat(xxx): ...`），首字母小写、不加句号，不包含问题单号（如 ISS-xxx、#NN 等）。
 10. **发布**：执行 `python publish.py` 生成版本 zip 并更新 `hikyuu_extern_libs` 仓库中的包定义；发布前记得更新 `xmake.lua` 的 `set_version` 与 `release.md`。
 11. **谨慎处理**：修改 `xmake.lua` 的依赖顺序（如 `openssl3` 必须在 `boost` 之前）或包配置后，须重新 `xmake f` 配置；Windows 使用 clang-cl 编译，注意平台差异宏。
 
