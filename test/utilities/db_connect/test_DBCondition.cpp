@@ -112,3 +112,63 @@ TEST_CASE("test_DBCondition") {
     CHECK_THROWS_AS(Field("id").in(std::vector<double>()), hku::exception);
     CHECK_THROWS_AS(Field("id").not_in(std::vector<double>()), hku::exception);
 }
+
+TEST_CASE("test_DBCondition_sql_escape") {
+    /** Normal values: byte-for-byte identical to the old output when no quote is present */
+    CHECK_EQ(sqlStringLiteral("test"), R"X("test")X");
+    CHECK_EQ(sqlStringLiteral(""), R"X("")X");
+
+    /** Edge cases: bare quote, consecutive quotes, leading/trailing quotes */
+    CHECK_EQ(sqlStringLiteral("\""), "\"\"\"\"");  // single quote -> wrapped + doubled = 4 quotes
+    CHECK_EQ(sqlStringLiteral("\"\""), "\"\"\"\"\"\"");
+    CHECK_EQ(sqlStringLiteral("\"ab\""), "\"\"\"ab\"\"\"");
+    CHECK_EQ(sqlStringLiteral("a\"b\"c"), R"X("a""b""c")X");
+
+    /** Single quotes are left as-is (no closing risk inside double-quoted literals) */
+    CHECK_EQ(sqlStringLiteral("it's"), R"X("it's")X");
+
+    /** Comparison operators: embedded quotes must not close the literal early */
+    DBCondition d = Field("name") == std::string("a\" or 1=1 -- ");
+    CHECK_EQ(d.str(), R"X((name="a"" or 1=1 -- "))X");
+
+    d = Field("name") != std::string("a\"b");
+    CHECK_EQ(d.str(), R"X((name<>"a""b"))X");
+
+    d = Field("name") > std::string("a\"b");
+    CHECK_EQ(d.str(), R"X((name>"a""b"))X");
+
+    d = Field("name") < std::string("a\"b");
+    CHECK_EQ(d.str(), R"X((name<"a""b"))X");
+
+    d = Field("name") >= std::string("a\"b");
+    CHECK_EQ(d.str(), R"X((name>="a""b"))X");
+
+    d = Field("name") <= std::string("a\"b");
+    CHECK_EQ(d.str(), R"X((name<="a""b"))X");
+
+    /** const char* overloads are escaped as well */
+    d = Field("name") == "a\"b";
+    CHECK_EQ(d.str(), R"X((name="a""b"))X");
+
+    d = Field("name") != "a\"b";
+    CHECK_EQ(d.str(), R"X((name<>"a""b"))X");
+
+    d = Field("name") >= "a\"b";
+    CHECK_EQ(d.str(), R"X((name>="a""b"))X");
+
+    /** like: quotes in the pattern are escaped, wildcards % and _ are kept */
+    CHECK_EQ(Field("name").like("%a\"b%").str(), R"X((name like "%a""b%"))X");
+    CHECK_EQ(Field("name").like(std::string("a_'%")).str(), R"X((name like "a_'%"))X");
+
+    /** in / not in: each element is escaped; normal values match the old output */
+    d = Field("name").in(std::vector<std::string>({"a\"b", "c"}));
+    CHECK_EQ(d.str(), R"X((name in ("a""b","c")))X");
+
+    d = Field("name").not_in(std::vector<std::string>({"a\"b", "c\""}));
+    CHECK_EQ(d.str(), "(name not in (\"a\"\"b\",\"c\"\"\"))");
+
+    /** Typical injection payload: quote breakout + always-true condition; after escaping it stays a
+     * literal */
+    d = Field("code") == std::string(R"X(sh600000" or "1"="1)X");
+    CHECK_EQ(d.str(), "(code=\"sh600000\"\" or \"\"1\"\"=\"\"1\")");
+}
