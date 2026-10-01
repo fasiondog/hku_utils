@@ -1404,11 +1404,22 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                     }
                 };
 
+                // Start the timer and the write operation
+                timer.async_wait([&write_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !write_completed && conn->is_open()) {
+                        conn->lowest_layer().cancel();
+                    }
+                });
+
                 auto write_op = WriteOp{*conn->ssl_socket, req, write_completed};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
 
-                // Check whether it was cancelled due to a timeout
-                if (!write_completed && write_ec == boost::asio::error::operation_aborted) {
+                // Cancel the timer
+                timer.cancel();
+
+                // Check whether it was cancelled due to a timeout (operation_aborted means it was
+                // cancelled by cancel())
+                if (write_ec == boost::asio::error::operation_aborted) {
                     HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
                 }
 
@@ -1430,11 +1441,22 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                     }
                 };
 
+                // Start the timer and the write operation
+                timer.async_wait([&write_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !write_completed) {
+                        conn->lowest_layer().cancel();
+                    }
+                });
+
                 auto write_op = WriteOp{conn->socket.value(), req, write_completed};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
 
-                // Check whether it was cancelled due to a timeout
-                if (!write_completed && write_ec == boost::asio::error::operation_aborted) {
+                // Cancel the timer
+                timer.cancel();
+
+                // Check whether it was cancelled due to a timeout (operation_aborted means it was
+                // cancelled by cancel())
+                if (write_ec == boost::asio::error::operation_aborted) {
                     HKU_THROW_EXCEPTION(HttpTimeoutException, "HTTP write timeout");
                 }
 

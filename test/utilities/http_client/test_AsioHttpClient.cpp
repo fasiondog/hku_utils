@@ -41,7 +41,8 @@ class LocalTestHttpServer {
 public:
     typedef std::function<void(boost::asio::ip::tcp::socket&)> Responder;
 
-    explicit LocalTestHttpServer(Responder responder) : m_responder(std::move(responder)) {}
+    explicit LocalTestHttpServer(Responder responder, bool shutdown_after_respond = true)
+    : m_responder(std::move(responder)), m_shutdown_after_respond(shutdown_after_respond) {}
 
     ~LocalTestHttpServer() {
         stop();
@@ -109,7 +110,9 @@ private:
             // requested: closing it right away would reset the connection while the client has
             // not drained the response yet
             boost::system::error_code sec;
-            sock.shutdown(asio::socket_base::shutdown_send, sec);
+            if (m_shutdown_after_respond) {
+                sock.shutdown(asio::socket_base::shutdown_send, sec);
+            }
             for (int i = 0; i < 6000 && !m_stop; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
@@ -119,6 +122,7 @@ private:
     }
 
     Responder m_responder;
+    bool m_shutdown_after_respond{true};
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
     std::future<uint16_t> m_port_future;
@@ -639,6 +643,27 @@ TEST_CASE("test_AsioHttpClient_requestStream_chunk_length") {
                                       [&](const char*, size_t size) { truncated_bytes += size; }),
                     std::exception);
     server3.stop();
+}
+
+TEST_CASE("test_AsioHttpClient_requestStream_write_timeout") {
+    /**
+     * @par Check points
+     * - the write phase of a streaming request is protected by the timeout: when the peer accepts
+     *   the connection but never reads the request, sending a body larger than the socket buffers
+     *   must fail with a timeout instead of blocking forever
+     */
+    // The server accepts the connection, then neither reads the request nor replies
+    LocalTestHttpServer server([](boost::asio::ip::tcp::socket&) {}, false);
+    server.start();
+
+    const std::string body(32 * 1024 * 1024, 'x');
+    AsioHttpClient client(server.url(), 300);  // a short timeout keeps the test fast
+    size_t received = 0;
+    CHECK_THROWS_AS(client.postStream("/stall", {}, {}, body.data(), body.size(), "text/plain",
+                                      [&received](const char*, size_t size) { received += size; }),
+                    HttpTimeoutException);
+    CHECK_EQ(received, 0u);
+    server.stop();
 }
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
