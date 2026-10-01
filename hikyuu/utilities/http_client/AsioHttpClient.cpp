@@ -653,7 +653,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
 
-                bool connect_completed = false;
+                auto connect_completed = std::make_shared<bool>(false);
                 net::error_code captured_ec;
 
                 struct ConnectOp {
@@ -675,14 +675,14 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 };
 
                 // Start the timer and the connection operation
-                timer.async_wait([&connect_completed, &conn_ptr](const net::error_code& ec) {
-                    if (!ec && !connect_completed && conn_ptr->ssl_socket.has_value()) {
+                timer.async_wait([connect_completed, &conn_ptr](const net::error_code& ec) {
+                    if (!ec && !*connect_completed && conn_ptr->ssl_socket.has_value()) {
                         conn_ptr->ssl_socket->lowest_layer().cancel();
                     }
                 });
 
                 ConnectOp connect_op{&conn_ptr->ssl_socket->next_layer(), endpoint,
-                                     connect_completed, captured_ec};
+                                     *connect_completed, captured_ec};
                 co_await connect_op.run();
 
                 // Cancel the timer
@@ -716,7 +716,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
 
-                bool handshake_completed = false;
+                auto handshake_completed = std::make_shared<bool>(false);
                 net::error_code captured_ec;
 
                 struct SslHandshakeOp {
@@ -734,13 +734,13 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 };
 
                 // Start the timer and the handshake operation
-                timer.async_wait([&handshake_completed, &conn_ptr](const net::error_code& ec) {
-                    if (!ec && !handshake_completed && conn_ptr->ssl_socket.has_value()) {
+                timer.async_wait([handshake_completed, &conn_ptr](const net::error_code& ec) {
+                    if (!ec && !*handshake_completed && conn_ptr->ssl_socket.has_value()) {
                         conn_ptr->ssl_socket->lowest_layer().cancel();
                     }
                 });
 
-                SslHandshakeOp handshake_op{&conn_ptr->ssl_socket.value(), handshake_completed,
+                SslHandshakeOp handshake_op{&conn_ptr->ssl_socket.value(), *handshake_completed,
                                             captured_ec};
                 co_await handshake_op.run();
 
@@ -769,7 +769,7 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
 
-                bool connect_completed = false;
+                auto connect_completed = std::make_shared<bool>(false);
                 net::error_code captured_ec;
 
                 struct ConnectOp {
@@ -791,13 +791,13 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
                 };
 
                 // Start the timer and the connection operation
-                timer.async_wait([&connect_completed, &conn_ptr](const net::error_code& ec) {
-                    if (!ec && !connect_completed && conn_ptr->socket.has_value()) {
+                timer.async_wait([connect_completed, &conn_ptr](const net::error_code& ec) {
+                    if (!ec && !*connect_completed && conn_ptr->socket.has_value()) {
                         conn_ptr->socket->cancel();
                     }
                 });
 
-                ConnectOp connect_op{&conn_ptr->socket.value(), endpoint, connect_completed,
+                ConnectOp connect_op{&conn_ptr->socket.value(), endpoint, *connect_completed,
                                      captured_ec};
                 co_await connect_op.run();
 
@@ -905,7 +905,7 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
             auto timer = net::steady_timer{*m_ctx};
             timer.expires_after(m_timeout);
 
-            bool connect_completed = false;
+            auto connect_completed = std::make_shared<bool>(false);
             net::error_code captured_ec;
 
             struct ConnectOp {
@@ -927,13 +927,13 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
             };
 
             // Start the timer and the connection operation
-            timer.async_wait([&connect_completed, &socket_variant](const net::error_code& ec) {
-                if (!ec && !connect_completed && socket_variant.plain.has_value()) {
+            timer.async_wait([connect_completed, &socket_variant](const net::error_code& ec) {
+                if (!ec && !*connect_completed && socket_variant.plain.has_value()) {
                     socket_variant.plain->cancel();
                 }
             });
 
-            ConnectOp connect_op{&socket_variant.plain.value(), endpoint, connect_completed,
+            ConnectOp connect_op{&socket_variant.plain.value(), endpoint, *connect_completed,
                                  captured_ec};
 
             // Wait for the connection to complete
@@ -983,7 +983,7 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
         auto timer = net::steady_timer{*m_ctx};
         timer.expires_after(m_timeout);
 
-        bool handshake_completed = false;
+        auto handshake_completed = std::make_shared<bool>(false);
         net::error_code captured_ec;
 
         struct SslHandshakeOp {
@@ -1001,13 +1001,13 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
         };
 
         // Start the timer and the handshake operation
-        timer.async_wait([&handshake_completed, &socket_variant](const net::error_code& ec) {
-            if (!ec && !handshake_completed && socket_variant.ssl.has_value()) {
+        timer.async_wait([handshake_completed, &socket_variant](const net::error_code& ec) {
+            if (!ec && !*handshake_completed && socket_variant.ssl.has_value()) {
                 socket_variant.ssl->lowest_layer().cancel();
             }
         });
 
-        SslHandshakeOp handshake_op{&socket_variant.ssl.value(), handshake_completed, captured_ec};
+        SslHandshakeOp handshake_op{&socket_variant.ssl.value(), *handshake_completed, captured_ec};
         co_await handshake_op.run();
 
         // Cancel the timer
@@ -1104,7 +1104,7 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
             auto timer = net::steady_timer{*m_ctx};
             timer.expires_after(m_timeout);
 
-            bool write_completed = false;
+            auto write_completed = std::make_shared<bool>(false);
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
             if (conn->ssl_socket) {
@@ -1122,13 +1122,13 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 };
 
                 // Start the timer and the write operation
-                timer.async_wait([&write_completed, &conn](const net::error_code& ec) {
-                    if (!ec && !write_completed && conn->is_open()) {
+                timer.async_wait([write_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*write_completed && conn->is_open()) {
                         conn->lowest_layer().cancel();
                     }
                 });
 
-                auto write_op = WriteOp{*conn->ssl_socket, req, write_completed};
+                auto write_op = WriteOp{*conn->ssl_socket, req, *write_completed};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
 
                 // Cancel the timer
@@ -1159,13 +1159,13 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 };
 
                 // Start the timer and the write operation
-                timer.async_wait([&write_completed, &conn](const net::error_code& ec) {
-                    if (!ec && !write_completed) {
+                timer.async_wait([write_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*write_completed) {
                         conn->lowest_layer().cancel();
                     }
                 });
 
-                auto write_op = WriteOp{conn->socket.value(), req, write_completed};
+                auto write_op = WriteOp{conn->socket.value(), req, *write_completed};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
 
                 // Cancel the timer
@@ -1193,7 +1193,7 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
             auto timer = net::steady_timer{*m_ctx};
             timer.expires_after(m_timeout);
 
-            bool read_completed = false;
+            auto read_completed = std::make_shared<bool>(false);
             net::error_code captured_ec;
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
@@ -1215,13 +1215,13 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 };
 
                 // Start the timer and the read operation
-                timer.async_wait([&read_completed, &conn](const net::error_code& ec) {
-                    if (!ec && !read_completed && conn->is_open()) {
+                timer.async_wait([read_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*read_completed && conn->is_open()) {
                         conn->lowest_layer().cancel();
                     }
                 });
 
-                auto read_op = ReadOp{*conn->ssl_socket, buffer, res, read_completed, captured_ec};
+                auto read_op = ReadOp{*conn->ssl_socket, buffer, res, *read_completed, captured_ec};
                 co_await read_op.run();
 
                 // Cancel the timer
@@ -1255,14 +1255,14 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 };
 
                 // Start the timer and the read operation
-                timer.async_wait([&read_completed, &conn](const net::error_code& ec) {
-                    if (!ec && !read_completed) {
+                timer.async_wait([read_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*read_completed) {
                         conn->lowest_layer().cancel();
                     }
                 });
 
                 auto read_op =
-                  ReadOp{conn->socket.value(), buffer, res, read_completed, captured_ec};
+                  ReadOp{conn->socket.value(), buffer, res, *read_completed, captured_ec};
                 co_await read_op.run();
 
                 // Cancel the timer
@@ -1387,7 +1387,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
             auto timer = net::steady_timer{*m_ctx};
             timer.expires_after(m_timeout);
 
-            bool write_completed = false;
+            auto write_completed = std::make_shared<bool>(false);
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL
             if (conn->ssl_socket) {
@@ -1405,13 +1405,13 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 };
 
                 // Start the timer and the write operation
-                timer.async_wait([&write_completed, &conn](const net::error_code& ec) {
-                    if (!ec && !write_completed && conn->is_open()) {
+                timer.async_wait([write_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*write_completed && conn->is_open()) {
                         conn->lowest_layer().cancel();
                     }
                 });
 
-                auto write_op = WriteOp{*conn->ssl_socket, req, write_completed};
+                auto write_op = WriteOp{*conn->ssl_socket, req, *write_completed};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
 
                 // Cancel the timer
@@ -1442,13 +1442,13 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 };
 
                 // Start the timer and the write operation
-                timer.async_wait([&write_completed, &conn](const net::error_code& ec) {
-                    if (!ec && !write_completed) {
+                timer.async_wait([write_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*write_completed) {
                         conn->lowest_layer().cancel();
                     }
                 });
 
-                auto write_op = WriteOp{conn->socket.value(), req, write_completed};
+                auto write_op = WriteOp{conn->socket.value(), req, *write_completed};
                 auto [write_ec, bytes_transferred] = co_await write_op.run();
 
                 // Cancel the timer
@@ -1487,7 +1487,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 timer.expires_after(m_timeout);
 
                 // Start the timer and cancel the underlying socket on a timeout
-                timer.async_wait([&conn](const net::error_code& ec) {
+                timer.async_wait([conn](const net::error_code& ec) {
                     if (!ec) {
                         conn->lowest_layer().cancel();
                     }
@@ -1561,7 +1561,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 timer.expires_after(m_timeout);
 
                 // Start the timer and cancel the underlying socket on a timeout
-                timer.async_wait([&conn](const net::error_code& ec) {
+                timer.async_wait([conn](const net::error_code& ec) {
                     if (!ec) {
                         conn->lowest_layer().cancel();
                     }

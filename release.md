@@ -7,6 +7,7 @@
 - fix(http_client): 流式响应改用实际写入的 body 字节数作为数据块长度，修正 chunked 响应混入分帧字节、多算/少算的问题
 - feat(http_client): 流式响应在对方提前关连且 body 未完时抛异常，不再空转
 - fix(http_client): 流式请求的发送阶段补上超时定时器，写入阻塞时不再永久挂住
+- fix(http_client): 修复超时 timer 处理器在 completion 与超时竞态下访问已销毁引用的未定义行为
 
 ## 1.5.3 - 2026年9月21日
 
