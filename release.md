@@ -9,6 +9,9 @@
 - fix(http_client): 流式请求的发送阶段补上超时定时器，写入阻塞时不再永久挂住
 - fix(http_client): 修复超时 timer 处理器在 completion 与超时竞态下访问已销毁引用的未定义行为
 - fix(http_client): HttpTimeoutException 补上 key function 与导出宏，修复跨动态库边界 catch 不到该异常的问题
+- feat(http_client): 新增响应体与响应头大小上限配置（默认沿用 8MB / 8KB），超限抛 HttpResponseTooLargeException 且不复用该连接
+- fix(http_client): 流式下载不再被响应体上限截断，大于默认上限的响应可完整接收
+- fix(http_client): gzip 响应的解压输出改按响应体上限约束，不再按 1GB 放行
 
 ## 1.5.3 - 2026年9月21日
 

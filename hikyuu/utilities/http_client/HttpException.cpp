@@ -14,4 +14,6 @@ namespace hku {
 // catch (const HttpTimeoutException&) working across a shared library boundary
 HttpTimeoutException::~HttpTimeoutException() noexcept = default;
 
+HttpResponseTooLargeException::~HttpResponseTooLargeException() noexcept = default;
+
 }  // namespace hku

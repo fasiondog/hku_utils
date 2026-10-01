@@ -338,6 +338,13 @@ public:
     /// @brief Maximum timeout (ms), it is used when a value <= 0 is passed
     static constexpr int32_t MAX_TIMEOUT_MS = 60000;  // 60 seconds
 
+    /// @brief Default upper limit of the response body, it bounds the memory of one response
+    /// (the same value as the beast default, so the behavior does not change unless it is raised)
+    static constexpr size_t DEFAULT_MAX_RESPONSE_SIZE = 8 * 1024 * 1024;  // 8 MB
+
+    /// @brief Default upper limit of the response header (the same value as the beast default)
+    static constexpr size_t DEFAULT_MAX_HEADER_SIZE = 8 * 1024;  // 8 KB
+
     /**
      * @brief Constructor (the internal io_context mode)
      *
@@ -449,6 +456,51 @@ public:
      */
     int32_t getTimeout() const noexcept {
         return static_cast<int32_t>(m_timeout.count());
+    }
+
+    /**
+     * @brief Set the upper limit of the response body size (bytes)
+     *
+     * The limit bounds the memory of a single response: the whole body is accumulated in memory
+     * by the non streaming requests, so it applies to them and to the gzip decompression output.
+     * The streaming requests keep a fixed internal chunk buffer and hand every chunk over to the
+     * callback, so they are not limited by this value on purpose.
+     *
+     * @param bytes the maximum response body size, 0 resets it to DEFAULT_MAX_RESPONSE_SIZE
+     *
+     * @note The default keeps the beast default size, raise it to accept a larger response
+     * @note When the peer declares or sends more, HttpResponseTooLargeException is thrown and the
+     * connection is closed instead of being reused
+     * @note The setting takes effect for all the subsequent requests
+     */
+    void setMaxResponseSize(size_t bytes);
+
+    /**
+     * @brief Get the current upper limit of the response body size
+     * @return the maximum response body size (bytes)
+     */
+    size_t getMaxResponseSize() const noexcept {
+        return m_max_response_size;
+    }
+
+    /**
+     * @brief Set the upper limit of the response header size (bytes)
+     *
+     * It counts the status line, all the field names and values and the delimiter sequences.
+     *
+     * @param bytes the maximum response header size, 0 resets it to DEFAULT_MAX_HEADER_SIZE
+     *
+     * @note When the header is not complete within the limit, HttpResponseTooLargeException is
+     * thrown and the connection is closed instead of being reused
+     */
+    void setMaxHeaderSize(size_t bytes);
+
+    /**
+     * @brief Get the current upper limit of the response header size
+     * @return the maximum response header size (bytes)
+     */
+    size_t getMaxHeaderSize() const noexcept {
+        return m_max_header_size;
     }
 
     /**
@@ -1060,6 +1112,8 @@ private:
     std::string m_host;                                       // Host name
     std::string m_port;                                       // Port number
     std::chrono::milliseconds m_timeout{DEFAULT_TIMEOUT_MS};  // Timeout
+    size_t m_max_response_size{DEFAULT_MAX_RESPONSE_SIZE};    // Maximum response body size
+    size_t m_max_header_size{DEFAULT_MAX_HEADER_SIZE};        // Maximum response header size
     std::map<std::string, std::string> m_default_headers;     // Default request headers
     std::string m_ca_file;                                    // Custom CA certificate file path
 

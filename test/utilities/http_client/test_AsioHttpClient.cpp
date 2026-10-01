@@ -33,16 +33,20 @@ void runCoroutineTest(boost::asio::io_context& ctx, Func&& func) {
 /**
  * @brief A minimal in-process HTTP/1.1 server for the streaming tests
  *
- * It listens on an ephemeral loopback port, serves exactly one request and hands the response
- * writing over to the caller-provided responder, so that the chunked framing and the truncated
- * responses can be controlled precisely without any external network.
+ * It listens on an ephemeral loopback port, serves the requested number of requests (one by
+ * default) and hands the response writing over to the caller-provided responder, so that the
+ * chunked framing and the truncated responses can be controlled precisely without any external
+ * network.
  */
 class LocalTestHttpServer {
 public:
     typedef std::function<void(boost::asio::ip::tcp::socket&)> Responder;
 
-    explicit LocalTestHttpServer(Responder responder, bool shutdown_after_respond = true)
-    : m_responder(std::move(responder)), m_shutdown_after_respond(shutdown_after_respond) {}
+    explicit LocalTestHttpServer(Responder responder, bool shutdown_after_respond = true,
+                                 int request_count = 1)
+    : m_responder(std::move(responder)),
+      m_shutdown_after_respond(shutdown_after_respond),
+      m_request_count(request_count) {}
 
     ~LocalTestHttpServer() {
         stop();
@@ -88,30 +92,41 @@ private:
         acceptor.listen(1, ec);
         port_promise.set_value(acceptor.local_endpoint().port());
 
-        // Poll for the single connection until it is accepted or stop() is requested
-        asio::ip::tcp::socket sock(ctx);
-        bool accepted = false;
-        for (int i = 0; i < 6000 && !m_stop; ++i) {
-            acceptor.accept(sock, ec);
-            if (!ec) {
-                accepted = true;
+        // Accept the requested number of connections, polling until each one arrives or stop() is
+        // requested
+        for (int served = 0; served < m_request_count && !m_stop; ++served) {
+            asio::ip::tcp::socket sock(ctx);
+            bool accepted = false;
+            for (int i = 0; i < 6000 && !m_stop; ++i) {
+                acceptor.accept(sock, ec);
+                if (!ec) {
+                    accepted = true;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            if (!accepted) {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
 
-        if (accepted) {
             try {
                 m_responder(sock);
             } catch (...) {
                 // the responder failure should not terminate the test process
             }
+
             // Shut down the writing side only, then keep the socket alive until stop() is
             // requested: closing it right away would reset the connection while the client has
             // not drained the response yet
             boost::system::error_code sec;
             if (m_shutdown_after_respond) {
                 sock.shutdown(asio::socket_base::shutdown_send, sec);
+            }
+            if (served + 1 < m_request_count) {
+                // A further request needs a new connection, so close it here instead of waiting
+                // for stop(): the response is already in the kernel buffer
+                sock.close();
+                continue;
             }
             for (int i = 0; i < 6000 && !m_stop; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -123,6 +138,7 @@ private:
 
     Responder m_responder;
     bool m_shutdown_after_respond{true};
+    int m_request_count{1};
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
     std::future<uint16_t> m_port_future;
@@ -664,6 +680,187 @@ TEST_CASE("test_AsioHttpClient_requestStream_write_timeout") {
                     HttpTimeoutException);
     CHECK_EQ(received, 0u);
     server.stop();
+}
+
+TEST_CASE("test_AsioHttpClient_maxResponseSize") {
+    /**
+     * @par Check points
+     * - the defaults of the two limits are reported and 0 resets them
+     * - the default limit keeps the beast default: a response declaring more than it is rejected
+     *   while the header is parsed, and raising the limit reads the same response completely
+     * - a declared Content-Length over the configured limit is rejected while the header is
+     *   parsed, before any body byte is received
+     * - a chunked body growing over the configured limit is rejected
+     * - a header over the configured header limit is rejected
+     * - a stream longer than the beast default body limit is delivered completely and is not
+     *   bound by the response body limit
+     * - a connection abandoned by a body limit error is closed, so the next request of the same
+     *   client is served over a fresh connection instead of reading the leftover bytes
+     * - a gzip response whose output cannot stay under the limit is rejected
+     */
+    // The defaults and the 0 reset
+    {
+        AsioHttpClient client("http://127.0.0.1:1");
+        CHECK_EQ(client.getMaxResponseSize(), AsioHttpClient::DEFAULT_MAX_RESPONSE_SIZE);
+        CHECK_EQ(client.getMaxHeaderSize(), AsioHttpClient::DEFAULT_MAX_HEADER_SIZE);
+        client.setMaxResponseSize(1024);
+        client.setMaxHeaderSize(2048);
+        CHECK_EQ(client.getMaxResponseSize(), 1024u);
+        CHECK_EQ(client.getMaxHeaderSize(), 2048u);
+        client.setMaxResponseSize(0);
+        client.setMaxHeaderSize(0);
+        CHECK_EQ(client.getMaxResponseSize(), AsioHttpClient::DEFAULT_MAX_RESPONSE_SIZE);
+        CHECK_EQ(client.getMaxHeaderSize(), AsioHttpClient::DEFAULT_MAX_HEADER_SIZE);
+    }
+
+    // The default limit keeps the beast size: declaring more than 8MB is rejected on the header
+    // without receiving the body, and raising the limit reads the same response completely
+    {
+        const size_t BODY = 9 * 1024 * 1024;
+        LocalTestHttpServer reject([](boost::asio::ip::tcp::socket& sock) {
+            // Only the header: the declared body stays above the default limit
+            const std::string head =
+              "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(9 * 1024 * 1024) +
+              "\r\nConnection: close\r\n\r\n";
+            LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        });
+        reject.start();
+
+        AsioHttpClient client(reject.url(), 10000);
+        CHECK_EQ(client.getMaxResponseSize(), 8u * 1024 * 1024);
+        CHECK_THROWS_AS(client.get("/over_default"), HttpResponseTooLargeException);
+        reject.stop();
+
+        const std::string body(BODY, 'a');
+        LocalTestHttpServer accept([&](boost::asio::ip::tcp::socket& sock) {
+            const std::string head = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(BODY) +
+                                     "\r\nConnection: close\r\n\r\n";
+            LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+            LocalTestHttpServer::writeAll(sock, body.data(), body.size());
+        });
+        accept.start();
+
+        AsioHttpClient big_client(accept.url(), 30000);
+        big_client.setMaxResponseSize(16 * 1024 * 1024);  // raise it above the response size
+        auto resp = big_client.get("/big");
+        CHECK_EQ(resp.status(), 200);
+        CHECK_EQ(resp.body().size(), BODY);
+        accept.stop();
+    }
+
+    // A declared Content-Length over the limit is rejected on the header
+    {
+        LocalTestHttpServer server([](boost::asio::ip::tcp::socket& sock) {
+            // Only the header is written: the whole body must never be received
+            const std::string head =
+              "HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nConnection: close\r\n\r\n";
+            LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        });
+        server.start();
+
+        AsioHttpClient client(server.url(), 5000);
+        client.setMaxResponseSize(64 * 1024);
+        CHECK_THROWS_AS(client.get("/huge"), HttpResponseTooLargeException);
+        server.stop();
+    }
+
+    // A chunked body growing over the limit is rejected, and the connection is not reused broken
+    {
+        const size_t BODY = 96 * 1024;
+        const std::string body(BODY, 'b');
+        int served = 0;
+        LocalTestHttpServer server(
+          [&](boost::asio::ip::tcp::socket& sock) {
+              if (++served == 1) {
+                  // Keep alive: the client stops reading in the middle, so the leftover bytes
+                  // stay in the connection
+                  const std::string head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+                  char frame[32];
+                  const int n = snprintf(frame, sizeof(frame), "%zX\r\n", body.size());
+                  LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+                  LocalTestHttpServer::writeAll(sock, frame, n);
+                  LocalTestHttpServer::writeAll(sock, body.data(), body.size());
+                  LocalTestHttpServer::writeAll(sock, "\r\n", 2);
+              } else {
+                  const std::string ok =
+                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+                  LocalTestHttpServer::writeAll(sock, ok.data(), ok.size());
+              }
+          },
+          true, 2);
+        server.start();
+
+        AsioHttpClient client(server.url(), 5000);
+        client.setMaxResponseSize(64 * 1024);
+        CHECK_THROWS_AS(client.get("/chunked_over_limit"), HttpResponseTooLargeException);
+
+        // The abandoned connection must not be reused: this request has to succeed
+        auto resp = client.get("/after_limit");
+        CHECK_EQ(resp.status(), 200);
+        CHECK_EQ(resp.body(), "ok");
+        server.stop();
+    }
+
+    // A stream longer than the beast default body limit is delivered completely: the streaming
+    // path bounds the memory with its fixed chunk buffer, so no total size limit applies to it
+    {
+        const size_t BODY = 9 * 1024 * 1024;
+        const std::string body(BODY, 'a');
+        LocalTestHttpServer server([&](boost::asio::ip::tcp::socket& sock) {
+            const std::string head = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(BODY) +
+                                     "\r\nConnection: close\r\n\r\n";
+            LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+            LocalTestHttpServer::writeAll(sock, body.data(), body.size());
+        });
+        server.start();
+
+        AsioHttpClient client(server.url(), 30000);
+        client.setMaxResponseSize(64 * 1024);  // the limit does not apply to a stream
+        size_t received = 0;
+        auto resp = client.getStream("/big_stream", {}, {},
+                                     [&](const char*, size_t size) { received += size; });
+        CHECK_EQ(resp.status(), 200);
+        CHECK_EQ(received, BODY);
+        CHECK_EQ(resp.totalBytesRead(), static_cast<uint64_t>(BODY));
+        server.stop();
+    }
+
+    // A header over the header limit is rejected
+    {
+        const std::string fat_header(4096, 'c');
+        LocalTestHttpServer server([&](boost::asio::ip::tcp::socket& sock) {
+            const std::string head =
+              "HTTP/1.1 200 OK\r\nX-Fat: " + fat_header + "\r\nContent-Length: 0\r\n\r\n";
+            LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        });
+        server.start();
+
+        AsioHttpClient client(server.url(), 5000);
+        client.setMaxHeaderSize(512);
+        CHECK_THROWS_AS(client.get("/fat_header"), HttpResponseTooLargeException);
+        server.stop();
+    }
+
+#if HKU_ENABLE_HTTP_CLIENT_ZIP
+    // A gzip response that cannot stay under the limit when expanded is rejected
+    {
+        const size_t BODY = 40 * 1024;
+        const std::string body(BODY, 'd');
+        LocalTestHttpServer server([&](boost::asio::ip::tcp::socket& sock) {
+            const std::string head =
+              "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: " +
+              std::to_string(BODY) + "\r\nConnection: close\r\n\r\n";
+            LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+            LocalTestHttpServer::writeAll(sock, body.data(), body.size());
+        });
+        server.start();
+
+        AsioHttpClient client(server.url(), 5000);
+        client.setMaxResponseSize(64 * 1024);  // 40KB * 2 does not fit into the limit
+        CHECK_THROWS_AS(client.get("/gzip_bomb"), HttpResponseTooLargeException);
+        server.stop();
+    }
+#endif
 }
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL

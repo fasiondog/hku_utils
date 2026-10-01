@@ -596,6 +596,14 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
 #endif
 }
 
+void AsioHttpClient::setMaxResponseSize(size_t bytes) {
+    m_max_response_size = (bytes == 0) ? DEFAULT_MAX_RESPONSE_SIZE : bytes;
+}
+
+void AsioHttpClient::setMaxHeaderSize(size_t bytes) {
+    m_max_header_size = (bytes == 0) ? DEFAULT_MAX_HEADER_SIZE : bytes;
+}
+
 // Get a connected connection from the connection pool (with the DNS cache)
 net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient::_getConnection() {
     HKU_ASSERT(m_connection_pool != nullptr);
@@ -1187,7 +1195,12 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
 
         // Read the response (with a timeout)
         beast::flat_buffer buffer;
-        http::response<http::string_body> res;
+
+        // The body is accumulated in memory here, so both the declared Content-Length and the
+        // bytes actually read are bounded by the configured limits
+        http::response_parser<http::string_body> parser;
+        parser.body_limit(m_max_response_size);
+        parser.header_limit(static_cast<std::uint32_t>(m_max_header_size));
 
         {
             auto timer = net::steady_timer{*m_ctx};
@@ -1201,13 +1214,13 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 struct ReadOp {
                     ssl::stream<tcp::socket>& stream;
                     beast::flat_buffer& buffer;
-                    http::response<http::string_body>& response;
+                    http::response_parser<http::string_body>& parser;
                     bool& completed_flag;
                     net::error_code& captured_ec;
 
                     net::awaitable<std::pair<net::error_code, std::size_t>> run() {
                         auto [ec, bytes] = co_await http::async_read(
-                          stream, buffer, response, net::as_tuple(net::use_awaitable));
+                          stream, buffer, parser, net::as_tuple(net::use_awaitable));
                         completed_flag = true;
                         captured_ec = ec;
                         co_return std::make_pair(ec, bytes);
@@ -1221,11 +1234,27 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                     }
                 });
 
-                auto read_op = ReadOp{*conn->ssl_socket, buffer, res, *read_completed, captured_ec};
+                auto read_op =
+                  ReadOp{*conn->ssl_socket, buffer, parser, *read_completed, captured_ec};
                 co_await read_op.run();
 
                 // Cancel the timer
                 timer.cancel();
+
+                // A response over the limit is abandoned by the parser while the peer still has
+                // bytes to send, so the connection cannot be reused
+                if (captured_ec == http::error::body_limit ||
+                    captured_ec == http::error::header_limit) {
+                    conn->close();
+                    if (captured_ec == http::error::body_limit) {
+                        HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
+                                            "HTTP response body exceeds the limit ({} bytes)",
+                                            m_max_response_size);
+                    }
+                    HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
+                                        "HTTP response header exceeds the limit ({} bytes)",
+                                        m_max_header_size);
+                }
 
                 // Check whether it was cancelled due to a timeout (operation_aborted means it was
                 // cancelled by cancel())
@@ -1241,13 +1270,13 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 struct ReadOp {
                     tcp::socket& sock;
                     beast::flat_buffer& buffer;
-                    http::response<http::string_body>& response;
+                    http::response_parser<http::string_body>& parser;
                     bool& completed_flag;
                     net::error_code& captured_ec;
 
                     net::awaitable<std::pair<net::error_code, std::size_t>> run() {
                         auto [ec, bytes] = co_await http::async_read(
-                          sock, buffer, response, net::as_tuple(net::use_awaitable));
+                          sock, buffer, parser, net::as_tuple(net::use_awaitable));
                         completed_flag = true;
                         captured_ec = ec;
                         co_return std::make_pair(ec, bytes);
@@ -1262,11 +1291,26 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 });
 
                 auto read_op =
-                  ReadOp{conn->socket.value(), buffer, res, *read_completed, captured_ec};
+                  ReadOp{conn->socket.value(), buffer, parser, *read_completed, captured_ec};
                 co_await read_op.run();
 
                 // Cancel the timer
                 timer.cancel();
+
+                // A response over the limit is abandoned by the parser while the peer still has
+                // bytes to send, so the connection cannot be reused
+                if (captured_ec == http::error::body_limit ||
+                    captured_ec == http::error::header_limit) {
+                    conn->close();
+                    if (captured_ec == http::error::body_limit) {
+                        HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
+                                            "HTTP response body exceeds the limit ({} bytes)",
+                                            m_max_response_size);
+                    }
+                    HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
+                                        "HTTP response header exceeds the limit ({} bytes)",
+                                        m_max_header_size);
+                }
 
                 // Check whether it was cancelled due to a timeout (operation_aborted means it was
                 // cancelled by cancel())
@@ -1283,6 +1327,7 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
         }
 
         // Fill the response object
+        http::response<http::string_body> res = parser.release();
         response.m_status = res.result_int();
         response.m_reason = std::string(res.reason());
 
@@ -1290,7 +1335,18 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
         // Get the Content-Encoding header correctly
         auto encoding_it = res.find("Content-Encoding");
         if (encoding_it != res.end() && encoding_it->value() == "gzip") {
-            response.m_body = gzip::decompress(res.body().data(), res.body().size());
+            // A compressed body can expand far beyond its own size, so the size of the received
+            // bytes is not a bound by itself: the decompression is limited by the same value
+            if (res.body().size() * 2 > m_max_response_size) {
+                HKU_THROW_EXCEPTION(
+                  HttpResponseTooLargeException,
+                  "HTTP gzip response may exceed the decompressed limit ({} bytes)",
+                  m_max_response_size);
+            }
+            gzip::Decompressor decomp(m_max_response_size);
+            std::string output;
+            decomp.decompress(output, res.body().data(), res.body().size());
+            response.m_body = std::move(output);
         } else {
             response.m_body = std::move(res.body());
         }
@@ -1472,6 +1528,13 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
         beast::flat_buffer buffer;
         http::response_parser<http::buffer_body> parser;
 
+        // The header is bounded, but the body deliberately is not: every chunk is handed over to
+        // the callback and the same fixed buffer is reused, so the total size does not bound the
+        // memory. Without clearing the beast default body limit a stream longer than that default
+        // would be cut off
+        parser.header_limit(static_cast<std::uint32_t>(m_max_header_size));
+        parser.body_limit(boost::none);
+
         // Set the buffer size (8KB chunks)
         constexpr size_t BUFFER_SIZE = 8192;
         std::vector<char> chunk_buffer(BUFFER_SIZE);
@@ -1513,6 +1576,15 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                     // Cancel the timer
                     timer.cancel();
 
+                    // A header over the limit leaves the peer with bytes still to send, so the
+                    // connection cannot be reused
+                    if (read_ec == http::error::header_limit) {
+                        conn->close();
+                        HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
+                                            "HTTP response header exceeds the limit ({} bytes)",
+                                            m_max_header_size);
+                    }
+
                     if (read_ec && read_ec != http::error::end_of_stream) {
                         HKU_THROW("HTTP read header failed: {}", read_ec.message());
                     }
@@ -1535,6 +1607,15 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
 
                     // Cancel the timer
                     timer.cancel();
+
+                    // A header over the limit leaves the peer with bytes still to send, so the
+                    // connection cannot be reused
+                    if (read_ec == http::error::header_limit) {
+                        conn->close();
+                        HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
+                                            "HTTP response header exceeds the limit ({} bytes)",
+                                            m_max_header_size);
+                    }
 
                     if (read_ec && read_ec != http::error::end_of_stream) {
                         HKU_THROW("HTTP read header failed: {}", read_ec.message());
