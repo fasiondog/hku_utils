@@ -711,7 +711,7 @@ TEST_CASE("test_AsioHttpClient_dns_resolve") {
      *   address_configured filter keep the usable address families
      * - the endpoint list is walked through: an IPv6 answer that has no listener does not stop the
      *   request from connecting over IPv4
-     * - the Host header of a name based request is the name itself
+     * - the Host header of a name based request is the name with the non default port
      */
     std::string seen_request;
     LocalTestHttpServer server([&](boost::asio::ip::tcp::socket& sock) {
@@ -732,10 +732,13 @@ TEST_CASE("test_AsioHttpClient_dns_resolve") {
     CHECK_EQ(resp.body(), "done");
 
     const size_t begin = seen_request.find("Host:");
+    // Note: the other half of the rule (the port is left out when it is the default of the
+    // protocol) cannot be checked here, as that would need a server listening on port 80
     CHECK_UNARY(begin != std::string::npos);
     const size_t end = seen_request.find("\r\n", begin);
     const std::string host_value = seen_request.substr(begin + 5, end - begin - 5);
-    CHECK_EQ(host_value.substr(host_value.find_first_not_of(" \t")), "localhost");
+    CHECK_EQ(host_value.substr(host_value.find_first_not_of(" \t")),
+             "localhost:" + std::to_string(server.port()));
     server.stop();
 }
 
@@ -743,8 +746,9 @@ TEST_CASE("test_AsioHttpClient_ipv6_url") {
     /**
      * @par Check points
      * - a bracketed IPv6 literal is parsed into the bare address for the resolution and still
-     *   reaches the server, while the Host header keeps its brackets (RFC 3986 / RFC 6874)
-     * - an IPv4 request keeps working and its Host header stays the bare address
+     *   reaches the server, while the Host header keeps its brackets and carries the non default
+     *   port (RFC 3986 / RFC 6874)
+     * - an IPv4 request keeps working and its Host header is the address with the port
      * - an IPv6 address without brackets, an unclosed bracket, a non numeric port, a port out of
      *   range and a missing host are rejected instead of being parsed into garbage
      */
@@ -771,7 +775,7 @@ TEST_CASE("test_AsioHttpClient_ipv6_url") {
     };
 
     // A bracketed IPv6 literal: the address goes to the resolver without the brackets, the Host
-    // header keeps them. Note that the port is left out of the header by the current implementation
+    // header keeps them and carries the port (it is not the default one here)
     {
         LocalTestHttpServer server(echo, true, 1, true);
         bool ipv6_available = true;
@@ -785,14 +789,14 @@ TEST_CASE("test_AsioHttpClient_ipv6_url") {
             AsioHttpClient client(server.url(), 5000);
             auto resp = client.get("/v6");
             CHECK_EQ(resp.status(), 200);
-            CHECK_EQ(resp.body(), "host=[::1]");
+            CHECK_EQ(resp.body(), "host=[::1]:" + std::to_string(server.port()));
             server.stop();
         } else {
             INFO("no IPv6 loopback available on this machine, the bracketed case was skipped");
         }
     }
 
-    // The IPv4 path keeps its shape: the Host header is the bare address
+    // The IPv4 path keeps its shape: the Host header is the address with the port
     {
         LocalTestHttpServer server(echo);
         server.start();
@@ -800,7 +804,7 @@ TEST_CASE("test_AsioHttpClient_ipv6_url") {
         AsioHttpClient client(server.url(), 5000);
         auto resp = client.get("/v4");
         CHECK_EQ(resp.status(), 200);
-        CHECK_EQ(resp.body(), "host=127.0.0.1");
+        CHECK_EQ(resp.body(), "host=127.0.0.1:" + std::to_string(server.port()));
         server.stop();
     }
 

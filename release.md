@@ -16,6 +16,7 @@
 - fix(http_client): 支持带方括号的 IPv6 字面量 URL，并修正畸形主机/端口被静默解析成错误值
 - fix(http_client): 以 IP 地址访问 HTTPS 时不再下发非法的 SNI，改由证书校验匹配 IP 主题备用名
 - perf(http_client): macOS 的 DNS 解析改到独立线程执行，不再阻塞事件循环线程，且超时能真正中断等待
+- fix(http_client): Host 头在非默认端口时携带端口，符合 RFC 6874/9110
 
 ## 1.5.3 - 2026年9月21日
 

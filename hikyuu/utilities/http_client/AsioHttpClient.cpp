@@ -383,6 +383,8 @@ void AsioHttpClient::_parseUrl() noexcept {
     }
 
     std::string base_path;
+    // The port of the Host header is left out when it is the default of the protocol
+    const uint16_t default_port = port;
     std::string authority = m_url.substr(pos + 3);
     pos = authority.find('/');
     if (pos != std::string::npos) {
@@ -469,8 +471,13 @@ void AsioHttpClient::_parseUrl() noexcept {
 
     m_base_path = std::move(base_path);
     m_host = std::move(host);
-    m_host_header = is_ipv6 ? "[" + m_host + "]" : m_host;
     m_port = std::to_string(port);
+    // The Host header keeps the brackets of an IPv6 literal and carries the port unless it is the
+    // default one of the protocol (RFC 6874 / RFC 9110)
+    m_host_header = is_ipv6 ? "[" + m_host + "]" : m_host;
+    if (port != default_port) {
+        m_host_header += ":" + m_port;
+    }
 }
 
 // The URI construction helper method
