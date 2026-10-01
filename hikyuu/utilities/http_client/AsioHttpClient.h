@@ -1133,7 +1133,7 @@ private:
     std::unique_ptr<ResourceAsioVersionPool<HttpConnection, std::mutex>> m_connection_pool;
 
     // io_context management
-    std::unique_ptr<net::io_context> m_own_ctx;  // Internal io_context
+    std::shared_ptr<net::io_context> m_own_ctx;  // Internal io_context
     net::io_context* m_ctx{nullptr};             // The io_context currently used
     std::vector<std::thread> m_worker_threads;   // The thread pool running the io_context in the
                                                  // background

@@ -585,7 +585,7 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
     struct ResolveState {
         std::mutex m_lock;
         std::vector<tcp::endpoint> endpoints;
-        boost::system::error_code ec;
+        int gai_ret = 0;  // The raw getaddrinfo return code, not an errno value
         bool done = false;
     };
 
@@ -593,11 +593,13 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
     auto timer = std::make_shared<net::steady_timer>(*m_ctx);
     timer->expires_after(m_timeout);
 
-    // Only copies and shared pointers cross the thread boundary: the thread must stay safe even
-    // when it is detached on a timeout and the client is destroyed while it still runs
+    // Only copies and shared pointers cross the thread boundary, and the first capture keeps the
+    // internal io_context itself alive: a detached lookup may outlive the client, so a later
+    // net::post on the timer executor would otherwise touch a destroyed context. With an external
+    // io_context its lifetime has to cover the lookup instead (see the class lifetime contract)
     const std::string host = m_host;
     const std::string port = m_port;
-    std::thread worker([state, timer, host, port]() {
+    std::thread worker([ctx = m_own_ctx, state, timer, host, port]() {
         struct addrinfo hints, *res = nullptr;
         memset(&hints, 0, sizeof(hints));
         hints.ai_family = AF_UNSPEC;
@@ -607,7 +609,7 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
         std::vector<tcp::endpoint> endpoints;
         const int ret = getaddrinfo(host.c_str(), port.c_str(), &hints, &res);
         if (ret != 0) {
-            state->ec = boost::system::error_code(ret, boost::system::generic_category());
+            state->gai_ret = ret;
         } else {
             for (struct addrinfo* ai = res; ai != nullptr; ai = ai->ai_next) {
                 if (ai->ai_family == AF_INET) {
@@ -636,11 +638,16 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
         net::post(timer->get_executor(), [timer]() { timer->cancel(); });
     });
 
-    net::error_code timer_ec;
-    co_await timer->async_wait(net::redirect_error(net::use_awaitable, timer_ec));
-
+    // An instant answer (a hosts-file hit) may be ready before the wait is even armed
     bool finished = false;
     {
+        std::lock_guard<std::mutex> guard(state->m_lock);
+        finished = state->done;
+    }
+
+    if (!finished) {
+        net::error_code timer_ec;
+        co_await timer->async_wait(net::redirect_error(net::use_awaitable, timer_ec));
         std::lock_guard<std::mutex> guard(state->m_lock);
         finished = state->done;
     }
@@ -653,8 +660,9 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
     }
 
     worker.join();
-    if (state->ec) {
-        HKU_THROW("DNS resolve failed: {}", state->ec.message());
+    if (state->gai_ret != 0) {
+        // The EAI_* codes are no errno values, so gai_strerror is the only honest text for them
+        HKU_THROW("DNS resolve failed! {}:{}: {}", m_host, m_port, gai_strerror(state->gai_ret));
     }
     if (state->endpoints.empty()) {
         HKU_THROW("No valid endpoints from DNS resolve");
@@ -1528,7 +1536,20 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
             }
             gzip::Decompressor decomp(m_max_response_size);
             std::string output;
-            decomp.decompress(output, res.body().data(), res.body().size());
+            try {
+                decomp.decompress(output, res.body().data(), res.body().size());
+            } catch (const std::runtime_error& e) {
+                // gzip-hpp reports both the size cap and the corrupt data failures as
+                // std::runtime_error; the "more memory than intended" messages are the size cap,
+                // which is part of the HttpResponseTooLargeException contract
+                if (std::strstr(e.what(), "more memory") != nullptr) {
+                    HKU_THROW_EXCEPTION(
+                      HttpResponseTooLargeException,
+                      "HTTP gzip response exceeds the decompressed limit ({} bytes)",
+                      m_max_response_size);
+                }
+                HKU_THROW("HTTP gzip decompress failed: {}", e.what());
+            }
             response.m_body = std::move(output);
         } else {
             response.m_body = std::move(res.body());
@@ -1740,9 +1761,11 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
 
-                // Start the timer and cancel the underlying socket on a timeout
-                timer.async_wait([conn](const net::error_code& ec) {
-                    if (!ec) {
+                // Start the timer; the flag is set when the read finishes, so a queued handler
+                // never extends the connection lifetime and cannot pin it in the pool
+                auto read_completed = std::make_shared<bool>(false);
+                timer.async_wait([read_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*read_completed && conn->is_open()) {
                         conn->lowest_layer().cancel();
                     }
                 });
@@ -1763,6 +1786,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
 
                     auto read_header_op = ReadHeaderOp{*conn->ssl_socket, buffer, parser};
                     auto [read_ec, bytes_transferred] = co_await read_header_op.run();
+                    *read_completed = true;
 
                     // Cancel the timer
                     timer.cancel();
@@ -1794,6 +1818,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
 
                     auto read_header_op = ReadHeaderOp{conn->socket.value(), buffer, parser};
                     auto [read_ec, bytes_transferred] = co_await read_header_op.run();
+                    *read_completed = true;
 
                     // Cancel the timer
                     timer.cancel();
@@ -1830,9 +1855,11 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 auto timer = net::steady_timer{*m_ctx};
                 timer.expires_after(m_timeout);
 
-                // Start the timer and cancel the underlying socket on a timeout
-                timer.async_wait([conn](const net::error_code& ec) {
-                    if (!ec) {
+                // Start the timer; the flag is set when the read finishes, so a queued handler
+                // never extends the connection lifetime and cannot pin it in the pool
+                auto read_completed = std::make_shared<bool>(false);
+                timer.async_wait([read_completed, &conn](const net::error_code& ec) {
+                    if (!ec && !*read_completed && conn->is_open()) {
                         conn->lowest_layer().cancel();
                     }
                 });
@@ -1854,6 +1881,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
 
                     auto read_op = ReadOp{*conn->ssl_socket, buffer, parser};
                     auto ec = co_await read_op.run();
+                    *read_completed = true;
                     read_ec = ec;
 
                     // Cancel the timer
@@ -1880,6 +1908,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
 
                     auto read_op = ReadOp{conn->socket.value(), buffer, parser};
                     auto ec = co_await read_op.run();
+                    *read_completed = true;
                     read_ec = ec;
 
                     // Cancel the timer
