@@ -11,6 +11,12 @@
 #include "hikyuu/utilities/os.h"
 #include "hikyuu/utilities/http_client/AsioHttpClient.h"
 #include <boost/asio.hpp>
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <functional>
+#include <future>
+#include <stdexcept>
 #include <thread>
 
 using namespace hku;
@@ -23,6 +29,101 @@ void runCoroutineTest(boost::asio::io_context& ctx, Func&& func) {
     boost::asio::co_spawn(ctx, std::forward<Func>(func)(), boost::asio::detached);
     ctx.run();
 }
+
+/**
+ * @brief A minimal in-process HTTP/1.1 server for the streaming tests
+ *
+ * It listens on an ephemeral loopback port, serves exactly one request and hands the response
+ * writing over to the caller-provided responder, so that the chunked framing and the truncated
+ * responses can be controlled precisely without any external network.
+ */
+class LocalTestHttpServer {
+public:
+    typedef std::function<void(boost::asio::ip::tcp::socket&)> Responder;
+
+    explicit LocalTestHttpServer(Responder responder) : m_responder(std::move(responder)) {}
+
+    ~LocalTestHttpServer() {
+        stop();
+    }
+
+    void start() {
+        std::promise<uint16_t> port_promise;
+        m_port_future = port_promise.get_future();
+        m_stop = false;
+        m_thread = std::thread([this, p = std::move(port_promise)]() mutable { _run(p); });
+        m_port = m_port_future.get();
+    }
+
+    void stop() {
+        m_stop = true;
+        if (m_thread.joinable()) {
+            m_thread.join();
+        }
+    }
+
+    std::string url() const {
+        return "http://127.0.0.1:" + std::to_string(m_port);
+    }
+
+    static void writeAll(boost::asio::ip::tcp::socket& sock, const void* data, size_t len) {
+        boost::system::error_code ec;
+        boost::asio::write(sock, boost::asio::buffer(data, len), ec);
+    }
+
+private:
+    void _run(std::promise<uint16_t>& port_promise) {
+        namespace asio = boost::asio;
+        asio::io_context ctx;
+        asio::ip::tcp::acceptor acceptor(ctx);
+        boost::system::error_code ec;
+        acceptor.open(asio::ip::tcp::v4(), ec);
+        acceptor.bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), 0), ec);
+        if (ec) {
+            port_promise.set_exception(std::make_exception_ptr(std::runtime_error(ec.message())));
+            return;
+        }
+        acceptor.non_blocking(true, ec);
+        acceptor.listen(1, ec);
+        port_promise.set_value(acceptor.local_endpoint().port());
+
+        // Poll for the single connection until it is accepted or stop() is requested
+        asio::ip::tcp::socket sock(ctx);
+        bool accepted = false;
+        for (int i = 0; i < 6000 && !m_stop; ++i) {
+            acceptor.accept(sock, ec);
+            if (!ec) {
+                accepted = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+
+        if (accepted) {
+            try {
+                m_responder(sock);
+            } catch (...) {
+                // the responder failure should not terminate the test process
+            }
+            // Shut down the writing side only, then keep the socket alive until stop() is
+            // requested: closing it right away would reset the connection while the client has
+            // not drained the response yet
+            boost::system::error_code sec;
+            sock.shutdown(asio::socket_base::shutdown_send, sec);
+            for (int i = 0; i < 6000 && !m_stop; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            sock.close();
+        }
+        acceptor.close();
+    }
+
+    Responder m_responder;
+    std::thread m_thread;
+    std::atomic<bool> m_stop{false};
+    std::future<uint16_t> m_port_future;
+    uint16_t m_port{0};
+};
 
 }  // namespace
 
@@ -447,6 +548,97 @@ TEST_CASE("test_AsioHttpClient_StreamRequest") {
             HKU_WARN("HTTP stream POST test skipped: {}", e.what());
         }
     });
+}
+
+TEST_CASE("test_AsioHttpClient_requestStream_chunk_length") {
+    /**
+     * @par Check points
+     * - a chunked response is reassembled byte by byte: the callback receives only the payload
+     *   (no transfer framing, no stale tail, no duplicated bytes) and totalBytesRead equals the
+     *   payload size
+     * - the frames are deliberately not aligned with the internal 8KB read buffer, so that a
+     *   single callback spans multiple frames and a single frame spans multiple callbacks
+     * - a plain Content-Length response is reassembled the same way
+     * - a response whose declared body is truncated by the peer reports a failure instead of
+     *   spinning forever
+     */
+    const size_t PAYLOAD_SIZE = 20000;
+    const size_t FRAME_SIZE = 3000;
+
+    std::string payload(PAYLOAD_SIZE, '\0');
+    for (size_t i = 0; i < PAYLOAD_SIZE; ++i) {
+        payload[i] = static_cast<char>('a' + (i % 26));
+    }
+
+    // Send the body with the chunked transfer encoding
+    LocalTestHttpServer server([&](boost::asio::ip::tcp::socket& sock) {
+        const std::string head =
+          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
+          "Content-Type: application/octet-stream\r\nConnection: close\r\n\r\n";
+        LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        for (size_t off = 0; off < payload.size(); off += FRAME_SIZE) {
+            const size_t len = std::min(FRAME_SIZE, payload.size() - off);
+            char frame[32];
+            const int n = snprintf(frame, sizeof(frame), "%zX\r\n", len);
+            LocalTestHttpServer::writeAll(sock, frame, n);
+            LocalTestHttpServer::writeAll(sock, payload.data() + off, len);
+            LocalTestHttpServer::writeAll(sock, "\r\n", 2);
+        }
+        LocalTestHttpServer::writeAll(sock, "0\r\n\r\n", 5);
+    });
+    server.start();
+
+    AsioHttpClient client(server.url(), 5000);
+    std::string collected;
+    size_t chunk_count = 0;
+    auto response = client.getStream("/stream", {}, {}, [&](const char* data, size_t size) {
+        ++chunk_count;
+        CHECK_GT(size, 0);
+        collected.append(data, size);
+    });
+
+    CHECK_EQ(response.status(), 200);
+    CHECK_EQ(collected.size(), PAYLOAD_SIZE);
+    CHECK_EQ(collected, payload);
+    CHECK_EQ(response.totalBytesRead(), static_cast<uint64_t>(PAYLOAD_SIZE));
+    CHECK_GE(chunk_count, 3);
+    server.stop();
+
+    // A plain Content-Length response must be reassembled the same way
+    LocalTestHttpServer server2([&](boost::asio::ip::tcp::socket& sock) {
+        const std::string head =
+          "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(payload.size()) +
+          "\r\nConnection: close\r\n\r\n";
+        LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        LocalTestHttpServer::writeAll(sock, payload.data(), payload.size());
+    });
+    server2.start();
+
+    AsioHttpClient client2(server2.url(), 5000);
+    std::string collected2;
+    auto response2 = client2.getStream(
+      "/plain", {}, {}, [&](const char* data, size_t size) { collected2.append(data, size); });
+    CHECK_EQ(response2.status(), 200);
+    CHECK_EQ(collected2, payload);
+    CHECK_EQ(response2.totalBytesRead(), static_cast<uint64_t>(PAYLOAD_SIZE));
+    server2.stop();
+
+    // The peer closes the connection before the declared body is complete
+    LocalTestHttpServer server3([&](boost::asio::ip::tcp::socket& sock) {
+        const std::string head =
+          "HTTP/1.1 200 OK\r\nContent-Length: 10000\r\nConnection: close\r\n\r\n";
+        LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        const std::string part(3000, 'x');
+        LocalTestHttpServer::writeAll(sock, part.data(), part.size());
+    });
+    server3.start();
+
+    AsioHttpClient client3(server3.url(), 5000);
+    size_t truncated_bytes = 0;
+    CHECK_THROWS_AS(client3.getStream("/truncated", {}, {},
+                                      [&](const char*, size_t size) { truncated_bytes += size; }),
+                    std::exception);
+    server3.stop();
 }
 
 #if HKU_ENABLE_HTTP_CLIENT_SSL

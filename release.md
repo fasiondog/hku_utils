@@ -4,6 +4,8 @@
 
 - fix(db_connect): DBCondition 字符串值集中转义，防止 SQL 拼接注入
 - fix(http_client): 修复 url_escape 对非 ASCII 字节的转义损坏
+- fix(http_client): 流式响应改用实际写入的 body 字节数作为数据块长度，修正 chunked 响应混入分帧字节、多算/少算的问题
+- feat(http_client): 流式响应在对方提前关连且 body 未完时抛异常，不再空转
 
 ## 1.5.3 - 2026年9月21日
 

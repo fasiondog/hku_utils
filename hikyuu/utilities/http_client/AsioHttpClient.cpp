@@ -1532,7 +1532,6 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
 
             // Read the response body data chunks in a loop
             while (!parser.is_done()) {
-                std::size_t bytes_transferred = 0;
                 net::error_code read_ec;
 
                 // Set the timeout timer (reset on every chunk read)
@@ -1553,17 +1552,17 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                         beast::flat_buffer& buffer;
                         http::response_parser<http::buffer_body>& parser;
 
-                        net::awaitable<std::pair<net::error_code, std::size_t>> run() {
+                        net::awaitable<net::error_code> run() {
                             auto [ec, bytes] = co_await http::async_read(
                               stream, buffer, parser, net::as_tuple(net::use_awaitable));
-                            co_return std::make_pair(ec, bytes);
+                            (void)bytes;
+                            co_return ec;
                         }
                     };
 
                     auto read_op = ReadOp{*conn->ssl_socket, buffer, parser};
-                    auto [ec, bytes] = co_await read_op.run();
+                    auto ec = co_await read_op.run();
                     read_ec = ec;
-                    bytes_transferred = bytes;
 
                     // Cancel the timer
                     timer.cancel();
@@ -1579,17 +1578,17 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                         beast::flat_buffer& buffer;
                         http::response_parser<http::buffer_body>& parser;
 
-                        net::awaitable<std::pair<net::error_code, std::size_t>> run() {
+                        net::awaitable<net::error_code> run() {
                             auto [ec, bytes] = co_await http::async_read(
                               sock, buffer, parser, net::as_tuple(net::use_awaitable));
-                            co_return std::make_pair(ec, bytes);
+                            (void)bytes;
+                            co_return ec;
                         }
                     };
 
                     auto read_op = ReadOp{conn->socket.value(), buffer, parser};
-                    auto [ec, bytes] = co_await read_op.run();
+                    auto ec = co_await read_op.run();
                     read_ec = ec;
-                    bytes_transferred = bytes;
 
                     // Cancel the timer
                     timer.cancel();
@@ -1602,10 +1601,25 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                 }
 #endif
 
+                // Get the payload length stored into chunk_buffer: while parsing, buffer_body
+                // advances data and decrements size, so the written bytes are the size decreased.
+                // Do not use the bytes transferred of the read operation as the chunk length - it
+                // counts the wire bytes (including the header leftovers and the chunked encoding
+                // framing), which is not the payload size
+                const size_t chunk_size = BUFFER_SIZE - parser.get().body().size;
+
+                // A peer closing the connection with an incomplete body must not spin in this loop
+                if (read_ec == http::error::end_of_stream && !parser.is_done()) {
+                    HKU_THROW(
+                      "HTTP stream read failed: the connection closed before the response body was "
+                      "complete, {} bytes read",
+                      response.totalBytesRead());
+                }
+
                 // Call the callback to process the data chunk
-                if (bytes_transferred > 0) {
-                    response.m_total_bytes_read += bytes_transferred;
-                    chunk_callback(chunk_buffer.data(), bytes_transferred);
+                if (chunk_size > 0) {
+                    response.m_total_bytes_read += chunk_size;
+                    chunk_callback(chunk_buffer.data(), chunk_size);
                 }
 
                 // Reset the buffer for the next read
