@@ -2,11 +2,8 @@
 
 ## 1.5.4
 
-fix(db_connect): DBCondition 字符串值集中转义，防止 SQL 拼接注入
-
-- 新增 `sqlStringLiteral()` 作为字符串值统一转义点，内嵌双引号按 SQL 标准加倍
-- `Field` 的比较运算符（==、!=、>、>=、<、<=）、`like`、`in`、`not in` 全部经由转义点拼装
-- 不含引号的正常值输出与旧版字节级一致，行为兼容；含引号的值此前可提前闭合字面量，现仅为字面量文本
+- fix(db_connect): DBCondition 字符串值集中转义，防止 SQL 拼接注入
+- fix(http_client): 修复 url_escape 对非 ASCII 字节的转义损坏
 
 ## 1.5.3 - 2026年9月21日
 

@@ -112,6 +112,7 @@ target("unit-test")
 
     if has_config("http_client") then
         add_files("utilities/http_client/test_AsioHttpClient.cpp")
+        add_files("utilities/http_client/test_url.cpp")
     end
 
     if has_config("node") then
