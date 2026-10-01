@@ -30,6 +30,8 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <cstring>
+#include <mutex>
 #endif
 
 namespace hku {
@@ -563,36 +565,88 @@ net::awaitable<std::vector<tcp::endpoint>> AsioHttpClient::_resolveDNS() {
     }
 
 #if HKU_OS_OSX || HKU_OS_IOS
-    // macOS uses the native getaddrinfo way (the beast resolution has a known issue and would hang)
-    struct addrinfo hints, *res = nullptr;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_ADDRCONFIG;  // Query the address types supported by this machine only
+    // The lookup runs in its own thread and the coroutine waits on the timeout timer only:
+    // Boost.ASIO cannot interrupt a getaddrinfo that is already in flight, so waiting for its
+    // resolver thread would also wait for the system resolver and the timeout would not be
+    // enforced, while calling getaddrinfo in place would block the io_context worker thread
+    struct ResolveState {
+        std::mutex m_lock;
+        std::vector<tcp::endpoint> endpoints;
+        boost::system::error_code ec;
+        bool done = false;
+    };
 
-    int ret = getaddrinfo(m_host.c_str(), m_port.c_str(), &hints, &res);
-    HKU_CHECK(ret == 0, "DNS resolve failed! {}:{}", m_host, m_port);
+    auto state = std::make_shared<ResolveState>();
+    auto timer = std::make_shared<net::steady_timer>(*m_ctx);
+    timer->expires_after(m_timeout);
 
-    std::vector<tcp::endpoint> dns_endpoints;
-    for (struct addrinfo* ai = res; ai != nullptr; ai = ai->ai_next) {
-        if (ai->ai_family == AF_INET) {
-            auto* sin = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
-            net::ip::address_v4::bytes_type v4_bytes;
-            memcpy(&v4_bytes, &(sin->sin_addr.s_addr), sizeof(v4_bytes));
-            dns_endpoints.push_back(
-              tcp::endpoint(net::ip::make_address_v4(v4_bytes), ntohs(sin->sin_port)));
-        } else if (ai->ai_family == AF_INET6) {
-            auto* sin6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
-            net::ip::address_v6::bytes_type v6_bytes;
-            memcpy(&v6_bytes, &(sin6->sin6_addr.s6_addr), sizeof(v6_bytes));
-            dns_endpoints.push_back(
-              tcp::endpoint(net::ip::make_address_v6(v6_bytes), ntohs(sin6->sin6_port)));
+    // Only copies and shared pointers cross the thread boundary: the thread must stay safe even
+    // when it is detached on a timeout and the client is destroyed while it still runs
+    const std::string host = m_host;
+    const std::string port = m_port;
+    std::thread worker([state, timer, host, port]() {
+        struct addrinfo hints, *res = nullptr;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_flags = AI_ADDRCONFIG;  // Query the address types supported by this machine only
+
+        std::vector<tcp::endpoint> endpoints;
+        const int ret = getaddrinfo(host.c_str(), port.c_str(), &hints, &res);
+        if (ret != 0) {
+            state->ec = boost::system::error_code(ret, boost::system::generic_category());
+        } else {
+            for (struct addrinfo* ai = res; ai != nullptr; ai = ai->ai_next) {
+                if (ai->ai_family == AF_INET) {
+                    auto* sin = reinterpret_cast<sockaddr_in*>(ai->ai_addr);
+                    net::ip::address_v4::bytes_type v4_bytes;
+                    memcpy(&v4_bytes, &(sin->sin_addr.s_addr), sizeof(v4_bytes));
+                    endpoints.push_back(
+                      tcp::endpoint(net::ip::make_address_v4(v4_bytes), ntohs(sin->sin_port)));
+                } else if (ai->ai_family == AF_INET6) {
+                    auto* sin6 = reinterpret_cast<sockaddr_in6*>(ai->ai_addr);
+                    net::ip::address_v6::bytes_type v6_bytes;
+                    memcpy(&v6_bytes, &(sin6->sin6_addr.s6_addr), sizeof(v6_bytes));
+                    endpoints.push_back(
+                      tcp::endpoint(net::ip::make_address_v6(v6_bytes), ntohs(sin6->sin6_port)));
+                }
+            }
+            freeaddrinfo(res);
         }
+
+        {
+            std::lock_guard<std::mutex> guard(state->m_lock);
+            state->endpoints = std::move(endpoints);
+            state->done = true;
+        }
+        // Wake the waiting coroutine up before its timeout does
+        net::post(timer->get_executor(), [timer]() { timer->cancel(); });
+    });
+
+    net::error_code timer_ec;
+    co_await timer->async_wait(net::redirect_error(net::use_awaitable, timer_ec));
+
+    bool finished = false;
+    {
+        std::lock_guard<std::mutex> guard(state->m_lock);
+        finished = state->done;
     }
 
-    freeaddrinfo(res);
-    HKU_CHECK(!dns_endpoints.empty(), "DNS resolve failed! {}:{}", m_host, m_port);
-    co_return dns_endpoints;
+    if (!finished) {
+        // The timeout came first: let the lookup finish in the background. It owns copies and
+        // shared pointers only, so it cannot touch anything the coroutine has already released
+        worker.detach();
+        HKU_THROW_EXCEPTION(HttpTimeoutException, "DNS resolve timeout");
+    }
+
+    worker.join();
+    if (state->ec) {
+        HKU_THROW("DNS resolve failed: {}", state->ec.message());
+    }
+    if (state->endpoints.empty()) {
+        HKU_THROW("No valid endpoints from DNS resolve");
+    }
+    co_return state->endpoints;
 
 #else
     // The other platforms use the Boost.ASIO asynchronous DNS resolution

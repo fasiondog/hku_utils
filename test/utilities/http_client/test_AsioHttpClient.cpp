@@ -69,6 +69,10 @@ public:
         }
     }
 
+    uint16_t port() const {
+        return m_port;
+    }
+
     std::string url() const {
         return m_ipv6 ? "http://[::1]:" + std::to_string(m_port)
                       : "http://127.0.0.1:" + std::to_string(m_port);
@@ -696,6 +700,42 @@ TEST_CASE("test_AsioHttpClient_requestStream_write_timeout") {
                                       [&received](const char*, size_t size) { received += size; }),
                     HttpTimeoutException);
     CHECK_EQ(received, 0u);
+    server.stop();
+}
+
+TEST_CASE("test_AsioHttpClient_dns_resolve") {
+    /**
+     * @par Check points
+     * - a host name (not an address literal) is resolved through the resolver on every platform:
+     *   a request to "localhost" reaches the local server, so the unified path and the
+     *   address_configured filter keep the usable address families
+     * - the endpoint list is walked through: an IPv6 answer that has no listener does not stop the
+     *   request from connecting over IPv4
+     * - the Host header of a name based request is the name itself
+     */
+    std::string seen_request;
+    LocalTestHttpServer server([&](boost::asio::ip::tcp::socket& sock) {
+        seen_request = LocalTestHttpServer::readRequest(sock);
+        const std::string body = "done";
+        const std::string head =
+          "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n";
+        LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        LocalTestHttpServer::writeAll(sock, body.data(), body.size());
+    });
+    server.start();
+
+    // The server only listens on the IPv4 loopback, while "localhost" also answers ::1
+    const std::string url = "http://localhost:" + std::to_string(server.port());
+    AsioHttpClient client(url, 5000);
+    auto resp = client.get("/by_name");
+    CHECK_EQ(resp.status(), 200);
+    CHECK_EQ(resp.body(), "done");
+
+    const size_t begin = seen_request.find("Host:");
+    CHECK_UNARY(begin != std::string::npos);
+    const size_t end = seen_request.find("\r\n", begin);
+    const std::string host_value = seen_request.substr(begin + 5, end - begin - 5);
+    CHECK_EQ(host_value.substr(host_value.find_first_not_of(" \t")), "localhost");
     server.stop();
 }
 
