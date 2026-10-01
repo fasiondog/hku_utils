@@ -604,6 +604,39 @@ void AsioHttpClient::setMaxHeaderSize(size_t bytes) {
     m_max_header_size = (bytes == 0) ? DEFAULT_MAX_HEADER_SIZE : bytes;
 }
 
+namespace {
+/**
+ * @brief Closes the pooled connection unless the exchange finished cleanly and may be reused
+ *
+ * A timeout or a failed write/read leaves the socket with octets the peer still has to send (or
+ * that it never sent), and the resource pool hands the very same socket to the next request,
+ * which then parses those leftovers as its response. A peer ending the keep-alive with a
+ * Connection: close response is a second way to get a connection that cannot be reused, because
+ * the local socket still reports itself open. Keeping a connection therefore has to be marked
+ * explicitly, every other exit path closes it before the pool takes it back.
+ */
+class ConnectionGuard {
+public:
+    explicit ConnectionGuard(const std::shared_ptr<HttpConnection>& conn) : m_conn(conn) {}
+    ConnectionGuard(const ConnectionGuard&) = delete;
+    ConnectionGuard& operator=(const ConnectionGuard&) = delete;
+
+    ~ConnectionGuard() {
+        if (!m_clean) {
+            m_conn->close();
+        }
+    }
+
+    void markClean() {
+        m_clean = true;
+    }
+
+private:
+    std::shared_ptr<HttpConnection> m_conn;
+    bool m_clean{false};
+};
+}  // namespace
+
 // Get a connected connection from the connection pool (with the DNS cache)
 net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient::_getConnection() {
     HKU_ASSERT(m_connection_pool != nullptr);
@@ -617,6 +650,10 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
     }
     auto conn_ptr = std::move(conn_result.value());
     HKU_CHECK(conn_ptr != nullptr, "Failed to get connection from pool");
+
+    // A failed DNS resolve, connect or handshake leaves the socket half used: it may not go back
+    // to the pool as if it were idle
+    ConnectionGuard guard(conn_ptr);
 
     bool is_new_connection = false;
 
@@ -851,6 +888,9 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
     // because they were already set in _connect or when the connection was established before.
     // When a connection is reused its socket state is preserved.
 
+    // The connection is connected and ready to be used by the caller
+    guard.markClean();
+
     co_return std::make_pair(conn_ptr, is_new_connection);
 }
 
@@ -1065,6 +1105,10 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
         auto [conn, is_new] = co_await _getConnection();
         HKU_CHECK(conn != nullptr, "Failed to get connection from pool");
 
+        // The connection goes back to the pool only when the whole exchange is complete and the
+        // peer allows keep-alive, otherwise it is closed here
+        ConnectionGuard guard(conn);
+
         // Create the HTTP request
         http::request<http::string_body> req;
         req.method(http::string_to_verb(method));
@@ -1242,10 +1286,9 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 timer.cancel();
 
                 // A response over the limit is abandoned by the parser while the peer still has
-                // bytes to send, so the connection cannot be reused
+                // bytes to send, so the connection cannot be reused (the guard closes it)
                 if (captured_ec == http::error::body_limit ||
                     captured_ec == http::error::header_limit) {
-                    conn->close();
                     if (captured_ec == http::error::body_limit) {
                         HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
                                             "HTTP response body exceeds the limit ({} bytes)",
@@ -1298,10 +1341,9 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
                 timer.cancel();
 
                 // A response over the limit is abandoned by the parser while the peer still has
-                // bytes to send, so the connection cannot be reused
+                // bytes to send, so the connection cannot be reused (the guard closes it)
                 if (captured_ec == http::error::body_limit ||
                     captured_ec == http::error::header_limit) {
-                    conn->close();
                     if (captured_ec == http::error::body_limit) {
                         HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
                                             "HTTP response body exceeds the limit ({} bytes)",
@@ -1358,7 +1400,11 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
             response.m_headers.emplace(std::string(it->name_string()), std::string(it->value()));
         }
 
-        // Do not close the connection, let the connection pool manage it
+        // Reuse the connection only when the peer allows it: it may have answered with
+        // Connection: close, in which case the socket is ended on the peer side already
+        if (res.keep_alive()) {
+            guard.markClean();
+        }
 
     } catch (const net::system_error&) {
         // HKU_DEBUG("HTTP request system error! {}", e.what());
@@ -1399,6 +1445,10 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
         // handled automatically)
         auto [conn, is_new] = co_await _getConnection();
         HKU_CHECK(conn != nullptr, "Failed to get connection from pool");
+
+        // The connection goes back to the pool only when the whole exchange is complete and the
+        // peer allows keep-alive, otherwise it is closed here
+        ConnectionGuard guard(conn);
 
         // Create the HTTP request
         http::request<http::string_body> req;
@@ -1577,9 +1627,8 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                     timer.cancel();
 
                     // A header over the limit leaves the peer with bytes still to send, so the
-                    // connection cannot be reused
+                    // connection cannot be reused (the guard closes it)
                     if (read_ec == http::error::header_limit) {
-                        conn->close();
                         HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
                                             "HTTP response header exceeds the limit ({} bytes)",
                                             m_max_header_size);
@@ -1609,9 +1658,8 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
                     timer.cancel();
 
                     // A header over the limit leaves the peer with bytes still to send, so the
-                    // connection cannot be reused
+                    // connection cannot be reused (the guard closes it)
                     if (read_ec == http::error::header_limit) {
-                        conn->close();
                         HKU_THROW_EXCEPTION(HttpResponseTooLargeException,
                                             "HTTP response header exceeds the limit ({} bytes)",
                                             m_max_header_size);
@@ -1731,8 +1779,10 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
             }
         }
 
-        // Do not close the connection, let the connection pool manage it (it is returned to the
-        // pool)
+        // Reuse the connection only when the peer allows it, the same way as in async_request
+        if (parser.get().keep_alive()) {
+            guard.markClean();
+        }
 
     } catch (const net::system_error&) {
         // HKU_DEBUG("HTTP stream request system error! {}", e.what());

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstring>  // strlen in the reuse test
 #include <functional>
 #include <future>
 #include <stdexcept>
@@ -680,6 +681,70 @@ TEST_CASE("test_AsioHttpClient_requestStream_write_timeout") {
                     HttpTimeoutException);
     CHECK_EQ(received, 0u);
     server.stop();
+}
+
+TEST_CASE("test_AsioHttpClient_connectionPoolReuse") {
+    /**
+     * @par Check points
+     * - a response the peer ended with Connection: close is not handed back to the pool as an
+     *   idle connection: the next request opens a new connection instead of writing into a socket
+     *   the peer already gave up
+     * - a request that fails in the middle of the body closes its connection too, so the
+     *   leftover bytes cannot be parsed as the response of the next request
+     */
+    // The keep-alive intent of the peer decides whether the connection may be reused
+    {
+        int served = 0;
+        LocalTestHttpServer server(
+          [&](boost::asio::ip::tcp::socket& sock) {
+              const char* body = (++served == 1) ? "first" : "second";
+              const std::string head =
+                served == 1 ? "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n"
+                            : "HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\n";
+              LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+              LocalTestHttpServer::writeAll(sock, body, strlen(body));
+          },
+          true, 2);
+        server.start();
+
+        AsioHttpClient client(server.url(), 5000);
+        auto r1 = client.get("/first");
+        CHECK_EQ(r1.body(), "first");
+
+        // The peer closed the keep-alive, so this request has to run on a new connection
+        auto r2 = client.get("/second");
+        CHECK_EQ(r2.status(), 200);
+        CHECK_EQ(r2.body(), "second");
+        server.stop();
+    }
+
+    // A truncated response cannot leave leftovers for the next request
+    {
+        int served = 0;
+        LocalTestHttpServer server(
+          [&](boost::asio::ip::tcp::socket& sock) {
+              if (++served == 1) {
+                  // The body stops far before the declared length
+                  const std::string head = "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n";
+                  const std::string part(300, 'x');
+                  LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+                  LocalTestHttpServer::writeAll(sock, part.data(), part.size());
+              } else {
+                  const std::string full = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+                  LocalTestHttpServer::writeAll(sock, full.data(), full.size());
+              }
+          },
+          true, 2);
+        server.start();
+
+        AsioHttpClient client(server.url(), 5000);
+        CHECK_THROWS_AS(client.get("/truncated"), std::exception);
+
+        auto resp = client.get("/after_truncated");
+        CHECK_EQ(resp.status(), 200);
+        CHECK_EQ(resp.body(), "ok");
+        server.stop();
+    }
 }
 
 TEST_CASE("test_AsioHttpClient_maxResponseSize") {
