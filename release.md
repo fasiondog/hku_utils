@@ -13,6 +13,8 @@
 - fix(http_client): 流式下载不再被响应体上限截断，大于默认上限的响应可完整接收
 - fix(http_client): gzip 响应的解压输出改按响应体上限约束，不再按 1GB 放行
 - fix(http_client): 请求异常或对端结束 keep-alive 时不再把连接原样归还连接池，避免下次请求读到残留字节而串包
+- fix(http_client): 支持带方括号的 IPv6 字面量 URL，并修正畸形主机/端口被静默解析成错误值
+- fix(http_client): 以 IP 地址访问 HTTPS 时不再下发非法的 SNI，改由证书校验匹配 IP 主题备用名
 
 ## 1.5.3 - 2026年9月21日
 

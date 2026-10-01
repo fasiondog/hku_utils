@@ -1105,12 +1105,15 @@ private:
     std::unique_ptr<SslContext> m_ssl_ctx;  // SSL context (used when SSL is enabled only)
 #endif
 
-    bool m_is_valid_url{false};                               // Whether the URL is valid
-    bool m_is_https{false};                                   // Whether the HTTPS protocol is used
-    std::string m_url;                                        // The complete URL
-    std::string m_base_path;                                  // The base path part of the URL
-    std::string m_host;                                       // Host name
-    std::string m_port;                                       // Port number
+    bool m_is_valid_url{false};  // Whether the URL is valid
+    bool m_is_https{false};      // Whether the HTTPS protocol is used
+    std::string m_url;           // The complete URL
+    std::string m_base_path;     // The base path part of the URL
+    std::string m_host;          // Host name
+    std::string m_host_header;   // Host name in the form of the Host header
+                                 // (an IPv6 literal keeps its brackets)
+    bool m_host_is_ip{false};    // Whether the host is an IPv4 or IPv6 literal
+    std::string m_port;          // Port number
     std::chrono::milliseconds m_timeout{DEFAULT_TIMEOUT_MS};  // Timeout
     size_t m_max_response_size{DEFAULT_MAX_RESPONSE_SIZE};    // Maximum response body size
     size_t m_max_header_size{DEFAULT_MAX_HEADER_SIZE};        // Maximum response header size

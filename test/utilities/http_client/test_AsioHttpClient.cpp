@@ -44,10 +44,11 @@ public:
     typedef std::function<void(boost::asio::ip::tcp::socket&)> Responder;
 
     explicit LocalTestHttpServer(Responder responder, bool shutdown_after_respond = true,
-                                 int request_count = 1)
+                                 int request_count = 1, bool ipv6 = false)
     : m_responder(std::move(responder)),
       m_shutdown_after_respond(shutdown_after_respond),
-      m_request_count(request_count) {}
+      m_request_count(request_count),
+      m_ipv6(ipv6) {}
 
     ~LocalTestHttpServer() {
         stop();
@@ -69,7 +70,18 @@ public:
     }
 
     std::string url() const {
-        return "http://127.0.0.1:" + std::to_string(m_port);
+        return m_ipv6 ? "http://[::1]:" + std::to_string(m_port)
+                      : "http://127.0.0.1:" + std::to_string(m_port);
+    }
+
+    // Read the request headers so that a test can look at what the client actually sent
+    static std::string readRequest(boost::asio::ip::tcp::socket& sock) {
+        boost::asio::streambuf buf;
+        boost::system::error_code ec;
+        boost::asio::read_until(sock, buf, "\r\n\r\n", ec);
+        const auto first = boost::asio::buffers_begin(buf.data());
+        const auto last = boost::asio::buffers_end(buf.data());
+        return std::string(first, last);
     }
 
     static void writeAll(boost::asio::ip::tcp::socket& sock, const void* data, size_t len) {
@@ -83,8 +95,11 @@ private:
         asio::io_context ctx;
         asio::ip::tcp::acceptor acceptor(ctx);
         boost::system::error_code ec;
-        acceptor.open(asio::ip::tcp::v4(), ec);
-        acceptor.bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), 0), ec);
+        const asio::ip::address bind_addr = m_ipv6
+                                              ? asio::ip::address(asio::ip::address_v6::loopback())
+                                              : asio::ip::address(asio::ip::address_v4::loopback());
+        acceptor.open(bind_addr.is_v6() ? asio::ip::tcp::v6() : asio::ip::tcp::v4(), ec);
+        acceptor.bind(asio::ip::tcp::endpoint(bind_addr, 0), ec);
         if (ec) {
             port_promise.set_exception(std::make_exception_ptr(std::runtime_error(ec.message())));
             return;
@@ -140,6 +155,7 @@ private:
     Responder m_responder;
     bool m_shutdown_after_respond{true};
     int m_request_count{1};
+    bool m_ipv6{false};
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
     std::future<uint16_t> m_port_future;
@@ -681,6 +697,87 @@ TEST_CASE("test_AsioHttpClient_requestStream_write_timeout") {
                     HttpTimeoutException);
     CHECK_EQ(received, 0u);
     server.stop();
+}
+
+TEST_CASE("test_AsioHttpClient_ipv6_url") {
+    /**
+     * @par Check points
+     * - a bracketed IPv6 literal is parsed into the bare address for the resolution and still
+     *   reaches the server, while the Host header keeps its brackets (RFC 3986 / RFC 6874)
+     * - an IPv4 request keeps working and its Host header stays the bare address
+     * - an IPv6 address without brackets, an unclosed bracket, a non numeric port, a port out of
+     *   range and a missing host are rejected instead of being parsed into garbage
+     */
+    // Read the value of the Host header out of the raw request the server received
+    auto host_of = [](const std::string& request) {
+        const size_t begin = request.find("Host:");
+        if (begin == std::string::npos) {
+            return std::string();
+        }
+        const size_t end = request.find("\r\n", begin);
+        std::string value = request.substr(begin + 5, end - begin - 5);
+        const size_t first = value.find_first_not_of(" \t");
+        return first == std::string::npos ? std::string() : value.substr(first);
+    };
+
+    // Serve one request and answer with the Host header the client sent
+    auto echo = [&](boost::asio::ip::tcp::socket& sock) {
+        const std::string body = "host=" + host_of(LocalTestHttpServer::readRequest(sock));
+        const std::string head =
+          "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) +
+          "\r\nConnection: close\r\n\r\n";
+        LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        LocalTestHttpServer::writeAll(sock, body.data(), body.size());
+    };
+
+    // A bracketed IPv6 literal: the address goes to the resolver without the brackets, the Host
+    // header keeps them. Note that the port is left out of the header by the current implementation
+    {
+        LocalTestHttpServer server(echo, true, 1, true);
+        bool ipv6_available = true;
+        try {
+            server.start();
+        } catch (const std::exception&) {
+            ipv6_available = false;  // the machine has no IPv6 loopback
+        }
+
+        if (ipv6_available) {
+            AsioHttpClient client(server.url(), 5000);
+            auto resp = client.get("/v6");
+            CHECK_EQ(resp.status(), 200);
+            CHECK_EQ(resp.body(), "host=[::1]");
+            server.stop();
+        } else {
+            INFO("no IPv6 loopback available on this machine, the bracketed case was skipped");
+        }
+    }
+
+    // The IPv4 path keeps its shape: the Host header is the bare address
+    {
+        LocalTestHttpServer server(echo);
+        server.start();
+
+        AsioHttpClient client(server.url(), 5000);
+        auto resp = client.get("/v4");
+        CHECK_EQ(resp.status(), 200);
+        CHECK_EQ(resp.body(), "host=127.0.0.1");
+        server.stop();
+    }
+
+    // Malformed authorities are rejected before any connection is attempted
+    for (const std::string& url :
+         {"http://::1:8080", "http://[::1", "http://[]:8080", "http://[::1]x:8080",
+          "http://[::1]:8080abc", "http://[::1]:99999", "http://:8080"}) {
+        AsioHttpClient client(url);
+        bool rejected = false;
+        try {
+            client.get("/bad");
+        } catch (const std::exception& e) {
+            rejected = true;
+            CHECK_UNARY(std::string(e.what()).find("Invalid url") != std::string::npos);
+        }
+        CHECK_UNARY(rejected);
+    }
 }
 
 TEST_CASE("test_AsioHttpClient_connectionPoolReuse") {

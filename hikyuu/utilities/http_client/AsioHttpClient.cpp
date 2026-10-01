@@ -381,26 +381,93 @@ void AsioHttpClient::_parseUrl() noexcept {
     }
 
     std::string base_path;
-    std::string host = m_url.substr(pos + 3);
-    pos = host.find('/');
+    std::string authority = m_url.substr(pos + 3);
+    pos = authority.find('/');
     if (pos != std::string::npos) {
-        base_path = host.substr(pos);
-        host.resize(pos);
+        base_path = authority.substr(pos);
+        authority.resize(pos);
     }
-    pos = host.find(':');
-    if (pos != std::string::npos) {
-        try {
-            port = std::stoi(host.substr(pos + 1));
-        } catch (...) {
+
+    // An IPv6 literal carries its own colons, so it is written inside brackets and the port
+    // separator may only be looked for after the closing bracket (RFC 3986). The brackets stay in
+    // the Host header (RFC 6874) while the bare address is what the resolution and the certificate
+    // verification need
+    std::string host;
+    std::string port_text;
+    bool is_ipv6 = false;
+    if (!authority.empty() && authority.front() == '[') {
+        is_ipv6 = true;
+        pos = authority.find(']');
+        if (pos == std::string::npos || pos == 1) {
             m_is_valid_url = false;
-            HKU_ERROR("Invalid port: {}", host.substr(pos + 1));
+            HKU_ERROR("Invalid IPv6 literal, the closing bracket is missing or empty: {}",
+                      authority);
             return;
         }
-        host.resize(pos);
+        host = authority.substr(1, pos - 1);
+        const std::string tail = authority.substr(pos + 1);
+        if (!tail.empty()) {
+            if (tail.front() != ':') {
+                m_is_valid_url = false;
+                HKU_ERROR("Invalid characters after the IPv6 literal: {}", tail);
+                return;
+            }
+            port_text = tail.substr(1);
+        }
+    } else {
+        pos = authority.find(':');
+        if (pos != std::string::npos) {
+            host = authority.substr(0, pos);
+            port_text = authority.substr(pos + 1);
+        } else {
+            host = authority;
+        }
+        // Without brackets the colons of an address cannot be told apart from the port separator
+        if (!host.empty() && host.find(':') != std::string::npos) {
+            m_is_valid_url = false;
+            HKU_ERROR("An IPv6 address has to be written inside brackets: {}", authority);
+            return;
+        }
     }
+
+    if (host.empty()) {
+        m_is_valid_url = false;
+        HKU_ERROR("The url has no host part: {}", m_url);
+        return;
+    }
+
+    if (!port_text.empty()) {
+        // std::stoi accepts a leading number followed by any junk and overflows silently, so the
+        // port is validated as a whole
+        if (port_text.find_first_not_of("0123456789") != std::string::npos) {
+            m_is_valid_url = false;
+            HKU_ERROR("Invalid port: {}", port_text);
+            return;
+        }
+        try {
+            const unsigned long parsed = std::stoul(port_text);
+            if (parsed == 0 || parsed > 65535) {
+                m_is_valid_url = false;
+                HKU_ERROR("Port out of range: {}", port_text);
+                return;
+            }
+            port = static_cast<uint16_t>(parsed);
+        } catch (...) {
+            m_is_valid_url = false;
+            HKU_ERROR("Invalid port: {}", port_text);
+            return;
+        }
+    }
+
+    // An address literal must not be sent as the TLS server name and is matched against the IP
+    // subject alternative names instead of the DNS ones
+    net::error_code ec;
+    (void)net::ip::make_address(host, ec);
+    m_host_is_ip = !ec;
 
     m_base_path = std::move(base_path);
     m_host = std::move(host);
+    m_host_header = is_ipv6 ? "[" + m_host + "]" : m_host;
     m_port = std::to_string(port);
 }
 
@@ -689,7 +756,12 @@ net::awaitable<std::pair<std::shared_ptr<HttpConnection>, bool>> AsioHttpClient:
             bool connected = false;
             for (const auto& endpoint : conn_ptr->endpoints) {
                 conn_ptr->ssl_socket.emplace(*m_ctx, m_ssl_ctx->ssl_ctx);
-                SSL_set_tlsext_host_name(conn_ptr->ssl_socket->native_handle(), m_host.c_str());
+                // RFC 6066: an address literal must not be sent as the server name, and no server
+                // could route on it either; the certificate verification matches the IP subject
+                // alternative names without needing the server name
+                if (!m_host_is_ip) {
+                    SSL_set_tlsext_host_name(conn_ptr->ssl_socket->native_handle(), m_host.c_str());
+                }
 
                 // Verify the server certificate chain and the hostname (anti-MITM)
                 conn_ptr->ssl_socket->set_verify_mode(ssl::verify_peer);
@@ -1020,8 +1092,10 @@ net::awaitable<void> AsioHttpClient::_connect(SocketVariant& socket_variant,
         socket_variant.ssl.emplace(std::move(*socket_variant.plain), m_ssl_ctx->ssl_ctx);
         socket_variant.plain.reset();
 
-        // Set the SNI (Server Name Indication)
-        SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
+        // Set the SNI (Server Name Indication), which an address literal must not use
+        if (!m_host_is_ip) {
+            SSL_set_tlsext_host_name(socket_variant.ssl->native_handle(), m_host.c_str());
+        }
 
         // Verify the server certificate chain and the hostname (anti-MITM)
         socket_variant.ssl->set_verify_mode(ssl::verify_peer);
@@ -1127,7 +1201,7 @@ net::awaitable<AsioHttpResponse> AsioHttpClient::async_request(
 
         // Add the User-Agent
         req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-        req.set(http::field::host, m_host);
+        req.set(http::field::host, m_host_header);
         // Note: "close" is not used, allowing the connection reuse
 
         // Add the request body
@@ -1465,7 +1539,7 @@ net::awaitable<AsioHttpStreamResponse> AsioHttpClient::async_requestStream(
         }
 
         req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-        req.set(http::field::host, m_host);
+        req.set(http::field::host, m_host_header);
         // Note: "close" is not used, allowing the connection reuse
 
         if (body != nullptr && body_len > 0) {
