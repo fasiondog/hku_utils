@@ -165,7 +165,10 @@ xmake project -k compile_commands --lsp=clangd
 ## 7. 文档
 
 - `docs/` 存放说明性文档（如 HTTP 流式处理：`STREAMING_HTTP_SUMMARY.md`、`HTTP_STREAMING_QUICK_REFERENCE.md`、`streaming_http_example.md`），新增文档优先使用 Markdown。
-- `release.md` 记录版本变更，遵循简洁的变更条目（如 `feat(xxx): 描述`、`fix(xxx): 描述`），**每次改动对外行为时同步追加**。
+- `release.md` 记录版本变更，**每次改动对外行为时同步追加**：
+  - 每个变更**只写一句简短描述**（`fix(xxx): 描述` / `feat(xxx): 描述`，与提交信息同风格），不写实现细节、不加子条目列表
+  - 记在**顶部无发布日期的版本小节**下（即下一个待发布版本，尚未在 `xmake.lua` 的 `set_version` 中定版）；同一未发布版本只保留一个小节，多条变更累积为其中的并列条目，**不每次改动新建版本号**
+  - 发布时（见第 10 条）再为该小节补上发布日期，并与 `set_version` 对齐
 - `readme.md` 为项目简介，保持简洁。
 
 ## 8. AI 开发工作流与注意事项
@@ -179,7 +182,7 @@ xmake project -k compile_commands --lsp=clangd
 7. **测试优先**：改动涉及核心模块时至少运行 `xmake r unit-test`；数据库/网络相关改动若无真实环境，走豁免路径并避免破坏默认（`mysql=n`、`http_client=n`）构建。
 8. **CI 会验证**：`.github/workflows/` 下 `macos.yml`、`ubuntu.yml`、`windows.yml`、`windows_arm64.yml` 四套流水线（分支 `main`，matrix: static/shared，部分含 aarch64/x86_64、arm64），PR 合入前需通过构建。
 9. **提交信息**：统一使用**英文**，简短风格，遵循 conventional commits（`fix(xxx): ...` / `feat(xxx): ...`），首字母小写、不加句号，不包含问题单号（如 ISS-xxx、#NN 等）。
-10. **发布**：执行 `python publish.py` 生成版本 zip 并更新 `hikyuu_extern_libs` 仓库中的包定义；发布前记得更新 `xmake.lua` 的 `set_version` 与 `release.md`。
+10. **发布**：执行 `python publish.py` 生成版本 zip 并更新 `hikyuu_extern_libs` 仓库中的包定义；发布前记得更新 `xmake.lua` 的 `set_version` 与 `release.md`（给顶部未发布小节补上发布日期，见第 7 节）。
 11. **谨慎处理**：修改 `xmake.lua` 的依赖顺序（如 `openssl3` 必须在 `boost` 之前）或包配置后，须重新 `xmake f` 配置；Windows 使用 clang-cl 编译，注意平台差异宏。
 
 ## 9. 快速自查清单（提交前）
