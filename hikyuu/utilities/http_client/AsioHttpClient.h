@@ -325,6 +325,12 @@ private:
  * @note This class cannot be moved or copied, because it manages the lifetimes of the background
  *       threads and the io_context
  * @note When an external io_context is used, its lifetime must be longer than the client
+ * @note Lifetime contract: do not destroy the client while an asynchronous request is still in
+ *       flight. The coroutines of the async_* methods run on behalf of this object, so an
+ * unfinished one both outlives its owner and keeps a connection borrowed from the internal pool,
+ * which makes the destructor wait for a return that can never happen. The synchronous methods are
+ *       safe by construction, since they only return after the whole exchange has finished and the
+ *       connection has been given back
  * @see AsioHttpResponse the complete response class
  * @see AsioHttpStreamResponse the streaming response class
  */
@@ -558,6 +564,8 @@ public:
 
     // ==================== Asynchronous request methods ====================
     // They return net::awaitable and need to be called with co_await in a coroutine
+    // The client must stay alive until the awaited request has finished, see the lifetime contract
+    // of the class documentation
 
     /**
      * @brief General asynchronous HTTP request

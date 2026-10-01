@@ -281,6 +281,12 @@ AsioHttpClient::AsioHttpClient(net::io_context& ctx, const std::string& url, int
 }
 
 AsioHttpClient::~AsioHttpClient() {
+    // The connection pool releases its resources only after every borrowed one came back. Stopping
+    // the io_context before destroying the pool is safe only because nothing may be in flight here
+    // anyway: the class lifetime contract forbids destroying the client while an asynchronous
+    // request runs, and the synchronous methods have already returned their connection. Breaking
+    // that contract makes the pool destructor wait for a return that the stopped io_context can
+    // never deliver
     if (m_own_ctx) {
         m_work_guard.reset();
 
