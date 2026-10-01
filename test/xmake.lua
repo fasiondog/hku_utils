@@ -7,7 +7,16 @@ target("testplugin")
     add_deps("hku_utils")
     add_packages("boost", "fmt", "spdlog")
     add_includedirs("..")
-    add_files("plugin/*.cpp")
+    add_files("plugin/TestPlugin.cpp")
+target_end()
+
+target("testbadplugin")
+    set_kind("shared")
+    set_default(false)
+    add_deps("hku_utils")
+    add_packages("boost", "fmt", "spdlog")
+    add_includedirs("..")
+    add_files("plugin/TestBadPlugin.cpp")
 target_end()
 
 target("unit-test")
@@ -26,7 +35,7 @@ target("unit-test")
         end
     end
 
-    add_deps("testplugin")
+    add_deps("testplugin", "testbadplugin")
     add_packages("doctest", "spdlog")
 
     if has_config("mysql") or has_config("http_client_ssl") then

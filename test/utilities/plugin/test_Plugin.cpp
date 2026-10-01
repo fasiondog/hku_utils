@@ -8,6 +8,7 @@
 #include "test_config.h"
 #include "hikyuu/utilities/os.h"
 #include "hikyuu/utilities/plugin/PluginClient.h"
+#include "hikyuu/utilities/plugin/PluginLoader.h"
 #include "../../plugin/TestPluginInterface.h"
 #include <cstdlib>
 
@@ -31,4 +32,25 @@ TEST_CASE("test_plugin") {
     CHECK_THROWS(plugin1.name());
     HKU_INFO("{}", plugin.name());
     HKU_INFO("{}", plugin.info());
+}
+
+TEST_CASE("test_PluginLoader_unload_on_create_failure") {
+    /**
+     * Regression for the double-unload defect: when createPlugin returns
+     * nullptr, load() calls unload() internally; the handle must be reset
+     * there, otherwise ~PluginLoader closes the same handle a second time
+     * (double dlclose / FreeLibrary, undefined behavior)
+     */
+    {
+        PluginLoader loader(".");
+        CHECK_EQ(loader.load("testbadplugin", false), false);
+        CHECK_EQ(loader.instance<TestPluginInterface>(), nullptr);
+    }
+
+    /** Load a missing plugin: the path is rejected before dlopen, no handle state */
+    {
+        PluginLoader loader(".");
+        CHECK_EQ(loader.load("no_such_plugin", false), false);
+        CHECK_EQ(loader.instance<TestPluginInterface>(), nullptr);
+    }
 }

@@ -17,6 +17,7 @@
 - fix(http_client): 以 IP 地址访问 HTTPS 时不再下发非法的 SNI，改由证书校验匹配 IP 主题备用名
 - perf(http_client): macOS 的 DNS 解析改到独立线程执行，不再阻塞事件循环线程，且超时能真正中断等待
 - fix(http_client): Host 头在非默认端口时携带端口，符合 RFC 6874/9110
+- fix(plugin): PluginLoader::unload() 释放句柄后置空，修复加载失败路径析构时二次 dlclose 的未定义行为
 
 ## 1.5.3 - 2026年9月21日
 
