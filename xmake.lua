@@ -288,6 +288,7 @@ target("hku_utils")
 
     if has_config("http_client") then
         add_files("hikyuu/utilities/http_client/AsioHttpClient.cpp")
+        add_files("hikyuu/utilities/http_client/HttpException.cpp")
         add_files("hikyuu/utilities/http_client/url.cpp")
     end
 

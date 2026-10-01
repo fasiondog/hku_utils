@@ -11,11 +11,16 @@
 
 namespace hku {
 
-struct HttpTimeoutException : hku::exception {
+struct HKU_UTILS_API HttpTimeoutException : hku::exception {
     HttpTimeoutException() : hku::exception("Http timeout!") {}
     explicit HttpTimeoutException(const char* msg) : hku::exception(msg) {}
     explicit HttpTimeoutException(const std::string& msg) : hku::exception(msg) {}
-    virtual ~HttpTimeoutException() noexcept override = default;
+
+    // The out-of-line destructor is the key function: it pins the vtable and the typeinfo to a
+    // single translation unit inside the library, so that the type thrown here matches the type
+    // caught by a caller living in another binary (otherwise each TU emits its own private
+    // typeinfo and catch (const HttpTimeoutException&) never hits)
+    ~HttpTimeoutException() noexcept override;
 };
 
 }  // namespace hku
