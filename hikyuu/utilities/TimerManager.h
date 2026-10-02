@@ -285,8 +285,9 @@ public:
      * fails
      * @tparam F the task type
      * @tparam Args the task parameters
-     * @param start_date the start date allowed to be executed
-     * @param end_date the end date allowed to be executed
+     * @param start_date the start date of the allowed range, validation only
+     * @param end_date the end date of the allowed range, validation only
+     * @note The date range is not used to filter the executions; the task runs at `time` every day
      * @param time the given running time within the day
      * @param f the delayed task to be executed
      * @param args the concrete task parameters
