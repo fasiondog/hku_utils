@@ -26,6 +26,7 @@
 - fix(db_connect): MySQL 三处 resetAutoIncrement 补上缺失的 TABLE 关键字，ALTER 语句不再必然语法错误
 - fix(db_connect): tableExist / resetAutoIncrement / remove 中的表名改为标识符转义或参数绑定，消除 SQL 注入面
 - fix(db_connect): libmysqlclient 驱动的文本/blob 结果列缓冲改按需扩容，不再按字段声明上限（LONGTEXT 达 4GB）一次性分配
+- perf(db_connect): batchSaveOrUpdate 改为两趟就地处理，不再将全部元素深拷贝进临时 vector（大批量下峰值内存翻倍）；保存的元素自此会回写 rowid，与 batchSave 行为对齐
 
 ## 1.5.3 - 2026年9月21日
 

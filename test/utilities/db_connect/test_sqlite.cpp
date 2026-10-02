@@ -225,3 +225,76 @@ TEST_CASE("test_sqlite_backup") {
     CHECK(con->backup("test_data/tmp/backup_test.db.bak1", 5, 5));
     CHECK(con->backup("test_data/tmp/backup_test.db.bak2", -1));
 }
+
+TEST_CASE("test_batchSaveOrUpdate") {
+    createDir("测试");
+    Parameter param;
+    param.set<std::string>("db", "测试/测试_batch_save_or_update.db");
+    param.set<int>("flags", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+    auto con = std::make_shared<SQLiteConnect>(param);
+    CHECK(con->ping());
+
+    struct BatchItem {
+        TABLE_BIND2(BatchItem, t_batch_save_or_update, name, age)
+        std::string name;
+        int age{0};
+    };
+
+    if (con->tableExist("t_batch_save_or_update")) {
+        con->exec("drop table t_batch_save_or_update");
+    }
+    con->exec(
+      R"(create table t_batch_save_or_update ("id" INTEGER NOT NULL UNIQUE, name VARCHAR(20), age INT, PRIMARY KEY("id" AUTOINCREMENT));)");
+
+    /** Pre-insert two rows so that their rowids are known for the update part */
+    std::vector<BatchItem> seed(2);
+    seed[0].name = "seed0";
+    seed[0].age = 0;
+    seed[1].name = "seed1";
+    seed[1].age = 0;
+    con->batchSave(seed.begin(), seed.end(), true);
+    CHECK_EQ(seed[0].rowid(), 1);
+    CHECK_EQ(seed[1].rowid(), 2);
+
+    /** Two elements to update (valid) and three to save (invalid), mixed in one range */
+    std::vector<BatchItem> items(5);
+    items[0] = seed[0];
+    items[0].age = 10;
+    items[1] = seed[1];
+    items[1].age = 20;
+    items[2].name = "new0";
+    items[3].name = "new1";
+    items[4].name = "new2";
+    con->batchSaveOrUpdate(items.begin(), items.end(), true);
+
+    /** The saved elements must get their rowids written back, in line with batchSave */
+    CHECK_EQ(items[2].rowid(), 3);
+    CHECK_EQ(items[3].rowid(), 4);
+    CHECK_EQ(items[4].rowid(), 5);
+
+    /** The updated rows hold the new values, the saved rows hold the original values */
+    int64_t total = con->queryNumber<int64_t>("select count(1) from t_batch_save_or_update");
+    CHECK_EQ(total, 5);
+    BatchItem loaded;
+    con->load(loaded, Field("name") == "seed0");
+    CHECK_EQ(loaded.age, 10);
+    con->load(loaded, Field("name") == "seed1");
+    CHECK_EQ(loaded.age, 20);
+    con->load(loaded, Field("name") == "new0");
+    CHECK_EQ(loaded.age, 0);
+
+    /** A second run over the now all-valid range must update in place instead of duplicating rows
+     */
+    items[2].age = 30;
+    con->batchSaveOrUpdate(items.begin(), items.end(), true);
+    total = con->queryNumber<int64_t>("select count(1) from t_batch_save_or_update");
+    CHECK_EQ(total, 5);
+    con->load(loaded, Field("name") == "new0");
+    CHECK_EQ(loaded.age, 30);
+
+    /** autotrans=false leaves the transaction handling to the caller */
+    items[3].age = 40;
+    con->batchSaveOrUpdate(items.begin(), items.end(), false);
+    con->load(loaded, Field("name") == "new1");
+    CHECK_EQ(loaded.age, 40);
+}

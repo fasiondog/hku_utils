@@ -305,6 +305,15 @@ PARAMETER_SUPPORT  // NOSONAR
     SQLResultSet<TableT, page_size> query(const DBCondition &cond);
 
 private:
+    /**
+     * The internal implementation of batchSave/batchUpdate with an element filter: only the
+     * elements for which match returns true are saved (with the rowid written back) or updated
+     * @param save_mode true to save the invalid-rowid elements, false to update the valid ones
+     */
+    template <class InputIterator, class Filter>
+    void _batchProcessRange(InputIterator first, InputIterator last, Filter match, bool save_mode,
+                            bool autotrans);
+
     DBConnectBase() = delete;
 };
 
@@ -543,20 +552,79 @@ void DBConnectBase::batchUpdate(InputIterator first, InputIterator last, bool au
     }
 }
 
+template <class InputIterator, class Filter>
+void DBConnectBase::_batchProcessRange(InputIterator first, InputIterator last, Filter match,
+                                       bool save_mode, bool autotrans) {
+    SQLStatementPtr st = getStatement(save_mode ? InputIterator::value_type::getInsertSQL()
+                                                : InputIterator::value_type::getUpdateSQL());
+    if (autotrans) {
+        transaction();
+    }
+
+    try {
+        for (InputIterator iter = first; iter != last; ++iter) {
+            if (!match(*iter)) {
+                continue;
+            }
+
+            if (save_mode) {
+                iter->save(st);
+            } else {
+                iter->update(st);
+            }
+            st->exec();
+
+            if (save_mode) {
+                iter->rowid(st->getLastRowid());
+            }
+        }
+
+        if (autotrans) {
+            commit();
+        }
+    } catch (::hku::SQLException &e) {
+        if (autotrans) {
+            rollback();
+        }
+        SQL_THROW(e.errcode(), "failed batch {}! sql: {}! {}", save_mode ? "save" : "update",
+                  st->getSqlString(), e.what());
+    } catch (std::exception &e) {
+        if (autotrans) {
+            rollback();
+        }
+        HKU_THROW("failed batch {}! sql: {}! {}", save_mode ? "save" : "update", st->getSqlString(),
+                  e.what());
+    } catch (...) {
+        if (autotrans) {
+            rollback();
+        }
+        HKU_THROW("failed batch {}! sql: {}! Unknown error!", save_mode ? "save" : "update",
+                  st->getSqlString());
+    }
+}
+
 template <class InputIterator>
 void DBConnectBase::batchSaveOrUpdate(InputIterator first, InputIterator last, bool autotrans) {
-    std::vector<typename InputIterator::value_type> save_list;
-    std::vector<typename InputIterator::value_type> update_list;
+    HKU_IF_RETURN(first == last, void());
+
+    bool has_save = false;
+    bool has_update = false;
     for (auto iter = first; iter != last; ++iter) {
         if (iter->valid()) {
-            update_list.push_back(*iter);
+            has_update = true;
         } else {
-            save_list.push_back(*iter);
+            has_save = true;
         }
     }
 
-    batchSave(save_list.begin(), save_list.end(), autotrans);
-    batchUpdate(update_list.begin(), update_list.end(), autotrans);
+    if (has_save) {
+        _batchProcessRange(
+          first, last, [](const auto &item) { return !item.valid(); }, true, autotrans);
+    }
+    if (has_update) {
+        _batchProcessRange(
+          first, last, [](const auto &item) { return item.valid(); }, false, autotrans);
+    }
 }
 
 template <class Container>

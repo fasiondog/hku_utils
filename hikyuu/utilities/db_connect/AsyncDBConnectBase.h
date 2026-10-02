@@ -292,6 +292,15 @@ PARAMETER_SUPPORT  // NOSONAR
     AsyncSQLResultSet<TableT, page_size> query(const DBCondition &cond);
 
 private:
+    /**
+     * The internal implementation of batchSave/batchUpdate with an element filter: only the
+     * elements for which match returns true are saved (with the rowid written back) or updated
+     * @param save_mode true to save the invalid-rowid elements, false to update the valid ones
+     */
+    template <class InputIterator, class Filter>
+    net::awaitable<void> _batchProcessRange(InputIterator first, InputIterator last, Filter match,
+                                            bool save_mode, bool autotrans);
+
     AsyncDBConnectBase() = delete;
 };
 
@@ -542,22 +551,82 @@ net::awaitable<void> AsyncDBConnectBase::batchUpdate(InputIterator first, InputI
     co_return;
 }
 
+template <class InputIterator, class Filter>
+net::awaitable<void> AsyncDBConnectBase::_batchProcessRange(InputIterator first, InputIterator last,
+                                                            Filter match, bool save_mode,
+                                                            bool autotrans) {
+    auto st = co_await getStatement(save_mode ? InputIterator::value_type::getInsertSQL()
+                                              : InputIterator::value_type::getUpdateSQL());
+
+    if (autotrans) {
+        co_await transaction();
+    }
+
+    std::exception_ptr saved_exception;
+    try {
+        for (InputIterator iter = first; iter != last; ++iter) {
+            if (!match(*iter)) {
+                continue;
+            }
+
+            if (save_mode) {
+                iter->save(st);
+            } else {
+                iter->update(st);
+            }
+            co_await st->exec();
+
+            if (save_mode) {
+                iter->rowid(st->getLastRowid());  // getLastRowid is a synchronous method
+            }
+        }
+
+        if (autotrans) {
+            co_await commit();
+        }
+    } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // Handle the rollback outside the try-catch
+    if (saved_exception) {
+        if (autotrans) {
+            try {
+                co_await rollback();
+            } catch (...) {
+                // Ignore the rollback exception and keep the original exception
+            }
+        }
+        std::rethrow_exception(saved_exception);
+    }
+    co_return;
+}
+
 template <class InputIterator>
 net::awaitable<void> AsyncDBConnectBase::batchSaveOrUpdate(InputIterator first, InputIterator last,
                                                            bool autotrans) {
-    std::vector<typename InputIterator::value_type> save_list;
-    std::vector<typename InputIterator::value_type> update_list;
+    if (first == last) {
+        co_return;
+    }
 
+    bool has_save = false;
+    bool has_update = false;
     for (auto iter = first; iter != last; ++iter) {
         if (iter->valid()) {
-            update_list.push_back(*iter);
+            has_update = true;
         } else {
-            save_list.push_back(*iter);
+            has_save = true;
         }
     }
 
-    co_await batchSave(save_list.begin(), save_list.end(), autotrans);
-    co_await batchUpdate(update_list.begin(), update_list.end(), autotrans);
+    if (has_save) {
+        co_await _batchProcessRange(
+          first, last, [](const auto &item) { return !item.valid(); }, true, autotrans);
+    }
+    if (has_update) {
+        co_await _batchProcessRange(
+          first, last, [](const auto &item) { return item.valid(); }, false, autotrans);
+    }
 }
 
 template <class Container>
