@@ -219,7 +219,7 @@ void MySQLConnect::resetAutoIncrement(const std::string& tablename) {
     int64_t count = queryNumber<int64_t>(fmt::format("select count(1) from {}", tablename));
     SQL_CHECK(count == 0, -1, "The ID cannot be reset when data is present in table({})",
               tablename);
-    exec(fmt::format("alter {} auto_increment=1", tablename));
+    exec(fmt::format("ALTER TABLE {} AUTO_INCREMENT = 1", tablename));
 }
 
 void MySQLConnect::transaction() {
