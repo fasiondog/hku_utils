@@ -25,6 +25,7 @@
 - perf(db_connect): libmysqlclient 驱动读取 text/blob/decimal 列不再逐字符经 ostringstream 拼接，改为按实际长度直接构造
 - fix(db_connect): MySQL 三处 resetAutoIncrement 补上缺失的 TABLE 关键字，ALTER 语句不再必然语法错误
 - fix(db_connect): tableExist / resetAutoIncrement / remove 中的表名改为标识符转义或参数绑定，消除 SQL 注入面
+- fix(db_connect): libmysqlclient 驱动的文本/blob 结果列缓冲改按需扩容，不再按字段声明上限（LONGTEXT 达 4GB）一次性分配
 
 ## 1.5.3 - 2026年9月21日
 
