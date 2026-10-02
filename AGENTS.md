@@ -136,11 +136,13 @@ xmake project -k compile_commands --lsp=clangd
 | 全局/文件作用域 static  | `g_` 前缀 + `camelCase`                                  | `g_log_level`                                                       |
 | 类型别名 / 智能指针别名 | 业务名 + `Ptr`（`typedef std::shared_ptr<T> XPtr;`）     | `typedef std::shared_ptr<FilterNode> FilterNodePtr;`、`AsyncDBConnectPtr` |
 | 枚举类型 / 枚举值       | 类型 `PascalCase`；值全大写 + 下划线                     | `enum LOG_LEVEL { LOG_TRACE, LOG_DEBUG, ... }`                     |
-| 宏 / 编译开关 / 常量    | 全大写 + 下划线                                          | `HKU_UTILS_API`、`HKU_ENABLE_MYSQL`、`PARAMETER_SUPPORT`          |
+| 宏 / 编译开关 / 常量    | 全大写 + 下划线；`constexpr`/`const` 常量（含文件作用域与类内 static）同此规则，**不用 `k` 前缀（kCamelCase）风格** | `HKU_UTILS_API`、`HKU_ENABLE_MYSQL`、`PARAMETER_SUPPORT`、`DEFAULT_MAX_RESPONSE_SIZE`、`BUFFER_SIZE` |
 | 函数参数 / 局部变量     | `camelCase`                                              | `plugin_path`、`baseInfoParam`                                     |
 | 头/源文件名             | 类文件 `PascalCase`（**一 class 一文件**）；轻量工具头用小写下划线 | `DBConnectBase.h`、`PluginManager.h`；`os.h`、`arithmetic.h`、`any_to_string.h` |
 
 > 注：每个 `class` 独占一个头/源文件（类名与文件名一致）；扁平 `struct`、POD、枚举、typedef、宏等轻量定义可与小工具函数共存于同一小写头文件（如 `os.h`、`cppdef.h`）。
+>
+> **常量命名补充**：`constexpr`/`const` 常量与宏同一规则（全大写 + 下划线），如 `BUFFER_SIZE`、`DEFAULT_TIMEOUT_MS`；**不要**使用 Google 风格的 `kCamelCase`（如 `kMaxInitialBuffer`）。带 `HKU_` 前缀的一般限于导出宏与编译开关，文件内局部常量无需该前缀。
 >
 > **条件编译约定**：新增依赖/驱动时，须在 `xmake.lua` 中用 `set_configvar` 定义对应 `HKU_*` 宏，并在 `config.h.in` 中声明，源码中通过 `#if HKU_ENABLE_XXX` 隔离，同时补齐 `test/xmake.lua` 中相应的 `add_files`/`add_packages`。
 
