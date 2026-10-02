@@ -230,7 +230,9 @@ bool MySQLStatement::sub_moveNext() {
     ret = mysql_stmt_fetch(m_impl->stmt);
     if (ret == 0) {
         return true;
-    } else if (ret == 1) {
+    } else if (ret == MYSQL_DATA_TRUNCATED) {
+        SQL_THROW(ret, "Data truncated in mysql_stmt_fetch! SQL: {}", m_sql_string);
+    } else if (ret != MYSQL_NO_DATA) {
         SQL_THROW(ret, "Error occurred in mysql_stmt_fetch! {}", mysql_stmt_error(m_impl->stmt));
     }
     return false;

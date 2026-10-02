@@ -21,6 +21,7 @@
 - fix(utilities): 资源池等待节点改用原子转账结算 ownership，修复等待者超时与资源归还竞态下的悬垂访问、重复释放与资源丢失
 - fix(utilities): 资源池析构时可回收尚未被取走的资源，析构不再因槽位无法收回而永久阻塞
 - fix(utilities): 资源池创建改为 CAS 预留槽位，max_count 在并发下成为硬上限
+- fix(db_connect): libmysqlclient 驱动不再将 MYSQL_DATA_TRUNCATED 视为结果集结束，列值被截断时抛出异常而非静默提前终止
 
 ## 1.5.3 - 2026年9月21日
 
