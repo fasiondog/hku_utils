@@ -22,6 +22,7 @@
 - fix(utilities): 资源池析构时可回收尚未被取走的资源，析构不再因槽位无法收回而永久阻塞
 - fix(utilities): 资源池创建改为 CAS 预留槽位，max_count 在并发下成为硬上限
 - fix(db_connect): libmysqlclient 驱动不再将 MYSQL_DATA_TRUNCATED 视为结果集结束，列值被截断时抛出异常而非静默提前终止
+- perf(db_connect): libmysqlclient 驱动读取 text/blob/decimal 列不再逐字符经 ostringstream 拼接，改为按实际长度直接构造
 
 ## 1.5.3 - 2026年9月21日
 
