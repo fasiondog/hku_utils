@@ -535,6 +535,58 @@ TEST_CASE("test_ResourceAsioVersionPool_GetParam") {
     });
 }
 
+TEST_CASE("test_ResourceAsioVersionPool_DestroyWithPendingWaiter") {
+    /** @arg
+     * 池中已无资源而仍有协程挂起等待时析构:析构立即返回,挂起协程随后恢复也不再访问已被销毁的资源池
+     */
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    auto pool =
+      std::make_unique<ResourceAsioVersionPool<VersionTestResource, std::mutex>>(param, 1);
+
+    auto hold_result = pool->get();
+    CHECK_EXPECTED(hold_result);
+    auto hold = std::move(hold_result.value());
+
+    std::atomic<bool> resumed{false};
+    std::atomic<bool> has_value{false};
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          auto result = co_await pool->asyncGet(std::chrono::milliseconds(300));
+          has_value.store(result.has_value());
+          resumed.store(true);
+      },
+      boost::asio::detached);
+
+    // 单步推进一次:等待者必定已经注册并挂起,无需依赖时间等待
+    io_ctx.run_one();
+
+    std::thread worker([&]() { io_ctx.run(); });
+
+    // 参数变更使旧资源失效,归还后被销毁,此时池中已无资源而等待者仍在挂起
+    pool->setParam<int>("count", 2);
+    pool->releaseIdleResource();
+    hold.reset();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    CHECK_EQ(pool->count(), 0);
+
+    auto start = std::chrono::steady_clock::now();
+    pool.reset();
+    CHECK_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
+
+    // 挂起的协程其后被自己的定时器恢复:走超时分支,该分支不读取资源池的任何成员
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (!resumed.load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK_UNARY(resumed.load());
+    CHECK_UNARY(!has_value.load());
+
+    io_ctx.stop();
+    worker.join();
+}
+
 TEST_CASE("test_ResourceAsioVersionPool_IncVersion") {
     boost::asio::io_context ctx;
 

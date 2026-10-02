@@ -46,6 +46,11 @@ public:
         // printf("i am a %d\n", m_id);
     }
 
+    /** The number of the resources currently alive, it is used to detect leaked resources */
+    static int aliveCount() {
+        return counter.load();
+    }
+
 private:
     std::mutex m_mutex;
     int m_id = 0;
@@ -317,6 +322,259 @@ TEST_CASE("test_ResourceAsioPool_stress_test") {
     CHECK(completed == num_tasks);
     // 在高并发下，应该能成功获取大部分资源
     CHECK(success_count > num_tasks * 0.9);  // 至少 90% 成功率
+}
+
+TEST_CASE("test_ResourceAsioPool_no_resource_leak_on_timeout_race") {
+    /** @arg 超时与资源归还同时发生时,资源既不丢失也不重复释放:资源存活数与池中计数守恒 */
+    /** @arg 压力过后仍可正常取得资源,槽位没有被永久占用 */
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    const size_t max_count = 1;
+    ResourceAsioPool<TestResource, std::mutex> pool(param, max_count);
+
+    const int alive_before = TestResource::aliveCount();
+
+    // 持续借用/归还,使其与等待者的注册和超时时刻频繁重叠
+    std::atomic<bool> stop{false};
+    const int num_waiters = 6;
+    const int rounds = 150;
+    std::atomic<int> succeeded{0};
+    std::atomic<int> timed_out{0};
+    std::atomic<int> completed{0};
+    std::promise<void> finish;
+    auto finish_future = finish.get_future();
+
+    for (int i = 0; i < num_waiters; ++i) {
+        co_spawn(
+          io_ctx,
+          [&]() -> boost::asio::awaitable<void> {
+              for (int k = 0; k < rounds; ++k) {
+                  auto result = co_await pool.asyncGet(std::chrono::microseconds(300));
+                  if (result) {
+                      succeeded.fetch_add(1);
+                      // 持有一小段时间制造资源耗尽状态,使其他等待者频繁落到超时分支
+                      co_await boost::asio::steady_timer(co_await boost::asio::this_coro::executor,
+                                                         std::chrono::milliseconds(1))
+                        .async_wait(boost::asio::use_awaitable);
+                  } else {
+                      timed_out.fetch_add(1);
+                  }
+              }
+              if (completed.fetch_add(1) + 1 == num_waiters) {
+                  finish.set_value();
+              }
+          },
+          boost::asio::detached);
+    }
+
+    // 协程都已投递之后再启动工作线程：投递前启动的话 io_context 会因无任务立即返回
+    std::vector<std::thread> workers;
+    for (int i = 0; i < 2; ++i) {
+        workers.emplace_back([&]() { io_ctx.run(); });
+    }
+
+    std::thread borrower([&]() {
+        while (!stop.load()) {
+            auto result = pool.get();
+            if (result) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                result.value().reset();
+            } else {
+                std::this_thread::yield();
+            }
+        }
+    });
+
+    REQUIRE(finish_future.wait_for(std::chrono::seconds(30)) != std::future_status::timeout);
+    CHECK(completed.load() == num_waiters);
+
+    stop.store(true);
+    borrower.join();
+    io_ctx.stop();
+    for (auto& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
+
+    /** @arg 两条分支都被走到:既发生过资源转交,也发生过等待超时 */
+    CHECK(succeeded.load() > 0);
+    CHECK(timed_out.load() > 0);
+
+    // 所有借出的资源都已归位:等待解除后不存在既不在空闲队列也未被借出的资源
+    CHECK(pool.count() == pool.idleCount());
+
+    // 没有任何一个资源在总账上丢失
+    pool.releaseIdleResource();
+    CHECK(pool.count() == 0);
+    CHECK(TestResource::aliveCount() == alive_before);
+}
+
+TEST_CASE("test_ResourceAsioPool_waiter_queue_full") {
+    /** @arg 等待队列已满时立即失败返回,而不是干等自己的超时周期 */
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    ResourceAsioPool<TestResource, std::mutex> pool(param, 1, 1);  // max_count=1, max_waiters=1
+
+    auto hold_result = pool.get();
+    CHECK_EXPECTED(hold_result);
+    auto hold = std::move(hold_result.value());
+
+    // 第一个等待者:注册后立即挂起在池中
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          (void)co_await pool.asyncGet(std::chrono::milliseconds(200));
+      },
+      boost::asio::detached);
+    io_ctx.run_one();
+
+    std::promise<std::string> second_result;
+    auto second_future = second_result.get_future();
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          auto start = std::chrono::steady_clock::now();
+          auto result = co_await pool.asyncGet(std::chrono::seconds(5));
+          auto elapsed = std::chrono::steady_clock::now() - start;
+          CHECK(!result.has_value());
+          CHECK(elapsed < std::chrono::seconds(1));
+          second_result.set_value(result ? std::string() : result.error());
+      },
+      boost::asio::detached);
+
+    io_ctx.run();
+
+    REQUIRE(second_future.wait_for(std::chrono::seconds(5)) != std::future_status::timeout);
+    CHECK(second_future.get().find("Waiter queue is full") != std::string::npos);
+
+    hold.reset();
+}
+
+TEST_CASE("test_ResourceAsioPool_destroy_while_handing_resource_over") {
+    /** @arg 资源转交与资源池析构同时进行:析构等该资源归位后才返回,资源不丢失也不重复释放 */
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    auto pool = std::make_unique<ResourceAsioPool<TestResource, std::mutex>>(param, 1);
+    const int alive_before = TestResource::aliveCount();
+
+    auto hold_result = pool->get();
+    CHECK_EXPECTED(hold_result);
+    auto hold = std::move(hold_result.value());
+
+    std::atomic<bool> waiter_started{false};
+    std::promise<void> waiter_done;
+    auto waiter_done_future = waiter_done.get_future();
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          waiter_started.store(true);
+          auto result = co_await pool->asyncGet(std::chrono::seconds(2));
+          if (result) {
+              std::move(result.value()).reset();
+          }
+          waiter_done.set_value();
+      },
+      boost::asio::detached);
+
+    // 单步推进一次:等待者必定已经注册并挂起,无需依赖时间等待
+    io_ctx.run_one();
+    CHECK_UNARY(waiter_started.load());
+
+    std::thread worker([&]() { io_ctx.run(); });
+
+    // 借用者归还资源(会转交给等待者)与析构同时进行
+    std::thread returner([&]() { hold.reset(); });
+    std::thread destroyer([&]() { pool.reset(); });
+    returner.join();
+    destroyer.join();
+
+    REQUIRE(waiter_done_future.wait_for(std::chrono::seconds(5)) != std::future_status::timeout);
+    CHECK(TestResource::aliveCount() == alive_before);
+
+    io_ctx.stop();
+    worker.join();
+}
+
+TEST_CASE("test_ResourceAsioPool_destroy_with_resource_in_flight") {
+    /** @arg 资源已转交给挂起的等待者、但等待者尚未取走时销毁资源池:既不泄漏也不重复释放 */
+    /** @arg 挂起协程随后恢复时不再访问已经销毁的资源池 */
+    boost::asio::io_context io_ctx;
+    Parameter param;
+    auto pool = std::make_unique<ResourceAsioPool<TestResource, std::mutex>>(param, 1);
+    const int alive_before = TestResource::aliveCount();
+
+    auto hold_result = pool->get();
+    CHECK_EXPECTED(hold_result);
+    auto hold = std::move(hold_result.value());
+
+    std::atomic<bool> waiter_started{false};
+    std::atomic<bool> resumed{false};
+    std::atomic<bool> has_value{false};
+    co_spawn(
+      io_ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          waiter_started.store(true);
+          auto result = co_await pool->asyncGet(std::chrono::seconds(5));
+          has_value.store(result.has_value());
+          resumed.store(true);
+      },
+      boost::asio::detached);
+
+    // 单步推进一次:等待者必定已经注册并挂起
+    io_ctx.run_one();
+    CHECK_UNARY(waiter_started.load());
+
+    // 归还的资源转交给挂起的等待者;此刻不推进 io_context,协程仍处于挂起状态
+    hold.reset();
+
+    auto start = std::chrono::steady_clock::now();
+    pool.reset();
+    CHECK_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
+
+    // 让挂起的协程真正恢复:此时资源池已不存在,它不得再访问资源池的任何成员
+    io_ctx.run();
+    CHECK_UNARY(resumed.load());
+    CHECK_UNARY(!has_value.load());
+    CHECK(TestResource::aliveCount() == alive_before);
+}
+
+TEST_CASE("test_ResourceAsioPool_max_count_is_hard_limit") {
+    /** @arg 多线程并发创建时 max_count 是硬上限:任何时刻观察到的 count 都不超过 max_count */
+    Parameter param;
+    const size_t max_count = 1;
+    ResourceAsioPool<TestResource, std::mutex> pool(param, max_count);
+
+    std::atomic<int> max_observed{0};
+    const int num_threads = 8;
+    const int rounds = 200;
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back([&]() {
+            for (int k = 0; k < rounds; ++k) {
+                auto result = pool.get();
+                if (result) {
+                    // 记录观察到的最大在用资源数
+                    int expected = max_observed.load();
+                    while (static_cast<int>(pool.count()) > expected &&
+                           !max_observed.compare_exchange_weak(expected,
+                                                               static_cast<int>(pool.count()))) {
+                    }
+                    std::this_thread::sleep_for(std::chrono::microseconds(100));
+                    result.value().reset();
+                } else {
+                    std::this_thread::yield();
+                }
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    CHECK(max_observed.load() <= static_cast<int>(max_count));
+    pool.releaseIdleResource();
+    CHECK(pool.count() == 0);
 }
 
 TEST_CASE("test_ResourceAsioPool_multithreaded_executor") {

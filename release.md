@@ -18,6 +18,9 @@
 - perf(http_client): macOS 的 DNS 解析改到独立线程执行，不再阻塞事件循环线程，且超时能真正中断等待
 - fix(http_client): Host 头在非默认端口时携带端口，符合 RFC 6874/9110
 - fix(plugin): PluginLoader::unload() 释放句柄后置空，修复加载失败路径析构时二次 dlclose 的未定义行为
+- fix(utilities): 资源池等待节点改用原子转账结算 ownership，修复等待者超时与资源归还竞态下的悬垂访问、重复释放与资源丢失
+- fix(utilities): 资源池析构时可回收尚未被取走的资源，析构不再因槽位无法收回而永久阻塞
+- fix(utilities): 资源池创建改为 CAS 预留槽位，max_count 在并发下成为硬上限
 
 ## 1.5.3 - 2026年9月21日
 
