@@ -20,6 +20,8 @@ namespace hku {
 /**
  * Timer management and scheduling
  * @ingroup Utilities
+ * @note Not fully thread-safe: start/stop (and the destruction) must be called from a single
+ * thread or serialized externally, while addFunc/removeTimer are thread-safe at runtime
  */
 class TimerManager {
 public:
@@ -64,7 +66,8 @@ public:
         }
     }
 
-    /** Start the scheduling, it can be restarted after a stop */
+    /** Start the scheduling, it can be restarted after a stop; not thread-safe, see the class note
+     */
     void start() {
         // It is already in the executing state, return directly
         HKU_IF_RETURN(!m_stop, void());
@@ -150,7 +153,7 @@ public:
         m_detect_thread = std::thread([this]() { detectThread(); });
     }
 
-    /** Terminate the scheduling */
+    /** Terminate the scheduling; not thread-safe, see the class note */
     void stop() {
         if (!m_stop) {
             std::unique_lock<std::mutex> lock(m_mutex);
