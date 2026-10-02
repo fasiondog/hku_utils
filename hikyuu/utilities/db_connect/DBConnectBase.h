@@ -644,8 +644,8 @@ inline void DBConnectBase::remove(const std::string &tablename, const std::strin
     }
 
     std::string sql = (where == "" || where == "1=1")
-                        ? fmt::format("delete from {}", tablename, where)
-                        : (fmt::format("delete from {} where {}", tablename, where));
+                        ? fmt::format("delete from {}", sqlIdentifier(tablename), where)
+                        : (fmt::format("delete from {} where {}", sqlIdentifier(tablename), where));
     try {
         exec(sql);
         if (autotrans) {

@@ -47,6 +47,55 @@ inline std::string sqlStringLiteral(const std::string &val) {
     return escaped;
 }
 
+/**
+ * Centralized quoting point for SQL identifiers: safely wraps a table or column
+ * name into MySQL-style backticks, which SQLite accepts as well.
+ *
+ * Embedded backticks are escaped by doubling. Identifiers cannot be bound as
+ * parameters, so quoting is the only way to keep them out of injection.
+ * Idempotent: an input already carrying a valid backtick-quoting is returned
+ * unchanged, so callers may pass either a bare or a pre-quoted name; anything
+ * that does not parse as a valid quoting is (re-)escaped as a bare name.
+ * Empty names and names containing the null character are rejected: a null
+ * byte terminates the statement early in some parsers.
+ */
+inline std::string sqlIdentifier(const std::string &name) {
+    HKU_CHECK(!name.empty(), "Invalid table name: it is empty!");
+    HKU_CHECK(name.find('\0') == std::string::npos,
+              "Invalid table name: it must not contain the null character!");
+
+    if (name.size() >= 2 && name.front() == '`' && name.back() == '`') {
+        size_t i = 1;
+        const size_t end = name.size() - 1;
+        while (i < end) {
+            if (name[i] == '`') {
+                if (i + 1 < end && name[i + 1] == '`') {
+                    i += 2;
+                    continue;
+                }
+                break;
+            }
+            ++i;
+        }
+        if (i == end) {
+            return name;
+        }
+    }
+
+    std::string quoted;
+    quoted.reserve(name.size() + 2);
+    quoted += '`';
+    for (char c : name) {
+        if (c == '`') {
+            quoted += "``";
+        } else {
+            quoted += c;
+        }
+    }
+    quoted += '`';
+    return quoted;
+}
+
 struct ASC {
     explicit ASC(const char *name) : name(name) {}
     explicit ASC(const std::string &name) : name(name) {}

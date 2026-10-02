@@ -172,3 +172,27 @@ TEST_CASE("test_DBCondition_sql_escape") {
     d = Field("code") == std::string(R"X(sh600000" or "1"="1)X");
     CHECK_EQ(d.str(), "(code=\"sh600000\"\" or \"\"1\"\"=\"\"1\")");
 }
+
+TEST_CASE("test_DBCondition_sql_identifier") {
+    /** Empty names and names containing the null character are rejected */
+    CHECK_THROWS_AS(sqlIdentifier(""), hku::exception);
+    CHECK_THROWS_AS(sqlIdentifier(std::string("a\0b", 3)), hku::exception);
+    CHECK_THROWS_AS(sqlIdentifier(std::string("`a`\0", 4)), hku::exception);
+
+    /** Bare names are wrapped in backticks; embedded backticks are doubled */
+    CHECK_EQ(sqlIdentifier("tbl"), R"X(`tbl`)X");
+    CHECK_EQ(sqlIdentifier("a`b"), R"X(`a``b`)X");
+
+    /** Idempotent: a validly backtick-quoted name (plain or with doubled inner quotes) is returned
+     * unchanged, so callers may pass a pre-quoted table name without double wrapping */
+    CHECK_EQ(sqlIdentifier(R"X(`tbl`)X"), R"X(`tbl`)X");
+    CHECK_EQ(sqlIdentifier(R"X(`a``b`)X"), R"X(`a``b`)X");
+
+    /** Malformed "quoted" names (an inner backtick that closes the quoting early, or an
+     * unterminated trailing quote) are re-escaped as a whole: the payload cannot break out into
+     * extra SQL, it just becomes one odd identifier or a plain syntax error */
+    CHECK_EQ(sqlIdentifier(R"X(`a`b`)X"), R"X(```a``b```)X");
+    CHECK_EQ(sqlIdentifier(R"X(`a``)X"), R"X(```a`````)X");
+    CHECK_EQ(sqlIdentifier(R"X(`x` or 1=1 --`)X"), R"X(```x`` or 1=1 --```)X");
+    CHECK_EQ(sqlIdentifier(R"X(`x`, `y`)X"), R"X(```x``, ``y```)X");
+}
