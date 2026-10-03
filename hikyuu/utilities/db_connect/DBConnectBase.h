@@ -58,6 +58,18 @@ PARAMETER_SUPPORT  // NOSONAR
     /** Get the SQLStatement */
     virtual SQLStatementPtr getStatement(const std::string &sql_statement) = 0;
 
+    /**
+     * Get a prepared statement with the values of a condition already bound
+     *
+     * The statement may refer to its values as ?1..?k, as a condition produces them: they are
+     * renumbered into the anonymous form and bound in appearance order. A statement without values
+     * is passed through untouched.
+     * @param sql_statement the statement text, possibly with numbered placeholders
+     * @param params the values of the placeholders, in placeholder order
+     */
+    SQLStatementPtr getStatementWithParams(const std::string &sql_statement,
+                                           const BoundValues &params);
+
     /** Judge whether the table exists */
     virtual bool tableExist(const std::string &tablename) = 0;
 
@@ -177,6 +189,16 @@ PARAMETER_SUPPORT  // NOSONAR
     void batchLoadView(Container &container, const std::string &sql);
 
     /**
+     * Batch load the model data into a container from a select statement carrying numbered
+     * placeholders
+     * @param container the given container
+     * @param sql the select query statement, possibly with numbered placeholders
+     * @param params the values of the placeholders, in placeholder order
+     */
+    template <typename Container>
+    void batchLoadView(Container &container, const std::string &sql, const BoundValues &params);
+
+    /**
      * Batch updating
      * @param container a container with an iterator
      * @param autotrans start a transaction
@@ -276,6 +298,16 @@ PARAMETER_SUPPORT  // NOSONAR
     NumberType queryNumber(const std::string &query, NumberType default_val = Null<NumberType>());
 
     /**
+     * Query the statistical data with the values of numbered placeholders bound to the statement
+     * @param query query statement, possibly with numbered placeholders
+     * @param default_val the default value returned when the query fails
+     * @param params the values of the placeholders, in placeholder order
+     */
+    template <typename NumberType>
+    NumberType queryNumber(const std::string &query, NumberType default_val,
+                           const BoundValues &params);
+
+    /**
      * Paged query
      * @tparam TableT the query data structure
      * @tparam page_size the number of the data records per page
@@ -326,13 +358,31 @@ typedef std::shared_ptr<DBConnectBase> DBConnectPtr;
 
 inline DBConnectBase::DBConnectBase(const Parameter &param) : m_params(param) {}
 
+inline SQLStatementPtr DBConnectBase::getStatementWithParams(const std::string &sql_statement,
+                                                             const BoundValues &params) {
+    if (params.empty()) {
+        return getStatement(sql_statement);
+    }
+
+    auto [exec_sql, ordered] = renumberPlaceholders(sql_statement, params);
+    SQLStatementPtr st = getStatement(exec_sql);
+    st->bind_params(ordered);
+    return st;
+}
+
 inline int DBConnectBase::queryInt(const std::string &query, int default_val) {
     return queryNumber<int>(query, default_val);
 }
 
 template <typename NumberType>
 NumberType DBConnectBase::queryNumber(const std::string &query, NumberType default_val) {
-    SQLStatementPtr st = getStatement(query);
+    return queryNumber(query, default_val, BoundValues{});
+}
+
+template <typename NumberType>
+NumberType DBConnectBase::queryNumber(const std::string &query, NumberType default_val,
+                                      const BoundValues &params) {
+    SQLStatementPtr st = getStatementWithParams(query, params);
     st->exec();
     if (!(st->moveNext() && st->getNumColumns() == 1)) {
         HKU_CHECK(default_val != Null<NumberType>(), "query doesn't result in exactly 1 element");
@@ -363,7 +413,7 @@ SQLResultSet<TableT, page_size> DBConnectBase::query(const std::string &query) {
 
 template <typename TableT, size_t page_size>
 SQLResultSet<TableT, page_size> DBConnectBase::query(const DBCondition &cond) {
-    return SQLResultSet<TableT, page_size>(shared_from_this(), cond.str());
+    return SQLResultSet<TableT, page_size>(shared_from_this(), cond);
 }
 
 template <typename T>
@@ -465,7 +515,20 @@ void DBConnectBase::load(T &item, const std::string &where) {
 
 template <typename T>
 void DBConnectBase::load(T &item, const DBCondition &cond) {
-    load(item, cond.str());
+    auto [where, params] = conditionParts(cond);
+
+    std::ostringstream sql;
+    if (!where.empty()) {
+        sql << T::getSelectSQL() << " where " << where << " limit 1";
+    } else {
+        sql << T::getSelectSQL() << " limit 1";
+    }
+
+    SQLStatementPtr st = getStatementWithParams(sql.str(), params);
+    st->exec();
+    if (st->moveNext()) {
+        item.load(st);
+    }
 }
 
 template <typename Container>
@@ -487,7 +550,22 @@ void DBConnectBase::batchLoad(Container &container, const std::string &where) {
 
 template <typename Container>
 void DBConnectBase::batchLoad(Container &container, const DBCondition &cond) {
-    batchLoad(container, cond.str());
+    auto [where, params] = conditionParts(cond);
+
+    std::ostringstream sql;
+    if (!where.empty()) {
+        sql << Container::value_type::getSelectSQL() << " where " << where;
+    } else {
+        sql << Container::value_type::getSelectSQL();
+    }
+
+    SQLStatementPtr st = getStatementWithParams(sql.str(), params);
+    st->exec();
+    while (st->moveNext()) {
+        typename Container::value_type tmp;
+        tmp.load(st);
+        container.push_back(tmp);
+    }
 }
 
 template <typename T>
@@ -501,7 +579,13 @@ void DBConnectBase::loadView(T &item, const std::string &sql) {
 
 template <typename Container>
 void DBConnectBase::batchLoadView(Container &container, const std::string &sql) {
-    SQLStatementPtr st = getStatement(sql);
+    batchLoadView(container, sql, BoundValues{});
+}
+
+template <typename Container>
+void DBConnectBase::batchLoadView(Container &container, const std::string &sql,
+                                  const BoundValues &params) {
+    SQLStatementPtr st = getStatementWithParams(sql, params);
     st->exec();
     while (st->moveNext()) {
         typename Container::value_type tmp;
@@ -739,7 +823,38 @@ inline void DBConnectBase::remove(const std::string &tablename, const std::strin
 
 inline void DBConnectBase::remove(const std::string &tablename, const DBCondition &cond,
                                   bool autotrans) {
-    remove(tablename, cond.str(), autotrans);
+    auto [where, params] = conditionParts(cond);
+
+    if (autotrans) {
+        transaction();
+    }
+
+    // the table name is an identifier and can never be bound, so it goes through the quoting point
+    std::string sql = (where.empty() || where == "1=1")
+                        ? fmt::format("delete from {}", sqlIdentifier(tablename))
+                        : (fmt::format("delete from {} where {}", sqlIdentifier(tablename), where));
+    try {
+        SQLStatementPtr st = getStatementWithParams(sql, params);
+        st->exec();
+        if (autotrans) {
+            commit();
+        }
+    } catch (::hku::SQLException &e) {
+        if (autotrans) {
+            rollback();
+        }
+        SQL_THROW(e.errcode(), "Failed exec sql: {}! {}", sql, e.what());
+    } catch (std::exception &e) {
+        if (autotrans) {
+            rollback();
+        }
+        HKU_THROW("Failed exec sql: {}! {}", sql, e.what());
+    } catch (...) {
+        if (autotrans) {
+            rollback();
+        }
+        HKU_THROW(R"(Failed exec sql: {}! Unknown error!)", sql);
+    }
 }
 
 }  // namespace hku

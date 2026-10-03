@@ -22,6 +22,15 @@ struct FaceCodeTable {
     int extra = 0;
 };
 
+// 列名含 order / limit 字样，用于回归尾部子句的文本解析
+struct OrderTestTable {
+    TABLE_BIND3(OrderTestTable, order_test, order_date, amount_limit, memo);
+
+    std::string order_date;
+    int amount_limit = 0;
+    std::string memo;
+};
+
 TEST_CASE("test_SQLResultSet_null_connect") {
     SQLResultSet<FaceCodeTable> results;
     CHECK_UNARY(results.empty());
@@ -104,4 +113,89 @@ TEST_CASE("test_SQLResultSet") {
     CHECK_EQ(results[0].id(), 37);
     CHECK_EQ(results[1].id(), 1447);
     CHECK_THROWS_AS(results.at(2), std::out_of_range);
+}
+
+TEST_CASE("test_SQLResultSet_condition_parts") {
+    std::string dbname = "sql_result_set_parts.db";
+    copyFile("test_data/backup_test.db", dbname);
+
+    Parameter param;
+    param.set<std::string>("db", dbname);
+    auto con = std::make_shared<SQLiteConnect>(param);
+    con->exec("drop table if exists order_test");
+    con->exec(
+      "create table order_test (id integer primary key autoincrement, order_date text, "
+      "amount_limit int, memo text)");
+
+    for (int i = 1; i <= 6; i++) {
+        OrderTestTable t;
+        t.order_date = "2024-01-0" + std::to_string(i);
+        t.amount_limit = i;
+        t.memo = i % 2 == 0 ? "even" : "odd";
+        con->save(t);
+    }
+
+    /** 列名含 order 的条件不再被误切成 order-by 子句 */
+    auto results = con->query<OrderTestTable, 2>(Field("order_date") >= "2024-01-03");
+    CHECK_EQ(results.size(), 4);
+    CHECK_EQ(results.getPageCount(), 2);
+    CHECK_EQ(results[0].order_date, "2024-01-03");
+    CHECK_EQ(results[3].order_date, "2024-01-06");
+
+    /** 带 order-by 尾部的条件分页：值为绑定参数，排序子句参与内外两层查询 */
+    auto ordered = con->query<OrderTestTable, 2>((Field("memo") == "even") + DESC("order_date"));
+    CHECK_EQ(ordered.size(), 3);
+    CHECK_EQ(ordered[0].order_date, "2024-01-06");
+    CHECK_EQ(ordered[1].order_date, "2024-01-04");
+    CHECK_EQ(ordered[2].order_date, "2024-01-02");
+    auto page = ordered.getPage(1);
+    REQUIRE_EQ(page.size(), (size_t)1);
+    CHECK_EQ(page[0].order_date, "2024-01-02");
+
+    /** 条件的 limit 限制总行数，并与分页协同（超出后返回空页） */
+    auto capped = con->query<OrderTestTable, 2>((Field("order_date") >= "2024-01-01") + LIMIT(3));
+    CHECK_EQ(capped.size(), 3);
+    CHECK_EQ(capped.getPage(0).size(), (size_t)2);
+    CHECK_EQ(capped.getPage(1).size(), (size_t)1);
+    CHECK_EQ(capped.getPage(2).size(), (size_t)0);
+
+    /** 手工字符串路径同样能识别尾部子句，含 order 的列名不被误切 */
+    auto byText =
+      con->query<OrderTestTable, 2>("(order_date>=\"2024-01-03\") order by order_date DESC ");
+    CHECK_EQ(byText.size(), 4);
+    CHECK_EQ(byText[0].order_date, "2024-01-06");
+    CHECK_EQ(byText[3].order_date, "2024-01-03");
+
+    /** 条件的 limit 对手工字符串路径同样生效 */
+    auto cappedText = con->query<OrderTestTable, 2>("(amount_limit>0) limit 2");
+    CHECK_EQ(cappedText.size(), 2);
+    CHECK_EQ(cappedText.getPage(0).size(), (size_t)2);
+
+    /** 绑定路径与非分页路径结果一致 */
+    std::vector<OrderTestTable> rows;
+    con->batchLoad(rows, Field("memo") == "odd");
+    CHECK_EQ(rows.size(), (size_t)3);
+
+    /** 含引号的载荷作为值绑定，既能原样存取也不能拓宽条件 */
+    OrderTestTable evil;
+    evil.order_date = "2024-02-01\" or \"1\"=\"1";
+    evil.amount_limit = 1;
+    evil.memo = "x";
+    con->save(evil);
+
+    std::vector<OrderTestTable> found;
+    con->batchLoad(found, Field("order_date") == evil.order_date);
+    CHECK_EQ(found.size(), (size_t)1);
+
+    // 该值作为单独的等值条件命中一行，而不是作为恒真表达式命中全部
+    found.clear();
+    con->batchLoad(found, Field("memo") == "x\" or \"1\"=\"1");
+    CHECK_EQ(found.size(), (size_t)0);
+
+    /** 按条件删除走预处理语句 + 绑定值 */
+    con->remove("order_test", Field("order_date") == evil.order_date);
+    found.clear();
+    con->batchLoad(found, Field("order_date") >= "2024-02-01");
+    CHECK_EQ(found.size(), (size_t)0);
+    CHECK_EQ(con->query<OrderTestTable>().size(), 6);
 }

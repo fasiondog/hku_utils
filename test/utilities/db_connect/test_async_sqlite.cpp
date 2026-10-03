@@ -15,6 +15,7 @@
 #include <future>
 #include <boost/asio.hpp>
 #include "hikyuu/utilities/db_connect/sqlite/AsyncSQLiteConnect.h"
+#include "hikyuu/utilities/db_connect/AsyncSQLResultSet.h"
 #include "hikyuu/utilities/db_connect/TableMacro.h"
 #include "hikyuu/utilities/Parameter.h"
 #include "hikyuu/utilities/ResourceAsioPool.h"
@@ -234,6 +235,101 @@ TEST_CASE("test_async_sqlite_table_exist") {
 
 // ============================================================================
 // 查询数值测试
+// ============================================================================
+
+struct AsyncOrderRecord {
+    TABLE_BIND3(AsyncOrderRecord, async_order_test, order_date, amount_limit, memo)
+
+    std::string order_date;
+    int amount_limit = 0;
+    std::string memo;
+};
+
+TEST_CASE("test_async_sqlite_condition_query") {
+    boost::asio::io_context io_context;
+
+    bool test_passed = false;
+    std::exception_ptr captured_exception;
+
+    auto test_coro = [&]() -> net::awaitable<void> {
+        try {
+            auto conn = SQLiteTestHelper::createMemoryConnection();
+            co_await conn->exec(
+              "CREATE TABLE async_order_test (id INTEGER PRIMARY KEY AUTOINCREMENT, order_date "
+              "TEXT, amount_limit INTEGER, memo TEXT)");
+
+            for (int i = 1; i <= 6; i++) {
+                AsyncOrderRecord record;
+                record.order_date = "2024-01-0" + std::to_string(i);
+                record.amount_limit = i;
+                record.memo = i % 2 == 0 ? "even" : "odd";
+                co_await conn->save(record);
+            }
+
+            // 列名含 order 的条件不被误切，值走绑定
+            auto results = conn->query<AsyncOrderRecord, 2>(Field("order_date") >= "2024-01-03");
+            CHECK(co_await results.size() == 4);
+            auto first = co_await results.at(0);
+            CHECK(first.order_date == "2024-01-03");
+
+            // 带 order-by 尾部的条件分页：排序子句参与内外两层查询
+            auto ordered =
+              conn->query<AsyncOrderRecord, 2>((Field("memo") == "even") + DESC("order_date"));
+            CHECK(co_await ordered.size() == 3);
+            auto top = co_await ordered.at(0);
+            CHECK(top.order_date == "2024-01-06");
+
+            // 条件的 limit 限制总行数，超出的页为空
+            auto capped =
+              conn->query<AsyncOrderRecord, 2>((Field("order_date") >= "2024-01-01") + LIMIT(3));
+            CHECK(co_await capped.size() == 3);
+            auto page = co_await capped.getPage(1);
+            CHECK(page.size() == 1);
+            auto beyond = co_await capped.getPage(2);
+            CHECK(beyond.empty());
+
+            // 非分页的条件加载
+            std::vector<AsyncOrderRecord> rows;
+            co_await conn->batchLoad(rows, Field("memo") == "odd");
+            CHECK(rows.size() == 3);
+
+            AsyncOrderRecord one;
+            co_await conn->load(one, Field("order_date") == "2024-01-05");
+            CHECK(one.amount_limit == 5);
+
+            // 含引号的载荷作为值绑定，不能拓宽条件
+            std::vector<AsyncOrderRecord> evil_rows;
+            co_await conn->batchLoad(evil_rows, Field("memo") == "x\" or \"1\"=\"1");
+            CHECK(evil_rows.empty());
+
+            // 按条件删除走预处理语句 + 绑定值
+            AsyncOrderRecord evil;
+            evil.order_date = "2024-02-01";
+            evil.amount_limit = 99;
+            evil.memo = "drop";
+            co_await conn->save(evil);
+            co_await conn->remove("async_order_test", Field("order_date") == "2024-02-01");
+            auto rest = conn->query<AsyncOrderRecord>();
+            CHECK(co_await rest.size() == 6);
+
+            test_passed = true;
+        } catch (...) {
+            captured_exception = std::current_exception();
+        }
+        co_return;
+    };
+
+    net::co_spawn(io_context.get_executor(), test_coro());
+    io_context.run();
+
+    if (captured_exception) {
+        std::rethrow_exception(captured_exception);
+    }
+    CHECK(test_passed);
+}
+
+// ============================================================================
+// 查询数值测试（原有）
 // ============================================================================
 
 TEST_CASE("test_async_sqlite_query_number") {

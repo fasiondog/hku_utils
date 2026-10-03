@@ -2,6 +2,13 @@
 
 ## 1.5.4
 
+- feat(db_connect): DBCondition 的字符串条件值改走 ? 占位符 + std::variant 绑定参数，由 sqlite/mysql 预处理语句执行，消除静态转义无法覆盖的 MySQL 字符集与 ANSI_QUOTES 差异
+- feat(db_connect): 新增每条语句绑定参数上限校验（默认 32766，取 sqlite 与 mysql 允许的较小值），in/not_in 超限时显式报错而非交由驱动拒绝
+- feat(db_connect): Field 与 order-by 的列名构造期校验，拒绝引号、反引号、?、;、# 与注释序列等会破坏语句的输入
+- fix(db_connect): 修复分页结果集解析 where 尾部子句时按 ORDER 子串匹配导致的误切，列名含 order（如 order_date）时条件被截断、查询语义错误
+- fix(db_connect): 修复条件携带 LIMIT 时被留在子查询 WHERE 内造成的非法 SQL，limit 现与分页协同限总行数并在超出后返回空页
+- fix(db_connect): SQLResultSet::getPageCount 在总数恰为页大小整数倍时不再多算一个空页，与异步版本保持一致
+- fix(db_connect): 按条件删除改走预处理语句与绑定值，不再拼接进直接执行的 SQL
 - fix(db_connect): DBCondition 字符串值集中转义，防止 SQL 拼接注入
 - fix(http_client): 修复 url_escape 对非 ASCII 字节的转义损坏
 - fix(http_client): 流式响应改用实际写入的 body 字节数作为数据块长度，修正 chunked 响应混入分帧字节、多算/少算的问题

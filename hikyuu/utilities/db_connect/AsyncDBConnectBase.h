@@ -68,6 +68,15 @@ PARAMETER_SUPPORT  // NOSONAR
     /** Get the AsyncSQLStatement */
     virtual net::awaitable<AsyncSQLStatementPtr> getStatement(const std::string &sql_statement) = 0;
 
+    /**
+     * Get a prepared statement with the values of a condition already bound
+     * @see DBConnectBase::getStatementWithParams
+     * @param sql_statement the statement text, possibly with numbered placeholders
+     * @param params the values of the placeholders, in placeholder order
+     */
+    net::awaitable<AsyncSQLStatementPtr> getStatementWithParams(const std::string &sql_statement,
+                                                                const BoundValues &params);
+
     /** Judge whether the table exists */
     virtual net::awaitable<bool> tableExist(const std::string &tablename) = 0;
 
@@ -263,6 +272,16 @@ PARAMETER_SUPPORT  // NOSONAR
                                            NumberType default_val = Null<NumberType>());
 
     /**
+     * Query the statistical data with the values of numbered placeholders bound to the statement
+     * @param query query statement, possibly with numbered placeholders
+     * @param default_val the default value returned when the query fails
+     * @param params the values of the placeholders, in placeholder order
+     */
+    template <typename NumberType>
+    net::awaitable<NumberType> queryNumber(const std::string &query, NumberType default_val,
+                                           const BoundValues &params);
+
+    /**
      * Paged query
      * @tparam TableT the query data structure
      * @tparam page_size the number of the data records per page
@@ -317,10 +336,29 @@ inline net::awaitable<int> AsyncDBConnectBase::queryInt(const std::string &query
     co_return co_await queryNumber<int>(query, default_val);
 }
 
+inline net::awaitable<AsyncSQLStatementPtr> AsyncDBConnectBase::getStatementWithParams(
+  const std::string &sql_statement, const BoundValues &params) {
+    if (params.empty()) {
+        co_return co_await getStatement(sql_statement);
+    }
+
+    auto [exec_sql, ordered] = renumberPlaceholders(sql_statement, params);
+    auto st = co_await getStatement(exec_sql);
+    st->bind_params(ordered);
+    co_return st;
+}
+
 template <typename NumberType>
 net::awaitable<NumberType> AsyncDBConnectBase::queryNumber(const std::string &query,
                                                            NumberType default_val) {
-    auto st = co_await getStatement(query);
+    co_return co_await queryNumber(query, default_val, BoundValues{});
+}
+
+template <typename NumberType>
+net::awaitable<NumberType> AsyncDBConnectBase::queryNumber(const std::string &query,
+                                                           NumberType default_val,
+                                                           const BoundValues &params) {
+    auto st = co_await getStatementWithParams(query, params);
     co_await st->exec();
 
     if (!(co_await st->moveNext() && st->getNumColumns() == 1)) {
@@ -452,7 +490,21 @@ net::awaitable<void> AsyncDBConnectBase::load(T &item, const std::string &where)
 
 template <typename T>
 net::awaitable<void> AsyncDBConnectBase::load(T &item, const DBCondition &cond) {
-    co_await load(item, cond.str());
+    auto [where, params] = conditionParts(cond);
+
+    std::ostringstream sql;
+    if (!where.empty()) {
+        sql << T::getSelectSQL() << " where " << where << " limit 1";
+    } else {
+        sql << T::getSelectSQL() << " limit 1";
+    }
+
+    auto st = co_await getStatementWithParams(sql.str(), params);
+    co_await st->exec();
+
+    if (co_await st->moveNext()) {
+        item.load(st);
+    }
     co_return;
 }
 
@@ -477,7 +529,23 @@ net::awaitable<void> AsyncDBConnectBase::batchLoad(Container &container, const s
 
 template <typename Container>
 net::awaitable<void> AsyncDBConnectBase::batchLoad(Container &container, const DBCondition &cond) {
-    co_await batchLoad(container, cond.str());
+    auto [where, params] = conditionParts(cond);
+
+    std::ostringstream sql;
+    if (!where.empty()) {
+        sql << Container::value_type::getSelectSQL() << " where " << where;
+    } else {
+        sql << Container::value_type::getSelectSQL();
+    }
+
+    auto st = co_await getStatementWithParams(sql.str(), params);
+    co_await st->exec();
+
+    while (co_await st->moveNext()) {
+        typename Container::value_type tmp;
+        tmp.load(st);
+        container.push_back(tmp);
+    }
 }
 
 template <typename T>
@@ -753,7 +821,41 @@ inline net::awaitable<void> AsyncDBConnectBase::remove(const std::string &tablen
 
 inline net::awaitable<void> AsyncDBConnectBase::remove(const std::string &tablename,
                                                        const DBCondition &cond, bool autotrans) {
-    co_await remove(tablename, cond.str(), autotrans);
+    auto [where, params] = conditionParts(cond);
+
+    if (autotrans) {
+        co_await transaction();
+    }
+
+    // the table name is an identifier and can never be bound, so it goes through the quoting point
+    std::string sql = (where.empty() || where == "1=1")
+                        ? fmt::format("delete from {}", sqlIdentifier(tablename))
+                        : (fmt::format("delete from {} where {}", sqlIdentifier(tablename), where));
+
+    std::exception_ptr saved_exception;
+    try {
+        auto st = co_await getStatementWithParams(sql, params);
+        co_await st->exec();
+
+        if (autotrans) {
+            co_await commit();
+        }
+    } catch (...) {
+        saved_exception = std::current_exception();
+    }
+
+    // Handle the rollback outside the try-catch
+    if (saved_exception) {
+        if (autotrans) {
+            try {
+                co_await rollback();
+            } catch (...) {
+                // Ignore the rollback exception and keep the original exception
+            }
+        }
+        std::rethrow_exception(saved_exception);
+    }
+    co_return;
 }
 
 template <typename TableT, size_t page_size>
@@ -768,7 +870,7 @@ AsyncSQLResultSet<TableT, page_size> AsyncDBConnectBase::query(const std::string
 
 template <typename TableT, size_t page_size>
 AsyncSQLResultSet<TableT, page_size> AsyncDBConnectBase::query(const DBCondition &cond) {
-    return AsyncSQLResultSet<TableT, page_size>(shared_from_this(), cond.str());
+    return AsyncSQLResultSet<TableT, page_size>(shared_from_this(), cond);
 }
 
 }  // namespace hku
