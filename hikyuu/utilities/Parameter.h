@@ -9,7 +9,6 @@
 #ifndef UTILS_PARAMETER_H_
 #define UTILS_PARAMETER_H_
 
-
 #include <boost/any.hpp>
 #include <unordered_map>
 #include <stdexcept>
@@ -234,22 +233,22 @@ protected:                                                                      
     Parameter m_params;                                                                                   \
                                                                                                           \
 public:                                                                                                   \
-    /** 获取 Parameter */                                                                               \
+    /** 获取 Parameter */                                                                                 \
     const Parameter& getParameter() const {                                                               \
         return m_params;                                                                                  \
     }                                                                                                     \
                                                                                                           \
-    /** 设置 Parameter */                                                                               \
+    /** 设置 Parameter */                                                                                 \
     void setParameter(const Parameter& param) {                                                           \
         m_params = param;                                                                                 \
     }                                                                                                     \
                                                                                                           \
-    /** 设置 Parameter */                                                                               \
+    /** 设置 Parameter */                                                                                 \
     void setParameter(Parameter&& param) {                                                                \
         m_params = std::move(param);                                                                      \
     }                                                                                                     \
                                                                                                           \
-    /** 指定参数是否存在 */                                                                       \
+    /** 指定参数是否存在 */                                                                               \
     bool haveParam(const std::string& name) const noexcept {                                              \
         return m_params.have(name);                                                                       \
     }                                                                                                     \
@@ -266,13 +265,13 @@ public:                                                                         
         m_params.set<ValueType>(name, value);                                                             \
     }                                                                                                     \
                                                                                                           \
-    /** 获取指定参数的值，如参数不存在或类型不匹配抛出异常 */                    \
+    /** 获取指定参数的值，如参数不存在或类型不匹配抛出异常 */                                             \
     template <typename ValueType>                                                                         \
     ValueType getParam(const std::string& name) const {                                                   \
         return m_params.get<ValueType>(name);                                                             \
     }                                                                                                     \
                                                                                                           \
-    /** 获取指定参数的值，如参数不存在或获取失败则返回指定的默认值 */        \
+    /** 获取指定参数的值，如参数不存在或获取失败则返回指定的默认值 */                                     \
     template <typename ValueType>                                                                         \
     ValueType tryGetParam(const std::string& name, const ValueType& default_val) const {                  \
         ValueType result;                                                                                 \
@@ -405,7 +404,7 @@ inline float Parameter::get<float>(const std::string& name) const {
         throw std::logic_error("Failed convert cast: " + name);
     }
     if (x > double(std::numeric_limits<float>::max()) ||
-        x < double(std::numeric_limits<float>::min())) {
+        x < double(std::numeric_limits<float>::lowest())) {
         throw std::out_of_range("out_of_range float");
     }
     return static_cast<float>(x);

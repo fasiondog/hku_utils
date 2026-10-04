@@ -63,16 +63,30 @@ TEST_CASE("test_Parameter") {
     /** 将超出 float 值域范围的数 */
     param.set<float>("float", std::numeric_limits<float>::max());
     CHECK(param.get<float>("float") == std::numeric_limits<float>::max());
+    CHECK(param.get<double>("float") == double(std::numeric_limits<float>::max()));
     param.set<float>("float", std::numeric_limits<float>::min());
     CHECK(param.get<float>("float") == std::numeric_limits<float>::min());
+    CHECK(param.get<double>("float") == double(std::numeric_limits<float>::min()));
 
     // 注：float 最大值由于精度问题，简单加1，最大值不会发生变化
     param.set<double>("float", double(std::numeric_limits<float>::max()) + 1e+38f);
     CHECK(param.get<double>("float") == double(std::numeric_limits<float>::max()) + 1e+38f);
     CHECK_THROWS_AS(param.get<float>("float"), std::out_of_range);
 
-    param.set<double>("float", double(std::numeric_limits<float>::min()) - 1);
-    CHECK(param.get<double>("float") == double(std::numeric_limits<float>::min()) - 1);
+    /** Negative values within the float range can be read via both get<float> and get<double> */
+    param.set<float>("float", -10.5f);
+    CHECK(param.get<float>("float") == -10.5f);
+    CHECK(param.get<double>("float") == -10.5);
+
+    /** The minimum value set via set<float> is read back as the same value
+     *  by both get<float> and get<double> */
+    param.set<float>("float", std::numeric_limits<float>::lowest());
+    CHECK(param.get<float>("float") == std::numeric_limits<float>::lowest());
+    CHECK(param.get<double>("float") == double(std::numeric_limits<float>::lowest()));
+
+    /** Values below the lower bound of the float range */
+    param.set<double>("float", double(std::numeric_limits<float>::lowest()) - 1e+38f);
+    CHECK(param.get<double>("float") == double(std::numeric_limits<float>::lowest()) - 1e+38f);
     CHECK_THROWS_AS(param.get<float>("float"), std::out_of_range);
 
     /** 添加不支持的参数类型 */

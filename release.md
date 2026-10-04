@@ -36,6 +36,7 @@
 - perf(db_connect): batchSaveOrUpdate 改为两趟就地处理，不再将全部元素深拷贝进临时 vector（大批量下峰值内存翻倍）；保存的元素自此会回写 rowid，与 batchSave 行为对齐
 - fix(thread): ThreadSafeQueue 与 MQStealQueue 的 size() 改为加锁读取，消除线程池 join 忙等期间与任务入队/出队的数据竞争
 - fix(thread): 五个线程池构造失败时唤醒并 join 已启动的工作线程后再传播异常，消除成员析构与仍在运行的线程竞争访问导致的未定义行为
+- fix(parameter): Parameter::get&lt;float&gt; 值域下界改用 lowest()，修复读取负数时被误判越界抛出异常
 
 ## 1.5.3 - 2026年9月21日
 
