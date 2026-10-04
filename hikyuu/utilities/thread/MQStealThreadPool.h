@@ -124,6 +124,15 @@ public:
             throw std::logic_error("You can't submit a task to the stopped MQStealThreadPool!");
         }
 
+        // The counter is incremented before the task is pushed so that join() can observe an
+        // in-flight task even while it is between pop and execution. A second m_done check after
+        // the increment guards against the race where join() flips m_done right before the push.
+        m_running_task_count.fetch_add(1, std::memory_order_relaxed);
+        if (m_done) {
+            m_running_task_count.fetch_sub(1, std::memory_order_relaxed);
+            throw std::logic_error("You can't submit a task to the stopped MQStealThreadPool!");
+        }
+
         int index = -1;
         auto iter = m_thread_index.find(std::this_thread::get_id());
         if (iter != m_thread_index.end()) {
@@ -134,18 +143,23 @@ public:
         std::packaged_task<result_type()> task(std::forward<FunctionType>(f));
         task_handle<result_type> res(task.get_future());
 
-        // If it is the local thread and the thread has not been terminated, it is added to its own
-        // queue
-        if (index != -1 && m_interrupt_flags[index]) {
-            // The local thread tasks enter the queue from the front (recursion becomes a stack)
-            m_queues[index]->push_front(std::move(task));
-            return res;
-        }
+        try {
+            // If it is the local thread and the thread has not been terminated, it is added to its
+            // own queue
+            if (index != -1 && m_interrupt_flags[index]) {
+                // The local thread tasks enter the queue from the front (recursion becomes a stack)
+                m_queues[index]->push_front(std::move(task));
+                return res;
+            }
 
-        m_queues[m_current_index]->push(std::move(task));
-        m_current_index++;
-        if (m_current_index >= m_worker_num) {
-            m_current_index = 0;
+            m_queues[m_current_index]->push(std::move(task));
+            m_current_index++;
+            if (m_current_index >= m_worker_num) {
+                m_current_index = 0;
+            }
+        } catch (...) {
+            m_running_task_count.fetch_sub(1, std::memory_order_relaxed);
+            throw;
         }
         return res;
     }
@@ -199,19 +213,9 @@ public:
 
         // It instructs every worker thread to stop running when no work task is got
         if (m_runnging_until_empty) {
-            while (true) {
-                bool can_quit = true;
-                for (size_t i = 0; i < m_worker_num; i++) {
-                    if (!m_queues[i]->empty()) {
-                        can_quit = false;
-                        break;
-                    }
-                }
-
-                if (can_quit) {
-                    break;
-                }
-
+            // Wait until there is no queued nor in-flight task. The counter already covers queued
+            // tasks (incremented at submit time), so a zero counter means the pool is truly idle.
+            while (m_running_task_count.load(std::memory_order_acquire) != 0) {
                 std::this_thread::yield();
             }
 
@@ -255,9 +259,23 @@ public:
 
 private:
     typedef FuncWrapper task_type;
+
+    // Decrements the in-flight task counter on scope exit. Used to balance the increment done in
+    // submit() once a popped task has finished executing (including when it throws).
+    struct RunningTaskGuard {
+        std::atomic<size_t>& counter;
+        explicit RunningTaskGuard(std::atomic<size_t>& c) : counter(c) {}
+        ~RunningTaskGuard() {
+            counter.fetch_sub(1, std::memory_order_relaxed);
+        }
+    };
+
     std::atomic_bool m_done;      // The global termination indication of the thread pool
     size_t m_worker_num;          // Number of the worker threads
     bool m_runnging_until_empty;  // It runs until the queue is empty and then stops
+
+    std::atomic<size_t> m_running_task_count{0};  // Submitted but not yet finished tasks (queued +
+                                                  // in-flight)
 
     std::vector<std::unique_ptr<MQStealQueue<task_type>>> m_queues;  // Thread task queues
     std::vector<InterruptFlag> m_interrupt_flags;                    // Thread termination flags
@@ -279,9 +297,11 @@ private:
             if (task.isNullTask()) {
                 m_interrupt_flags[index].set();
             } else {
+                RunningTaskGuard guard(m_running_task_count);
                 task();
             }
         } else if (pop_task_from_other_thread_queue(task, index)) {
+            RunningTaskGuard guard(m_running_task_count);
             task();
         } else {
             // Block and wait for a new task in the local queue
@@ -293,6 +313,7 @@ private:
             if (task.isNullTask()) {
                 m_interrupt_flags[index].set();
             } else {
+                RunningTaskGuard guard(m_running_task_count);
                 task();
             }
         }

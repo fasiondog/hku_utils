@@ -175,17 +175,32 @@ public:
               "You can't submit a task to the stopped GlobalStealThreadPool!!");
         }
 
+        // The counter is incremented before the task is pushed so that join() can observe an
+        // in-flight task even while it is between pop and execution. A second shutdown check after
+        // the increment guards against the race where join() flips m_done right before the push.
+        m_running_task_count.fetch_add(1, std::memory_order_relaxed);
+        if (thread_need_stop().isSet() || m_done.load(std::memory_order_acquire)) {
+            m_running_task_count.fetch_sub(1, std::memory_order_relaxed);
+            throw std::logic_error(
+              "You can't submit a task to the stopped GlobalStealThreadPool!!");
+        }
+
         typedef typename std::invoke_result<FunctionType>::type result_type;
         std::packaged_task<result_type()> task(std::forward<FunctionType>(f));
         task_handle<result_type> res(task.get_future());
 
-        std::thread::id id = std::this_thread::get_id();
-        if (local_work_queue() && id == thread_id()) {
-            // The local thread tasks enter the queue from the front (recursion becomes a stack)
-            local_work_queue()->push_front(std::move(task));
-        } else {
-            m_master_work_queue.push(std::move(task));
-            m_cv.notify_one();
+        try {
+            std::thread::id id = std::this_thread::get_id();
+            if (local_work_queue() && id == thread_id()) {
+                // The local thread tasks enter the queue from the front (recursion becomes a stack)
+                local_work_queue()->push_front(std::move(task));
+            } else {
+                m_master_work_queue.push(std::move(task));
+                m_cv.notify_one();
+            }
+        } catch (...) {
+            m_running_task_count.fetch_sub(1, std::memory_order_relaxed);
+            throw;
         }
 
         return res;
@@ -245,23 +260,10 @@ public:
 
         // It instructs every worker thread to stop running when no work task is got
         if (m_running_until_empty) {
-            while (true) {
-                if (m_master_work_queue.size() != 0) {
-                    std::this_thread::yield();
-                } else {
-                    bool can_quit = true;
-                    for (size_t i = 0; i < m_worker_num; i++) {
-                        if (m_queues[i]->size() != 0) {
-                            can_quit = false;
-                            break;
-                        }
-                    }
-                    if (can_quit) {
-                        break;
-                    } else {
-                        std::this_thread::yield();
-                    }
-                }
+            // Wait until there is no queued nor in-flight task. The counter already covers queued
+            // tasks (incremented at submit time), so a zero counter means the pool is truly idle.
+            while (m_running_task_count.load(std::memory_order_acquire) != 0) {
+                std::this_thread::yield();
             }
 
             m_done.store(true, std::memory_order_release);
@@ -315,16 +317,19 @@ public:
         if (local_work_queue()) {
             if (pop_task_from_local_queue(task)) {
                 if (!task.isNullTask()) {
+                    RunningTaskGuard guard(m_running_task_count);
                     task();
                     task_run = true;
                 } else {
                     thread_need_stop().set();
                 }
             } else if (pop_task_from_other_thread_queue(task)) {
+                RunningTaskGuard guard(m_running_task_count);
                 task();
                 task_run = true;
             } else if (pop_task_from_master_queue(task)) {
                 if (!task.isNullTask()) {
+                    RunningTaskGuard guard(m_running_task_count);
                     task();
                     task_run = true;
                 } else {
@@ -333,6 +338,7 @@ public:
             }
         } else if (pop_task_from_master_queue(task)) {
             if (!task.isNullTask()) {
+                RunningTaskGuard guard(m_running_task_count);
                 task();
                 task_run = true;
             }
@@ -342,6 +348,17 @@ public:
 
 private:
     typedef FuncWrapper task_type;
+
+    // Decrements the in-flight task counter on scope exit. Used to balance the increment done in
+    // submit() once a popped task has finished executing (including when it throws).
+    struct RunningTaskGuard {
+        std::atomic<size_t>& counter;
+        explicit RunningTaskGuard(std::atomic<size_t>& c) : counter(c) {}
+        ~RunningTaskGuard() {
+            counter.fetch_sub(1, std::memory_order_relaxed);
+        }
+    };
+
     std::atomic_bool m_done;         // The global termination indication of the thread pool
     size_t m_worker_num;             // Number of the worker threads
     bool m_running_until_empty;      // It stops running automatically when the task queue is empty
@@ -349,6 +366,9 @@ private:
                                      // task
     std::mutex m_cv_mutex;           // The mutex working together with the semaphore
     std::atomic<int> m_sleep_count;  // Sleep count
+
+    std::atomic<size_t> m_running_task_count{0};  // Submitted but not yet finished tasks (queued +
+                                                  // in-flight)
 
     std::vector<InterruptFlag*> m_interrupt_flags;           // Worker thread states
     ThreadSafeQueue<task_type> m_master_work_queue;          // Task queue of the master thread
@@ -397,17 +417,20 @@ private:
         task_type task;
         if (pop_task_from_local_queue(task)) {
             if (!task.isNullTask()) {
+                RunningTaskGuard guard(m_running_task_count);
                 task();
             } else {
                 thread_need_stop().set();
             }
         } else if (pop_task_from_master_queue(task)) {
             if (!task.isNullTask()) {
+                RunningTaskGuard guard(m_running_task_count);
                 task();
             } else {
                 thread_need_stop().set();
             }
         } else if (pop_task_from_other_thread_queue(task)) {
+            RunningTaskGuard guard(m_running_task_count);
             task();
         } else {
             // Increase the sleep count before entering the waiting state

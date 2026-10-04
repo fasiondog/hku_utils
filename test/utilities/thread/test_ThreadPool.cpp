@@ -113,6 +113,48 @@ TEST_CASE("test_StealThreadPool") {
 //     }
 // }
 
+/**
+ * @par 检测点
+ * 1. Recursive submit: a running task submits sub-tasks while the main thread calls join().
+ *    join() must not set m_done while tasks are still in flight, otherwise submit() throws
+ *    std::logic_error and the sub-tasks are lost (H3).
+ * 2. All recursively submitted tasks must be executed (no lost tasks).
+ */
+template <typename Pool>
+static void recursive_submit_must_not_lose_tasks() {
+    const int root_count = 4;
+    const int sub_count = 200;
+    std::atomic<int> executed{0};
+    Pool pool(8);
+
+    for (int i = 0; i < root_count; ++i) {
+        pool.submit([&pool, &executed]() {
+            // Widen the window where the task queues appear empty while this task is still
+            // in flight. Without an in-flight counter join() would set m_done here and the
+            // submit() calls below would throw std::logic_error.
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            for (int j = 0; j < sub_count; ++j) {
+                pool.submit([&executed]() { executed.fetch_add(1, std::memory_order_relaxed); });
+            }
+        });
+    }
+
+    pool.join();
+    CHECK(executed.load() == root_count * sub_count);
+}
+
+TEST_CASE("test_StealThreadPool_recursive_submit") {
+    recursive_submit_must_not_lose_tasks<StealThreadPool>();
+}
+
+TEST_CASE("test_GlobalStealThreadPool_recursive_submit") {
+    recursive_submit_must_not_lose_tasks<GlobalStealThreadPool>();
+}
+
+TEST_CASE("test_MQStealThreadPool_recursive_submit") {
+    recursive_submit_must_not_lose_tasks<MQStealThreadPool>();
+}
+
 #endif
 
 /** @} */
