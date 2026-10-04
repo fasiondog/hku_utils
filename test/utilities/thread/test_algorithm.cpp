@@ -12,6 +12,8 @@
 #include <hikyuu/utilities/SpendTimer.h>
 #include <hikyuu/utilities/thread/algorithm.h>
 #include <hikyuu/utilities/net.h>
+#include <atomic>
+#include <latch>
 #include <thread>
 
 using namespace hku;
@@ -19,7 +21,7 @@ namespace asio = hku::net::asio;
 
 #if CPP_STANDARD >= CPP_STANDARD_20
 
-#if !(defined(__GNUC__) && (__GNUC__ <= 12))
+#if !defined(__GNUC__) || defined(__clang__) || (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run 基本功能
  */
@@ -41,7 +43,6 @@ TEST_CASE("test_co_run_basic") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 基本功能（error_code 模式）
  */
@@ -62,7 +63,6 @@ TEST_CASE("test_co_run_ec_basic") {
     asio::co_spawn(ctx, test_co_run_ec_basic_helper(pool), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
  * @brief 辅助协程函数：测试延迟执行
@@ -87,7 +87,6 @@ TEST_CASE("test_co_run_delayed_wait") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 的延迟执行
  */
@@ -110,32 +109,33 @@ TEST_CASE("test_co_run_ec_delayed_wait") {
     asio::co_spawn(ctx, test_co_run_ec_delayed_helper(pool), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
- * @brief 辅助协程函数：测试 co_run 的异常处理（通过 error_code）
+ * @brief Helper: co_run keeps the original exception type (no error_code mapping)
  */
 static asio::awaitable<void> test_co_run_exception_helper(ThreadPool& pool) {
-    // co_run 会将异常转换为 error_code
-    // 当 error_code 非空时，Asio 会抛出 boost::system::system_error
+    /** co_run must rethrow the original exception thrown by func */
+    bool exception_caught = false;
     try {
-        int result = co_await co_run(pool.executor(), []() -> int {
+        co_await co_run(pool.executor(), []() -> int {
             throw std::runtime_error("Test exception from co_run");
-            return 0;  // 不会执行到这里
+            return 0;
         });
-        CHECK_FALSE("Should have thrown system_error");
-    } catch (const boost::system::system_error& e) {
-        // co_run 通过 error_code 传递错误，Asio 框架会将其转换为 system_error
-        CHECK_NE(e.code().value(), 0);
-        HKU_INFO("Caught expected system_error: {}", e.what());
+        CHECK_FALSE("Should have thrown runtime_error");
+    } catch (const std::runtime_error& e) {
+        exception_caught = true;
+        CHECK_EQ(std::string(e.what()), "Test exception from co_run");
+    } catch (...) {
+        CHECK_FALSE("Unexpected exception type: co_run must propagate the original exception");
     }
+    CHECK_UNARY(exception_caught);
 
-    // 测试正常情况（没有异常）
+    /** A successful task must return its value without throwing */
     try {
         int result = co_await co_run(pool.executor(), []() -> int { return 42; });
         CHECK_EQ(result, 42);
     } catch (...) {
-        CHECK_FALSE("Should not throw for successful operation");
+        CHECK_FALSE("Should not throw for a successful operation");
     }
 }
 
@@ -146,31 +146,31 @@ TEST_CASE("test_co_run_exception") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
- * @brief 辅助协程函数：测试 co_run_ec 的异常处理（通过 error_code）
+ * @brief Helper: co_run_ec maps arbitrary func exceptions to a system_error
  */
 static asio::awaitable<void> test_co_run_ec_exception_helper(ThreadPool& pool) {
-    // co_run_ec 会将异常转换为 error_code
-    // 当 error_code 非空时，Asio 会抛出 boost::system::system_error
+    /** co_run_ec converts the func exception into a non-empty error_code */
+    bool exception_caught = false;
     try {
-        int result = co_await co_run_ec(pool.executor(), []() -> int {
+        co_await co_run_ec(pool.executor(), []() -> int {
             throw std::runtime_error("Test exception from co_run_ec");
-            return 0;  // 不会执行到这里
+            return 0;
         });
         CHECK_FALSE("Should have thrown system_error");
     } catch (const boost::system::system_error& e) {
-        // co_run_ec 通过 error_code 传递错误，Asio 框架会将其转换为 system_error
+        exception_caught = true;
         CHECK_NE(e.code().value(), 0);
         HKU_INFO("Caught expected system_error: {}", e.what());
     }
+    CHECK_UNARY(exception_caught);
 
-    // 测试正常情况（没有异常）
+    /** A successful task must return its value without throwing */
     try {
         int result = co_await co_run_ec(pool.executor(), []() -> int { return 42; });
         CHECK_EQ(result, 42);
     } catch (...) {
-        CHECK_FALSE("Should not throw for successful operation");
+        CHECK_FALSE("Should not throw for a successful operation");
     }
 }
 
@@ -180,7 +180,6 @@ TEST_CASE("test_co_run_ec_exception") {
     asio::co_spawn(ctx, test_co_run_ec_exception_helper(pool), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 的异常穿透（非 void 类型）
@@ -256,7 +255,6 @@ TEST_CASE("test_co_run_void") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 的 lambda 捕获
  */
@@ -279,7 +277,6 @@ TEST_CASE("test_co_run_ec_lambda_capture") {
     asio::co_spawn(ctx, test_co_run_ec_lambda_capture_helper(pool), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 返回字符串
@@ -301,7 +298,6 @@ TEST_CASE("test_co_run_string_return") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 返回字符串
  */
@@ -321,7 +317,6 @@ TEST_CASE("test_co_run_ec_string_return") {
     asio::co_spawn(ctx, test_co_run_ec_string_return_helper(pool), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 返回复杂类型
@@ -349,7 +344,6 @@ TEST_CASE("test_co_run_complex_type") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 返回复杂类型
  */
@@ -375,7 +369,6 @@ TEST_CASE("test_co_run_ec_complex_type") {
     asio::co_spawn(ctx, test_co_run_ec_complex_type_helper(pool), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 返回仅移动类型
@@ -396,7 +389,6 @@ TEST_CASE("test_co_run_move_only_type") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 返回仅移动类型
  */
@@ -415,7 +407,6 @@ TEST_CASE("test_co_run_ec_move_only_type") {
     asio::co_spawn(ctx, test_co_run_ec_move_only_type_helper(pool), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 使用多个执行器
@@ -442,7 +433,6 @@ TEST_CASE("test_co_run_multiple_executors") {
     ctx.run();
 }
 
-#if defined(__GNUC__) && (__GNUC__ > 12)
 /**
  * @brief 辅助协程函数：测试 co_run_ec 使用多个执行器
  */
@@ -467,7 +457,6 @@ TEST_CASE("test_co_run_ec_multiple_executors") {
     asio::co_spawn(ctx, test_co_run_ec_multiple_executors_helper(pool1, pool2), asio::detached);
     ctx.run();
 }
-#endif
 
 /**
  * @brief 辅助协程函数：测试 co_run 压力测试
@@ -635,7 +624,199 @@ TEST_CASE("test_concurrent_co_run_in_coroutine") {
     ctx.run();
 }
 
-#endif  // #if !(defined(__GNUC__) && (__GNUC__ <= 12))
+// ============================================================================
+// co_run/co_run_ec lifetime and cancellation semantics
+// ============================================================================
+
+/**
+ * @brief The home io_context is destroyed while func is still running on the worker
+ *
+ * The completion must never be posted back to a destroyed io_context; the func result is
+ * simply discarded and the coroutine never resumes.
+ */
+TEST_CASE("test_co_run_destroy_home_io_context") {
+    ThreadPool pool(2);
+    std::latch func_started(1);
+    std::latch release_func(1);
+    std::atomic<bool> resumed{false};
+
+    {
+        asio::io_context ctx;
+        asio::co_spawn(
+          ctx,
+          [&]() -> asio::awaitable<void> {
+              co_await co_run(pool.executor(), [&]() -> void {
+                  func_started.count_down();
+                  release_func.wait();
+              });
+              resumed.store(true, std::memory_order_release);
+          },
+          asio::detached);
+
+        std::thread runner([&] { ctx.run(); });
+        func_started.wait();
+
+        /** func is still running: abandon the coroutine and destroy its io_context */
+        ctx.stop();
+        runner.join();
+    }
+
+    /** Let the worker finish after the home io_context is already gone */
+    release_func.count_down();
+    CHECK_FALSE(resumed.load(std::memory_order_acquire));
+}
+
+/**
+ * @brief A queued (never started) task is dropped when its home io_context dies first and the
+ * pool stops afterwards; neither the task nor the coroutine may touch the dead io_context
+ */
+TEST_CASE("test_co_run_dropped_queued_task") {
+    /** until_empty=false: stop() discards tasks still waiting in the queue */
+    ThreadPool pool(1, false);
+    std::latch blocker_started(1);
+    std::latch release_blocker(1);
+    pool.submit([&]() {
+        blocker_started.count_down();
+        release_blocker.wait();
+    });
+    blocker_started.wait();
+
+    std::atomic<int> progress{0};
+    {
+        asio::io_context ctx;
+        asio::co_spawn(ctx,
+                       co_run(pool.executor(), [&]() -> int { return progress.fetch_add(1) + 1; }),
+                       asio::detached);
+        /** Run the coroutine until it first suspends, which guarantees the task is enqueued */
+        ctx.run_one();
+    }
+
+    /** stop() joins the blocked worker from another thread; once m_done is visible, the worker
+        exits without touching the queued task, which is then cleared */
+    std::thread stopper([&] { pool.stop(); });
+    while (!pool.done()) {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    release_blocker.count_down();
+    stopper.join();
+
+    CHECK_EQ(progress.load(), 0);
+}
+
+/**
+ * @brief Helper: cancelling a co_run/co_run_ec wait aborts the co_await immediately while func
+ * keeps running on the worker until it is released
+ */
+template <bool UseErrorCode>
+static asio::awaitable<void> test_co_run_cancel_helper(ThreadPool& pool, std::latch& func_started,
+                                                       std::latch& release_func,
+                                                       std::atomic<bool>& aborted) {
+    auto func = [&]() -> int {
+        func_started.count_down();
+        release_func.wait();
+        return 42;
+    };
+
+    try {
+        if constexpr (UseErrorCode) {
+            (void)co_await co_run_ec(pool.executor(), func);
+        } else {
+            (void)co_await co_run(pool.executor(), func);
+        }
+    } catch (const boost::system::system_error& e) {
+        aborted.store(e.code() == asio::error::operation_aborted, std::memory_order_release);
+    }
+}
+
+TEST_CASE("test_co_run_cancellation") {
+    ThreadPool pool(2);
+    asio::io_context ctx;
+    std::latch func_started(1);
+    std::latch release_func(1);
+    std::atomic<bool> aborted{false};
+    asio::cancellation_signal signal;
+
+    asio::co_spawn(ctx, test_co_run_cancel_helper<false>(pool, func_started, release_func, aborted),
+                   asio::bind_cancellation_slot(signal.slot(), asio::detached));
+
+    std::thread runner([&] { ctx.run(); });
+    func_started.wait();
+    signal.emit(asio::cancellation_type::terminal);
+    runner.join();
+
+    /** The wait is aborted immediately even though func cannot be force-interrupted */
+    CHECK_UNARY(aborted.load(std::memory_order_acquire));
+    release_func.count_down();
+}
+
+TEST_CASE("test_co_run_ec_cancellation") {
+    ThreadPool pool(2);
+    asio::io_context ctx;
+    std::latch func_started(1);
+    std::latch release_func(1);
+    std::atomic<bool> aborted{false};
+    asio::cancellation_signal signal;
+
+    asio::co_spawn(ctx, test_co_run_cancel_helper<true>(pool, func_started, release_func, aborted),
+                   asio::bind_cancellation_slot(signal.slot(), asio::detached));
+
+    std::thread runner([&] { ctx.run(); });
+    func_started.wait();
+    signal.emit(asio::cancellation_type::terminal);
+    runner.join();
+
+    CHECK_UNARY(aborted.load(std::memory_order_acquire));
+    release_func.count_down();
+}
+
+/**
+ * @brief Helpers: when the executor rejects the task (the pool is already stopped), the
+ * rejection surfaces as an exception instead of hanging the coroutine forever
+ */
+static asio::awaitable<void> test_co_run_stopped_executor_helper(ThreadPool& pool,
+                                                                 std::atomic<bool>& caught) {
+    try {
+        (void)co_await co_run(pool.executor(), []() -> int { return 42; });
+    } catch (const std::logic_error&) {
+        caught.store(true, std::memory_order_release);
+    }
+}
+
+static asio::awaitable<void> test_co_run_ec_stopped_executor_helper(ThreadPool& pool,
+                                                                    std::atomic<bool>& caught) {
+    try {
+        (void)co_await co_run_ec(pool.executor(), []() -> int { return 42; });
+    } catch (const boost::system::system_error& e) {
+        caught.store(
+          e.code() == boost::system::errc::make_error_code(boost::system::errc::io_error),
+          std::memory_order_release);
+    }
+}
+
+TEST_CASE("test_co_run_stopped_executor") {
+    ThreadPool pool(1, false);
+    pool.stop();
+
+    std::atomic<bool> caught{false};
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_stopped_executor_helper(pool, caught), asio::detached);
+    ctx.run();
+    CHECK_UNARY(caught.load(std::memory_order_acquire));
+}
+
+TEST_CASE("test_co_run_ec_stopped_executor") {
+    ThreadPool pool(1, false);
+    pool.stop();
+
+    std::atomic<bool> caught{false};
+    asio::io_context ctx;
+    asio::co_spawn(ctx, test_co_run_ec_stopped_executor_helper(pool, caught), asio::detached);
+    ctx.run();
+    CHECK_UNARY(caught.load(std::memory_order_acquire));
+}
+
+#endif  // co_run coroutine tests (GCC > 12, clang and other C++20 compilers)
 #endif  // CPP_STANDARD >= CPP_STANDARD_20
 
 /**
