@@ -204,8 +204,10 @@ int64_t MySQLConnect::exec(const std::string& sql_string) {
     m_impl->conn->execute(sql_string, results, ec, diag);
 
     if (ec) [[unlikely]] {
-        // The execution failed, try to reconnect and execute again
-        if (ping()) {
+        // Only read-only statements are replayed after a lost connection: a failed write may
+        // already have been committed server-side and replaying it would apply it twice
+        if (detail::isConnectionLostError(ec.value()) && detail::isReadOnlySql(sql_string) &&
+            ping()) {
             m_impl->conn->execute(sql_string, results, ec, diag);
         }
 

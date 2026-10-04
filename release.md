@@ -41,6 +41,9 @@
 - fix(thread): MQStealThreadPool::stop 先将 m_done 置位拒绝新提交，哨兵任务改用 push_front 唤醒阻塞在 wait_and_pop 的 worker（尾部哨兵被 try_steal 拒绝窃取时无法唤醒队头阻塞的 worker），停止期间不再执行或静默丢弃排队任务
 - fix(thread): GlobalStealThreadPool/StealThreadPool/MQStealThreadPool 的 join/stop 加互斥串行化，杜绝并发 join 对同一 worker 重复 join 的未定义行为
 - fix(thread): GlobalStealThreadPool/StealThreadPool 的 join/stop 在 m_cv_mutex 下变更 m_done 与投哨兵后再 notify，修复 worker 谓词求值与阻塞间隙丢失唤醒导致的永久挂起
+- fix(db_connect): libmysqlclient 驱动不再显式开启 CLIENT_MULTI_STATEMENTS，限制字符串拼接 SQL 注入时的多语句堆叠执行
+- fix(db_connect): MySQL exec（libmysqlclient/boost 同步及异步）断线重连后仅重放只读语句（SELECT/SHOW/DESC/DESCRIBE/EXPLAIN），避免写语句在服务端可能已提交的情况下被重复执行
+- docs(db_connect): load/batchLoad/remove 的字符串 where 重载增加注入风险 @warning，引导改用参数绑定的 DBCondition 重载
 - fix(thread): co_run/co_run_ec 改为向工作执行器提交 packaged_task 并在协程 home executor 轮询 future，消除 home io_context 先析构或排队任务被丢弃时的 use-after-free，并支持 cancellation_slot 立即取消等待
 - fix(parameter): Parameter::get&lt;float&gt; 值域下界改用 lowest()，修复读取负数时被误判越界抛出异常
 - fix(os): removeDir 改用 lstat（Windows 按 reparse point 识别），目录内的符号链接/junction 仅删除链接本身，不再递归进入其目标目录删除外部文件；并修复空路径触发异常、stat 返回值未检查问题

@@ -17,6 +17,7 @@
 #include "hikyuu/utilities/Parameter.h"
 #include "hikyuu/utilities/Log.h"
 #include "AsyncMySQLConnect.h"
+#include "MySQLConnect.h"
 
 namespace hku {
 
@@ -262,8 +263,11 @@ net::awaitable<int64_t> AsyncMySQLConnect::exec(const std::string& sql_string) {
         SQL_THROW(ec.value(), "SQL error: {}! error msg: {}", sql_string, ec.message());
     }
 
-    // When a retry is needed, do it outside the try-catch
-    if (need_retry) {
+    // When a retry is needed, do it outside the try-catch. Only read-only statements are
+    // replayed after a lost connection: a failed write may already have been committed
+    // server-side and replaying it would apply it twice
+    if (need_retry && detail::isConnectionLostError(ec.value()) &&
+        detail::isReadOnlySql(sql_string)) {
         bool reconnected = false;
         try {
             reconnected = co_await ping();

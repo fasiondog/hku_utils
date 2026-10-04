@@ -139,6 +139,9 @@ PARAMETER_SUPPORT  // NOSONAR
      *       only one is taken
      * @param item the given model instance
      * @param where the query condition, e.g. "id=1"
+     * @warning The where clause is concatenated into the SQL statement verbatim. Never build it
+     *          from user-controlled or external input, otherwise SQL injection is possible.
+     *          Prefer the DBCondition overload, which binds values as parameters.
      */
     template <typename T>
     void load(T &item, const std::string &where = "");
@@ -166,6 +169,9 @@ PARAMETER_SUPPORT  // NOSONAR
      * and list)
      * @param container the given container
      * @param where query condition
+     * @warning The where clause is concatenated into the SQL statement verbatim. Never build it
+     *          from user-controlled or external input, otherwise SQL injection is possible.
+     *          Prefer the DBCondition overload, which binds values as parameters.
      */
     template <typename Container>
     void batchLoad(Container &container, const std::string &where = "");
@@ -238,6 +244,9 @@ PARAMETER_SUPPORT  // NOSONAR
      * @param tablename the table name of the data to be deleted
      * @param where the deletion condition
      * @param autotrans start a transaction
+     * @warning The where clause is concatenated into the SQL statement verbatim. Never build it
+     *          from user-controlled or external input, otherwise SQL injection is possible.
+     *          Prefer the DBCondition overload, which binds values as parameters.
      */
     void remove(const std::string &tablename, const std::string &where, bool autotrans = true);
 
