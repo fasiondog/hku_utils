@@ -38,6 +38,7 @@
 - perf(db_connect): batchSaveOrUpdate 改为两趟就地处理，不再将全部元素深拷贝进临时 vector（大批量下峰值内存翻倍）；保存的元素自此会回写 rowid，与 batchSave 行为对齐
 - fix(thread): ThreadSafeQueue 与 MQStealQueue 的 size() 改为加锁读取，消除线程池 join 忙等期间与任务入队/出队的数据竞争
 - fix(thread): 五个线程池构造失败时唤醒并 join 已启动的工作线程后再传播异常，消除成员析构与仍在运行的线程竞争访问导致的未定义行为
+- fix(thread): MQStealThreadPool::stop 先将 m_done 置位拒绝新提交，哨兵任务改用 push_front 唤醒阻塞在 wait_and_pop 的 worker（尾部哨兵被 try_steal 拒绝窃取时无法唤醒队头阻塞的 worker），停止期间不再执行或静默丢弃排队任务
 - fix(thread): co_run/co_run_ec 改为向工作执行器提交 packaged_task 并在协程 home executor 轮询 future，消除 home io_context 先析构或排队任务被丢弃时的 use-after-free，并支持 cancellation_slot 立即取消等待
 - fix(parameter): Parameter::get&lt;float&gt; 值域下界改用 lowest()，修复读取负数时被误判越界抛出异常
 - fix(os): removeDir 改用 lstat（Windows 按 reparse point 识别），目录内的符号链接/junction 仅删除链接本身，不再递归进入其目标目录删除外部文件；并修复空路径触发异常、stat 返回值未检查问题

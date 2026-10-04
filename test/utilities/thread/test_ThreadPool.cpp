@@ -11,6 +11,9 @@
 #include <hikyuu/utilities/thread/thread.h>
 #include <hikyuu/utilities/SpendTimer.h>
 #include <hikyuu/utilities/Log.h>
+#include <atomic>
+#include <latch>
+#include <thread>
 
 using namespace hku;
 
@@ -182,6 +185,45 @@ TEST_CASE("test_MQStealThreadPool_multi_producer_submit") {
 
     pool.join();
     CHECK(executed.load() == producer_count * per_producer);
+}
+
+/**
+ * @brief test MQStealThreadPool stop semantics
+ * 1. stop() must not run tasks that are still queued: the workers exit as soon as the
+ *    currently running task finishes, the queued tasks are discarded.
+ * 2. A blocked worker must be woken up by the stop signal itself even when the tail of its
+ *    queue is a null sentinel that cannot be stolen.
+ * 3. Submitting after stop() must throw instead of being silently dropped.
+ */
+TEST_CASE("test_MQStealThreadPool_stop_discards_queued_tasks") {
+    MQStealThreadPool pool(1);
+    std::latch blocker_started(1);
+    std::latch release_blocker(1);
+    std::atomic<int> executed{0};
+
+    /** Occupy the only worker so that further tasks stay queued */
+    pool.submit([&]() {
+        blocker_started.count_down();
+        release_blocker.wait();
+    });
+    blocker_started.wait();
+
+    for (int i = 0; i < 4; ++i) {
+        pool.submit([&]() { executed.fetch_add(1, std::memory_order_relaxed); });
+    }
+
+    /** stop() joins the worker, so release the blocker from the test thread after the stop
+        flags and sentinels had time to be installed */
+    std::thread stopper([&]() { pool.stop(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    release_blocker.count_down();
+    stopper.join();
+
+    /** The queued tasks must have been discarded, not executed */
+    CHECK_EQ(executed.load(), 0);
+
+    /** Submitting to a stopped pool must throw */
+    CHECK_THROWS_AS(pool.submit([]() {}), std::logic_error);
 }
 
 #endif

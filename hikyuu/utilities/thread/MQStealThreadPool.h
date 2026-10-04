@@ -178,17 +178,20 @@ public:
      * It waits for every thread to finish the currently executed task and then exits immediately
      */
     void stop() {
-        if (m_done) {
+        // Reject new submissions before waking the workers, otherwise a task submitted during
+        // stop could be silently dropped (and its future broken) or even executed
+        if (m_done.exchange(true, std::memory_order_relaxed)) {
             return;
         }
 
-        // At the same time the end task indication is added, so that it can also be terminated when
-        // the dll exits
+        // push_front the terminating null tasks so a blocked worker wakes up on the sentinel
+        // itself: try_steal refuses tail null tasks, and a worker in wait_and_pop cannot observe
+        // its interrupt flag until something is pushed
         for (size_t i = 0; i < m_worker_num; i++) {
             if (m_interrupt_flags[i]) {
                 m_interrupt_flags[i].set();
             }
-            m_queues[i]->push(FuncWrapper());
+            m_queues[i]->push_front(FuncWrapper());
         }
 
         for (size_t i = 0; i < m_worker_num; i++) {
