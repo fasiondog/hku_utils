@@ -13,6 +13,7 @@
 #include <vector>
 #include <cassert>
 #include <atomic>
+#include <future>
 #include "hikyuu/utilities/ResourceTlsVersionPool.h"
 #include "hikyuu/utilities/Parameter.h"
 
@@ -513,4 +514,128 @@ TEST_CASE("test_ResourceTlsVersionPool_threadIsolation") {
     // 验证每个线程有独立的版本
     CHECK_EQ(thread1_version.load(), 1);
     CHECK_EQ(thread2_version.load(), 2);
+}
+
+// Resource class tracking its live instances (for the destructor leak and the cross-thread tests)
+class LifetimeVersionResource {
+public:
+    explicit LifetimeVersionResource(const Parameter& param) : m_param(param) {
+        s_alive.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    ~LifetimeVersionResource() {
+        s_alive.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    int getVersion() const {
+        return m_version;
+    }
+
+    void setVersion(int version) {
+        m_version = version;
+    }
+
+    static std::atomic<int> s_alive;
+
+private:
+    Parameter m_param;
+    int m_version = 0;
+};
+
+std::atomic<int> LifetimeVersionResource::s_alive{0};
+
+/**
+ * @par 检测点
+ * 1. 析构时按环形分布 (m_head + i) % LIMIT 释放全部空闲槽位资源，不再按 [0, m_freeCount)
+ *    连续下标错误释放（旧实现会漏删 wrap-around 的槽位导致泄漏）
+ * 2. 线程退出后所有资源均被释放（存活计数归零）
+ */
+TEST_CASE("test_ResourceTlsVersionPool_destructor_releases_ring_slots") {
+    using TestPool = ResourceTlsVersionPool<LifetimeVersionResource, 3>;
+    Parameter param;
+    TestPool::init(param);
+
+    int alive_before = LifetimeVersionResource::s_alive.load();
+
+    std::thread worker([]() {
+        auto& pool = TestPool::getInstance();
+
+        // Build the ring state: after the sequence below the idle slots are 1 and 2 while
+        // slot 0 is null (head=1, freeCount=2). The old destructor iterating [0, freeCount)
+        // deleted slot 0 (null) and slot 1, leaking the resource stored at slot 2.
+        auto r1 = pool.get();
+        auto r2 = pool.get();
+        auto r3 = pool.get();
+        REQUIRE(r1.has_value());
+        REQUIRE(r2.has_value());
+        REQUIRE(r3.has_value());
+        CHECK_EQ(pool.count(), 3);
+        CHECK_EQ(pool.idleCount(), 0);
+
+        r1.value().reset();  // list[0] = r1, tail=1, freeCount=1
+        r2.value().reset();  // list[1] = r2, tail=2, freeCount=2
+
+        auto r4 = pool.get();  // dequeues list[0] (=r1), head=1, freeCount=1
+        REQUIRE(r4);
+        r4.value().reset();  // list[2] = r1, tail=0, freeCount=2; idle slots are 1 and 2
+
+        CHECK_EQ(pool.count(), 3);
+        CHECK_EQ(pool.idleCount(), 2);
+
+        // r3 is returned by its destructor at scope end; the thread-local pool is destroyed
+        // at thread exit and must release everything it still holds
+    });
+    worker.join();
+
+    CHECK_EQ(LifetimeVersionResource::s_alive.load(), alive_before);
+}
+
+/**
+ * @par 检测点
+ * 1. 跨线程归还：资源在异线程被安全删除，不触碰 owner 线程的 thread_local 池状态（无 UB）
+ * 2. 文档化限制（见类注释 Cross-thread safety check mechanism）：池记账仅由 owner 线程维护，
+ *    跨线程归还后容量不恢复（count 不递减）
+ */
+TEST_CASE("test_ResourceTlsVersionPool_cross_thread_return") {
+    using TestPool = ResourceTlsVersionPool<LifetimeVersionResource, 2>;
+    using ResourcePtr = typename TestPool::ResourcePtr;
+    Parameter param;
+    TestPool::init(param);
+
+    int alive_before = LifetimeVersionResource::s_alive.load();
+
+    std::promise<ResourcePtr> to_consumer;
+    std::promise<void> done;
+    std::future<void> done_future = done.get_future();
+
+    std::thread producer([&]() {
+        auto& pool = TestPool::getInstance();
+        auto r1 = pool.get();
+        REQUIRE(r1.has_value());
+        CHECK_EQ(pool.count(), 1);
+
+        // Hand the resource over to the other thread
+        to_consumer.set_value(std::move(r1.value()));
+        done_future.wait();
+
+        // Documented limitation: the count is maintained by the owner thread only, the
+        // cross-thread return does not recover the consumed capacity
+        CHECK_EQ(pool.count(), 1);
+    });
+
+    std::thread consumer([&]() {
+        auto r1 = to_consumer.get_future().get();
+
+        // Destroying in a different thread triggers the cross-thread return path: the
+        // resource is deleted here and the owner pool state is not touched
+        r1.reset();
+
+        done.set_value();
+    });
+
+    producer.join();
+    consumer.join();
+
+    // The resource handed abroad must have been deleted
+    CHECK_EQ(LifetimeVersionResource::s_alive.load(), alive_before);
 }

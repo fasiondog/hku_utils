@@ -43,6 +43,7 @@
 - fix(thread): StealThreadPool/GlobalStealThreadPool/MQStealThreadPool 的 join 判据引入 in-flight 计数，修复任务已出队但尚未执行完（或仍会递归 submit 子任务）时 join 提前设 m_done 导致后续 submit 抛 logic_error、子任务丢失的问题
 - fix(thread): MQStealThreadPool 多生产者并发 submit 时轮询索引 m_current_index 改为 atomic fetch_add，消除普通 int 读改写的数据竞争（TSan 必报 UB）
 - fix(utilities): TimerManager 检测线程内 submit 抛异常（如外部线程池已停止）时捕获并移除该定时器，不再让 logic_error 逃逸出线程函数导致 std::terminate；并加顶层 catch 兜底
+- fix(utilities): ResourceTlsPool/ResourceTlsVersionPool 析构改为按环形取模下标释放全部空闲槽位，修复按连续下标释放漏删 wrap-around 槽位导致的资源泄漏；普通 TlsPool 环满删除路径补齐计数递减，跨线程归还"容量不恢复"作为文档化限制在类注释中明确
 
 ## 1.5.3 - 2026年9月21日
 
