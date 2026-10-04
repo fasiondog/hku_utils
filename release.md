@@ -46,6 +46,7 @@
 - fix(db_connect): AsyncAutoTransAction 明确析构自动提交语义，修正误导性文档与测试断言；事务未启动或 io_context 已停止时析构不再派生提交协程
 - fix(db_connect): MySQL 预处理语句的自定义 deleter 改为捕获按连接代际共享的存活状态，连接关闭/重连后外部仍持有的语句析构不再通过裸连接指针调用 close_statement，消除对已释放连接的访问
 - fix(db_connect): DBUpgrade 的 module_name 改经 sqlStringLiteral 转义后再写入 SQL，修复模块名含双引号时突破字符串字面量导致的注入（同步/异步共 6 处）
+- fix(http_client): 请求头在序列化前统一校验（名称须为合法 token，值禁止 CR/LF/NUL 等控制字符），setDefaultHeaders 及普通/流式请求入口均生效，防止 CRLF 注入伪造请求头
 - fix(utilities): ResourceTlsPool/ResourceTlsVersionPool 析构改为按环形取模下标释放全部空闲槽位，修复按连续下标释放漏删 wrap-around 槽位导致的资源泄漏；普通 TlsPool 环满删除路径补齐计数递减，跨线程归还"容量不恢复"作为文档化限制在类注释中明确
 
 ## 1.5.3 - 2026年9月21日

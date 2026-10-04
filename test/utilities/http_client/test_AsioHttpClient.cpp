@@ -1895,6 +1895,45 @@ TEST_CASE("test_AsioHttpClient_ChunkedTransferEncoding") {
     });
 }
 
+TEST_CASE("test_http_header_injection_rejected") {
+    /** Ordinary names and values pass, HTAB is the only control character allowed in a value */
+    validateHttpHeader("X-Custom", "plain value");
+    validateHttpHeader("X-Tab", "a\tb");
+
+    /** Invalid names: empty or carrying non-token characters */
+    CHECK_THROWS(validateHttpHeader("", "v"));
+    CHECK_THROWS(validateHttpHeader("X Bad", "v"));
+    CHECK_THROWS(validateHttpHeader("X:Bad", "v"));
+
+    /** CRLF/NUL in a value would inject a new header line */
+    CHECK_THROWS(validateHttpHeader("X-Evil", "v\r\nInjected: yes"));
+    CHECK_THROWS(validateHttpHeader("X-Evil", "v\n"));
+    CHECK_THROWS(validateHttpHeader("X-Evil", std::string("v\0x", 3)));
+
+    /** The default header setter refuses the same payload */
+    boost::asio::io_context ctx;
+    AsioHttpClient client(ctx, "http://127.0.0.1:1");
+    CHECK_THROWS(client.setDefaultHeaders(HttpHeaders{{"X-Evil", "v\r\nInjected: yes"}}));
+
+    /** The request coroutine throws the validation error before opening a connection */
+    bool rejected = false;
+    boost::asio::co_spawn(
+      ctx,
+      [&]() -> boost::asio::awaitable<void> {
+          try {
+              co_await client.async_get("/", HttpHeaders{{"X-Evil", "v\r\nInjected: yes"}});
+          } catch (const std::exception& e) {
+              std::string msg = e.what();
+              CHECK(msg.find("Control character") != std::string::npos);
+              rejected = true;
+          }
+          co_return;
+      },
+      boost::asio::detached);
+    ctx.run();
+    CHECK(rejected);
+}
+
 #if 0
 TEST_CASE("test_tianxingapi_ipquery") {
     AsioHttpClient cli("https://apis.tianapi.com", 8000);  // 8 seconds
