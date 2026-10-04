@@ -94,11 +94,13 @@ public:
 
     /** Get the current maximum number of the resources allowed */
     size_t maxPoolSize() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_maxPoolSize;
     }
 
     /** Get the current maximum number of the idle resources allowed */
     size_t maxIdleSize() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_maxIdelSize;
     }
 
@@ -211,11 +213,13 @@ public:
     /** The number of the currently active resources, i.e. all the resources (including the idle and
      *  the used ones) */
     size_t count() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_count;
     }
 
     /** The current number of the idle resources */
     size_t idleCount() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_resourceList.size();
     }
 
@@ -242,7 +246,7 @@ private:
     size_t m_maxIdelSize;  // The maximum number of the idle resources allowed
     size_t m_count;        // The number of the currently active resources
     Parameter m_param;
-    std::mutex m_mutex;
+    mutable std::mutex m_mutex;
     std::condition_variable m_cond;
     std::queue<ResourceType *> m_resourceList;
 
@@ -361,11 +365,13 @@ public:
 
     /** Get the current maximum number of the resources allowed */
     size_t maxPoolSize() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_maxPoolSize;
     }
 
     /** Get the current maximum number of the idle resources allowed */
     size_t maxIdleSize() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_maxIdelSize;
     }
 
@@ -551,11 +557,13 @@ public:
     /** The number of the currently active resources, i.e. all the resources (including the idle and
      *  the used ones) */
     size_t count() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_count;
     }
 
     /** The current number of the idle resources */
     size_t idleCount() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return m_resourceList.size();
     }
 
@@ -582,7 +590,7 @@ private:
     size_t m_maxIdelSize;  // The maximum number of the idle resources allowed
     size_t m_count;        // The number of the currently active resources
     Parameter m_param;
-    std::mutex m_mutex;
+    mutable std::mutex m_mutex;
     std::condition_variable m_cond;
     std::queue<ResourceType *> m_resourceList;
     int m_version;

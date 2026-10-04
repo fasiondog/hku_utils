@@ -578,6 +578,44 @@ TEST_CASE("test_ResourceVersionPool_ConcurrentVersionUpdate") {
     CHECK_EQ(new_version_count.load(), num_threads);
 }
 
+TEST_CASE("test_ResourcePool_ConcurrentCounters") {
+    Parameter param;
+    ResourcePool<TestResource> pool(param, 8, 4);
+    std::atomic<bool> stop(false);
+    std::atomic<int> readers_done(0);
+
+    /** Readers call the const counters and limits concurrently with get/return in other threads */
+    std::thread reader([&]() {
+        for (int i = 0; i < 5000 && !stop.load(); i++) {
+            CHECK_LE(pool.count(), 8);
+            CHECK_LE(pool.idleCount(), pool.count());
+            CHECK_LE(pool.idleCount(), pool.maxIdleSize());
+            CHECK_EQ(pool.maxPoolSize(), 8);
+            std::this_thread::yield();
+        }
+        readers_done++;
+    });
+
+    // Producers get and return resources, mutating m_count and the idle queue
+    std::vector<std::thread> workers;
+    for (int i = 0; i < 6; i++) {
+        workers.emplace_back([&]() {
+            for (int j = 0; j < 100; j++) {
+                auto res = pool.get();
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                res.reset();
+                pool.maxIdleSize(4);  // a locked write racing with the locked reads
+            }
+        });
+    }
+    for (auto& t : workers) {
+        t.join();
+    }
+
+    stop.store(true);
+    reader.join();
+}
+
 TEST_CASE("test_ResourcePool_OriginalTest") {
     Parameter param;
     ResourcePool<TestResource> pool(param);
