@@ -55,7 +55,11 @@ PARAMETER_SUPPORT  // NOSONAR
     /** Execute the SQL without a result */
     virtual int64_t exec(const std::string &sql_string) = 0;
 
-    /** Get the SQLStatement */
+    /**
+     * Get the SQLStatement
+     * @note The returned statement only holds a raw pointer to this connection,
+     *       so the connection must outlive all statements created from it
+     */
     virtual SQLStatementPtr getStatement(const std::string &sql_statement) = 0;
 
     /**

@@ -114,6 +114,14 @@ void DuckDBStatement::sub_bindInt(int idx, int64_t value) {
     }
 }
 
+void DuckDBStatement::sub_bindUInt64(int idx, uint64_t value) {
+    duckdb_state state =
+      duckdb_bind_uint64(m_stmt, static_cast<idx_t>(idx + 1), static_cast<uint64_t>(value));
+    if (state != DuckDBSuccess) {
+        SQL_THROW(-1, "Failed to bind uint64 at index {}", idx);
+    }
+}
+
 void DuckDBStatement::sub_bindDatetime(int idx, const Datetime &item) {
     if (item == Null<Datetime>()) {
         sub_bindNull(idx);
@@ -170,6 +178,19 @@ void DuckDBStatement::sub_getColumnAsInt64(int idx, int64_t &item) {
     }
 
     item = duckdb_value_int64(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
+}
+
+void DuckDBStatement::sub_getColumnAsUInt64(int idx, uint64_t &item) {
+    if (!m_has_result || m_current_row == 0 || m_current_row > m_row_count) {
+        SQL_THROW(-1, "No valid result or invalid row position");
+    }
+
+    if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
+        item = 0;
+        return;
+    }
+
+    item = duckdb_value_uint64(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
 }
 
 void DuckDBStatement::sub_getColumnAsDouble(int idx, double &item) {

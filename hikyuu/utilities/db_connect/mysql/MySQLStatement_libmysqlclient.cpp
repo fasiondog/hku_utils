@@ -187,10 +187,21 @@ void MySQLStatement::_bindResult() {
         m_impl->result_bind[idx].length = &m_impl->result_length[idx];
 
         if (field->type == MYSQL_TYPE_LONGLONG) {
-            int64_t item = 0;
-            m_impl->result_buffer.push_back(item);
-            auto& buf = m_impl->result_buffer.back();
-            m_impl->result_bind[idx].buffer = boost::any_cast<int64_t>(&buf);
+            // BIGINT UNSIGNED must be read through an unsigned buffer, otherwise values above
+            // INT64_MAX would be misinterpreted as negative
+            if (field->flags & UNSIGNED_FLAG) {
+                uint64_t item = 0;
+                m_impl->result_buffer.push_back(item);
+                auto& buf = m_impl->result_buffer.back();
+                m_impl->result_bind[idx].buffer = boost::any_cast<uint64_t>(&buf);
+                m_impl->result_bind[idx].is_unsigned = true;
+            } else {
+                int64_t item = 0;
+                m_impl->result_buffer.push_back(item);
+                auto& buf = m_impl->result_buffer.back();
+                m_impl->result_bind[idx].buffer = boost::any_cast<int64_t>(&buf);
+                m_impl->result_bind[idx].is_unsigned = false;
+            }
         } else if (field->type == MYSQL_TYPE_LONG || field->type == MYSQL_TYPE_INT24) {
             int32_t item = 0;
             m_impl->result_buffer.push_back(item);
@@ -285,7 +296,18 @@ void MySQLStatement::sub_bindInt(int idx, int64_t value) {
     m_impl->param_buffer.push_back(value);
     auto& buf = m_impl->param_buffer.back();
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_LONGLONG;
+    m_impl->param_bind[idx].is_unsigned = false;
     m_impl->param_bind[idx].buffer = boost::any_cast<int64_t>(&buf);
+}
+
+void MySQLStatement::sub_bindUInt64(int idx, uint64_t value) {
+    SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
+              "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
+    m_impl->param_buffer.push_back(value);
+    auto& buf = m_impl->param_buffer.back();
+    m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_LONGLONG;
+    m_impl->param_bind[idx].is_unsigned = true;
+    m_impl->param_bind[idx].buffer = boost::any_cast<uint64_t>(&buf);
 }
 
 void MySQLStatement::sub_bindDouble(int idx, double item) {
@@ -389,7 +411,14 @@ void MySQLStatement::sub_getColumnAsInt64(int idx, int64_t& item) {
 
     try {
         if (m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_LONGLONG) {
-            item = boost::any_cast<int64_t>(m_impl->result_buffer[idx]);
+            if (m_impl->result_bind[idx].is_unsigned) {
+                uint64_t u = boost::any_cast<uint64_t>(m_impl->result_buffer[idx]);
+                SQL_CHECK(u <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()), -1,
+                          "Column {} unsigned value {} overflows int64", idx, u);
+                item = static_cast<int64_t>(u);
+            } else {
+                item = boost::any_cast<int64_t>(m_impl->result_buffer[idx]);
+            }
         } else if (m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_LONG ||
                    m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_INT24) {
             item = boost::any_cast<int32_t>(m_impl->result_buffer[idx]);
@@ -400,6 +429,44 @@ void MySQLStatement::sub_getColumnAsInt64(int idx, int64_t& item) {
             item = boost::any_cast<short>(m_impl->result_buffer[idx]);
         } else {
             HKU_THROW("Field type mismatch! idx: {}", idx);
+        }
+    } catch (const hku::exception&) {
+        throw;
+    } catch (const std::exception& e) {
+        HKU_THROW("Failed get column idx: {}! {}", idx, e.what());
+    } catch (...) {
+        HKU_THROW("Failed get columon idx: {}! Unknown error!", idx);
+    }
+}
+
+void MySQLStatement::sub_getColumnAsUInt64(int idx, uint64_t& item) {
+    SQL_CHECK(idx < static_cast<int>(m_impl->result_buffer.size()), -1,
+              "idx out of range! idx: {}, total: {}", idx, m_impl->result_buffer.size());
+
+    SQL_CHECK(m_impl->result_error[idx] == 0, -1,
+              "Error occurred in sub_getColumnAsUInt64! idx: {}", idx);
+
+    if (m_impl->result_is_null[idx]) {
+        item = 0;
+        return;
+    }
+
+    try {
+        if (m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_LONGLONG) {
+            if (m_impl->result_bind[idx].is_unsigned) {
+                item = boost::any_cast<uint64_t>(m_impl->result_buffer[idx]);
+            } else {
+                int64_t s = boost::any_cast<int64_t>(m_impl->result_buffer[idx]);
+                SQL_CHECK(s >= 0, -1, "Column {} holds negative value {}, cannot be read as uint64",
+                          idx, s);
+                item = static_cast<uint64_t>(s);
+            }
+        } else {
+            int64_t s = 0;
+            sub_getColumnAsInt64(idx, s);
+            SQL_CHECK(s >= 0, -1, "Column {} holds negative value {}, cannot be read as uint64",
+                      idx, s);
+            item = static_cast<uint64_t>(s);
         }
     } catch (const hku::exception&) {
         throw;

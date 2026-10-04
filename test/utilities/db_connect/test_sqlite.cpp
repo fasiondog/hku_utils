@@ -298,3 +298,99 @@ TEST_CASE("test_batchSaveOrUpdate") {
     con->load(loaded, Field("name") == "new1");
     CHECK_EQ(loaded.age, 40);
 }
+
+/**
+ * @brief test integer boundary handling
+ * 1. int64 boundary values (INT64_MIN/INT64_MAX) roundtrip exactly
+ * 2. uint64 values within the int64 range roundtrip exactly
+ * 3. Binding a uint64 value above INT64_MAX to SQLite (int64-only storage) must throw
+ * 4. Reading an int64 column into a narrower signed integer must throw on overflow
+ * 5. Reading a negative value into an unsigned integer must throw
+ */
+TEST_CASE("test_sqlite_integer_boundary") {
+    Parameter param;
+    param.set<std::string>("db", ":memory:");
+    param.set<int>("flags", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+    auto con = std::make_shared<SQLiteConnect>(param);
+
+    con->exec("CREATE TABLE t_int (v INTEGER)");
+
+    /** int64 boundary values roundtrip exactly */
+    {
+        auto st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
+        st->bind(0, std::numeric_limits<int64_t>::max());
+        st->exec();
+        st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
+        st->bind(0, std::numeric_limits<int64_t>::min());
+        st->exec();
+
+        auto query = con->getStatement("SELECT v FROM t_int ORDER BY v DESC");
+        query->exec();
+        CHECK_UNARY(query->moveNext());
+        int64_t val = 0;
+        query->getColumn(0, val);
+        CHECK_EQ(val, std::numeric_limits<int64_t>::max());
+        CHECK_UNARY(query->moveNext());
+        query->getColumn(0, val);
+        CHECK_EQ(val, std::numeric_limits<int64_t>::min());
+        con->exec("DELETE FROM t_int");
+    }
+
+    /** uint64 values within the int64 range roundtrip exactly */
+    {
+        uint64_t uval = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+        auto st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
+        st->bind(0, uval);
+        st->exec();
+
+        auto query = con->getStatement("SELECT v FROM t_int");
+        query->exec();
+        CHECK_UNARY(query->moveNext());
+        uint64_t rval = 0;
+        query->getColumn(0, rval);
+        CHECK_EQ(rval, uval);
+        con->exec("DELETE FROM t_int");
+    }
+
+    /** Binding a uint64 value above INT64_MAX must throw instead of wrapping to negative */
+    {
+        auto st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
+        uint64_t too_big = static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1;
+        CHECK_THROWS(st->bind(0, too_big));
+        uint64_t umax = std::numeric_limits<uint64_t>::max();
+        CHECK_THROWS(st->bind(0, umax));
+    }
+
+    /** Reading an int64 column into a narrower signed integer must throw on overflow */
+    {
+        auto st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
+        st->bind(0, static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1);
+        st->exec();
+
+        auto query = con->getStatement("SELECT v FROM t_int");
+        query->exec();
+        CHECK_UNARY(query->moveNext());
+        int32_t narrow = 0;
+        CHECK_THROWS(query->getColumn(0, narrow));
+        int64_t wide = 0;
+        CHECK_NOTHROW(query->getColumn(0, wide));
+        CHECK_EQ(wide, static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1);
+        con->exec("DELETE FROM t_int");
+    }
+
+    /** Reading a negative value into an unsigned integer must throw */
+    {
+        auto st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
+        st->bind(0, static_cast<int64_t>(-1));
+        st->exec();
+
+        auto query = con->getStatement("SELECT v FROM t_int");
+        query->exec();
+        CHECK_UNARY(query->moveNext());
+        uint64_t uval = 0;
+        CHECK_THROWS(query->getColumn(0, uval));
+        uint32_t unarrow = 0;
+        CHECK_THROWS(query->getColumn(0, unarrow));
+        con->exec("DELETE FROM t_int");
+    }
+}

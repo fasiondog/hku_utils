@@ -167,6 +167,13 @@ public:
     virtual uint64_t sub_getLastRowid() = 0;               ///< Subclass interface @see getLastRowid
     virtual void sub_bindNull(int idx) = 0;                ///< Subclass interface @see bind
     virtual void sub_bindInt(int idx, int64_t value) = 0;  ///< Subclass interface @see bind
+    virtual void sub_bindUInt64(int idx, uint64_t value) {
+        if (value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            throw exception("The driver cannot bind uint64 value above INT64_MAX");
+        }
+        sub_bindInt(idx, static_cast<int64_t>(value));
+    }  ///< Subclass interface @see bind. Drivers with a native unsigned binding channel should
+       ///< override it
     virtual void sub_bindDouble(int idx, double item) = 0;  ///< Subclass interface @see bind
     virtual void sub_bindDatetime(int idx, const Datetime &item) = 0;       ///< Subclass interface
                                                                             ///< @see bind
@@ -183,6 +190,15 @@ public:
                                                 ///< @see getNumColumns
     virtual void sub_getColumnAsInt64(int idx,
                                       int64_t &) = 0;  ///< Subclass interface @see getColumn
+    virtual void sub_getColumnAsUInt64(int idx, uint64_t &item) {
+        int64_t temp;
+        sub_getColumnAsInt64(idx, temp);
+        if (temp < 0) {
+            throw exception("Negative value cannot be read as uint64");
+        }
+        item = static_cast<uint64_t>(temp);
+    }  ///< Subclass interface @see getColumn. Drivers that expose an unsigned column flag should
+       ///< override it
     virtual void sub_getColumnAsDouble(int idx,
                                        double &) = 0;  ///< Subclass interface @see getColumn
     virtual void sub_getColumnAsDatetime(int idx,
@@ -269,9 +285,32 @@ inline void AsyncSQLStatementBase::getColumn(int idx, std::vector<char> &item) {
 template <typename T>
 typename std::enable_if<std::numeric_limits<T>::is_integer>::type AsyncSQLStatementBase::getColumn(
   int idx, T &item) {
-    int64_t temp;
-    sub_getColumnAsInt64(idx, temp);
-    item = (T)temp;
+    if constexpr (std::is_same_v<T, uint64_t> || std::is_same_v<T, unsigned long long> ||
+                  (std::is_unsigned_v<T> && sizeof(T) == 8)) {
+        uint64_t temp;
+        sub_getColumnAsUInt64(idx, temp);
+        item = static_cast<T>(temp);
+    } else if constexpr (std::is_signed_v<T> && sizeof(T) < 8) {
+        // Reject silently narrowing an int64 value into a smaller signed type
+        int64_t temp;
+        sub_getColumnAsInt64(idx, temp);
+        if (temp < static_cast<int64_t>(std::numeric_limits<T>::min()) ||
+            temp > static_cast<int64_t>(std::numeric_limits<T>::max())) {
+            throw exception("Column value overflows the target integer type");
+        }
+        item = static_cast<T>(temp);
+    } else if constexpr (std::is_unsigned_v<T>) {
+        // Smaller unsigned types: reject negative values and values above the target range
+        int64_t temp;
+        sub_getColumnAsInt64(idx, temp);
+        if (temp < 0 ||
+            static_cast<uint64_t>(temp) > static_cast<uint64_t>(std::numeric_limits<T>::max())) {
+            throw exception("Column value overflows the target unsigned integer type");
+        }
+        item = static_cast<T>(temp);
+    } else {
+        sub_getColumnAsInt64(idx, reinterpret_cast<int64_t &>(item));
+    }
 }
 
 template <typename T>
@@ -337,7 +376,12 @@ inline void AsyncSQLStatementBase::bind(int idx, const std::vector<char> &item) 
 template <typename T>
 typename std::enable_if<std::numeric_limits<T>::is_integer>::type AsyncSQLStatementBase::bind(
   int idx, const T &item) {
-    sub_bindInt(idx, item);
+    if constexpr (std::is_same_v<T, uint64_t> || std::is_same_v<T, unsigned long long> ||
+                  (std::is_unsigned_v<T> && sizeof(T) == 8)) {
+        sub_bindUInt64(idx, static_cast<uint64_t>(item));
+    } else {
+        sub_bindInt(idx, static_cast<int64_t>(item));
+    }
 }
 
 template <typename T>
