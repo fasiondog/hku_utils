@@ -605,4 +605,28 @@ TEST_CASE("test_TimeDelta_chrono_duration_operator") {
     CHECK_THROWS(td_min - std::chrono::hours(1));
 }
 
+/** @par 检测点 */
+TEST_CASE("test_TimeDelta_string_constructor") {
+    /** @arg normal round-trip of integer seconds */
+    CHECK(TimeDelta("0 days, 00:00:01").ticks() == TimeDelta(0, 0, 0, 1).ticks());
+    CHECK(TimeDelta("1 days, 00:00:00").ticks() == TimeDelta(1).ticks());
+    CHECK(TimeDelta("7 days, 10:20:03").ticks() == TimeDelta(7, 10, 20, 3).ticks());
+
+    /** @arg sub-second part rounded to nearest microsecond instead of truncated, so
+     * "59.999999" yields 59999999us rather than 59999998us */
+    CHECK(TimeDelta("0 days, 00:00:59.999999").ticks() == 59999999LL);
+    CHECK(TimeDelta("0 days, 00:00:00.000001").ticks() == 1LL);
+    CHECK(TimeDelta("0 days, 00:00:00.500000").ticks() == 500000LL);
+    CHECK(TimeDelta("0 days, 00:00:59.000000").ticks() == 59000000LL);
+
+    /** @arg negative duration parsed correctly */
+    CHECK(TimeDelta("-1 days, 23:00:00").ticks() == TimeDelta(0, -1).ticks());
+    CHECK(TimeDelta("-1 days, 23:59:59.999999").ticks() == TimeDelta(0, 0, 0, 0, 0, -1).ticks());
+
+    /** @arg invalid format throws */
+    CHECK_THROWS(TimeDelta("abc"));
+    CHECK_THROWS(TimeDelta("1:2"));
+    CHECK_THROWS(TimeDelta("0 days, 00:00"));
+}
+
 /** @} */
