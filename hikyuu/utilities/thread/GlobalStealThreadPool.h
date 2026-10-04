@@ -63,6 +63,15 @@ public:
             }
         } catch (...) {
             m_done.store(true, std::memory_order_release);
+            // Wake up and join the already started worker threads before the members are
+            // destroyed, otherwise the workers would access the destroyed members
+            m_cv.notify_all();
+            size_t started = m_threads.size();
+            for (size_t i = 0; i < started; i++) {
+                if (m_threads[i].joinable()) {
+                    m_threads[i].join();
+                }
+            }
             throw;
         }
     }
