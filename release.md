@@ -42,6 +42,7 @@
 - fix(datetime): TimeDelta 字符串构造解析秒小数改用 llround 取整，避免 59.999999 这类值因浮点表示误差被截断少 1 微秒
 - fix(thread): StealThreadPool/GlobalStealThreadPool/MQStealThreadPool 的 join 判据引入 in-flight 计数，修复任务已出队但尚未执行完（或仍会递归 submit 子任务）时 join 提前设 m_done 导致后续 submit 抛 logic_error、子任务丢失的问题
 - fix(thread): MQStealThreadPool 多生产者并发 submit 时轮询索引 m_current_index 改为 atomic fetch_add，消除普通 int 读改写的数据竞争（TSan 必报 UB）
+- fix(utilities): TimerManager 检测线程内 submit 抛异常（如外部线程池已停止）时捕获并移除该定时器，不再让 logic_error 逃逸出线程函数导致 std::terminate；并加顶层 catch 兜底
 
 ## 1.5.3 - 2026年9月21日
 
