@@ -155,6 +155,35 @@ TEST_CASE("test_MQStealThreadPool_recursive_submit") {
     recursive_submit_must_not_lose_tasks<MQStealThreadPool>();
 }
 
+/**
+ * @par 检测点
+ * 1. Multiple non-worker producer threads submit concurrently: the round-robin index
+ *    m_current_index must be updated atomically, otherwise it is a data race (H4).
+ * 2. Every submitted task is executed exactly once (no lost or duplicated tasks).
+ */
+TEST_CASE("test_MQStealThreadPool_multi_producer_submit") {
+    const int producer_count = 8;
+    const int per_producer = 500;
+    std::atomic<int> executed{0};
+    MQStealThreadPool pool(4);
+
+    std::vector<std::thread> producers;
+    producers.reserve(producer_count);
+    for (int p = 0; p < producer_count; ++p) {
+        producers.emplace_back([&pool, &executed, per_producer]() {
+            for (int i = 0; i < per_producer; ++i) {
+                pool.submit([&executed]() { executed.fetch_add(1, std::memory_order_relaxed); });
+            }
+        });
+    }
+    for (auto& t : producers) {
+        t.join();
+    }
+
+    pool.join();
+    CHECK(executed.load() == producer_count * per_producer);
+}
+
 #endif
 
 /** @} */

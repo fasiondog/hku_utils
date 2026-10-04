@@ -152,11 +152,12 @@ public:
                 return res;
             }
 
-            m_queues[m_current_index]->push(std::move(task));
-            m_current_index++;
-            if (m_current_index >= m_worker_num) {
-                m_current_index = 0;
-            }
+            // Round-robin across worker queues; atomic fetch_add avoids the data race on the
+            // index when multiple producer threads submit concurrently. Modulo keeps it in range
+            // even after the counter wraps.
+            int idx = m_current_index.fetch_add(1, std::memory_order_relaxed) %
+                      static_cast<int>(m_worker_num);
+            m_queues[idx]->push(std::move(task));
         } catch (...) {
             m_running_task_count.fetch_sub(1, std::memory_order_relaxed);
             throw;
@@ -282,7 +283,8 @@ private:
     std::vector<std::thread> m_threads;                              // Worker threads
 
     std::unordered_map<std::thread::id, int> m_thread_index;
-    int m_current_index = 0;  // The queue index used when a new task is placed currently
+    std::atomic<int> m_current_index{0};  // The queue index used when a new task is placed
+                                          // currently (round-robin, atomic for multi-producer)
 
     void worker_thread(int index) {
         while (!m_interrupt_flags[index].isSet() && !m_done) {
