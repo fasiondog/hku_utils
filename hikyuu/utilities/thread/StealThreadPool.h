@@ -172,17 +172,21 @@ public:
      * It waits for every thread to finish the currently executed task and then exits immediately
      */
     void stop() {
-        if (m_done) {
+        // Serialize with join(): two threads must never join the same worker concurrently
+        std::lock_guard<std::mutex> lock(m_join_mutex);
+        if (m_done.exchange(true, std::memory_order_acq_rel)) {
             return;
         }
 
-        m_done = true;
-
         // At the same time the end task indication is added, so that it can also be terminated when
-        // the dll exits
-        for (size_t i = 0; i < m_worker_num; i++) {
-            m_interrupt_flags[i].set();
-            m_queues[i]->push_front(FuncWrapper());
+        // the dll exits. The state change is done under m_cv_mutex so a worker cannot evaluate the
+        // wait predicate before m_done becomes visible and then miss the notify (lost wakeup).
+        {
+            std::lock_guard<std::mutex> lk(m_cv_mutex);
+            for (size_t i = 0; i < m_worker_num; i++) {
+                m_interrupt_flags[i].set();
+                m_queues[i]->push_front(FuncWrapper());
+            }
         }
 
         m_cv.notify_all();  // Wake up all the worker threads
@@ -203,26 +207,40 @@ public:
      * @note From then on the thread pool cannot be used after the worker threads are ended
      */
     void join() {
-        if (m_done) {
-            return;
-        }
-
         // It instructs every worker thread to stop running when no work task is got
         if (m_running_until_empty) {
             // Wait until there is no queued nor in-flight task. The counter already covers queued
             // tasks (incremented at submit time), so a zero counter means the pool is truly idle.
-            while (m_running_task_count.load(std::memory_order_acquire) != 0) {
+            // Done outside the join mutex so a concurrent stop() is not blocked; stop() discards
+            // queued tasks without decrementing the counter, so m_done must also break the wait.
+            while (!m_done.load(std::memory_order_acquire) &&
+                   m_running_task_count.load(std::memory_order_acquire) != 0) {
                 std::this_thread::yield();
-            }
-
-            m_done = true;
-            for (size_t i = 0; i < m_worker_num; i++) {
-                m_interrupt_flags[i].set();
             }
         }
 
-        for (size_t i = 0; i < m_worker_num; i++) {
-            m_master_work_queue.push(FuncWrapper());
+        // Serialize with other join()/stop() calls: the workers must be joined exactly once
+        std::lock_guard<std::mutex> lock(m_join_mutex);
+        if (m_done) {
+            return;
+        }
+
+        m_done = true;
+
+        // The state change and the sentinel pushes are done under m_cv_mutex so a worker cannot
+        // evaluate the wait predicate before m_done becomes visible and then miss the notify
+        // (lost wakeup).
+        {
+            std::lock_guard<std::mutex> lk(m_cv_mutex);
+            if (m_running_until_empty) {
+                for (size_t i = 0; i < m_worker_num; i++) {
+                    m_interrupt_flags[i].set();
+                }
+            }
+
+            for (size_t i = 0; i < m_worker_num; i++) {
+                m_master_work_queue.push(FuncWrapper());
+            }
         }
 
         // Wake up all the worker threads
@@ -235,7 +253,6 @@ public:
             }
         }
 
-        m_done = true;
         m_master_work_queue.clear();
         for (size_t i = 0; i < m_worker_num; i++) {
             m_queues[i]->clear();
@@ -272,8 +289,9 @@ private:
     size_t m_worker_num;         // Number of the worker threads
     bool m_running_until_empty;  // It stops running automatically when the task queue is empty
     std::condition_variable
-      m_cv;                 // Semaphore, it blocks the threads and waits when there is no task
-    std::mutex m_cv_mutex;  // The mutex working together with the semaphore
+      m_cv;                   // Semaphore, it blocks the threads and waits when there is no task
+    std::mutex m_cv_mutex;    // The mutex working together with the semaphore
+    std::mutex m_join_mutex;  // Serializes join()/stop() so workers are joined exactly once
 
     std::atomic<size_t> m_running_task_count{0};  // Submitted but not yet finished tasks (queued +
                                                   // in-flight)

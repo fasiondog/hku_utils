@@ -226,6 +226,90 @@ TEST_CASE("test_MQStealThreadPool_stop_discards_queued_tasks") {
     CHECK_THROWS_AS(pool.submit([]() {}), std::logic_error);
 }
 
+/**
+ * @brief test concurrent join()/stop() on the steal pools
+ * 1. Two concurrent join() calls must not join the same worker thread twice (UB); every
+ *    submitted task is executed exactly once.
+ * 2. join() racing with stop() must complete without crash or hang; tasks still queued when
+ *    stop() wins may be discarded, so no assertion is made on the executed count there.
+ */
+TEST_CASE("test_StealThreadPool_concurrent_join_stop") {
+    for (int iter = 0; iter < 10; ++iter) {
+        /** Concurrent join: all tasks must run exactly once */
+        StealThreadPool pool(4);
+        std::atomic<int> executed{0};
+        for (int i = 0; i < 20; ++i) {
+            pool.submit([&]() { executed.fetch_add(1, std::memory_order_relaxed); });
+        }
+        std::thread t1([&]() { pool.join(); });
+        std::thread t2([&]() { pool.join(); });
+        t1.join();
+        t2.join();
+        CHECK_EQ(executed.load(), 20);
+
+        /** join racing stop: must not crash or hang */
+        StealThreadPool pool2(4);
+        for (int i = 0; i < 20; ++i) {
+            pool2.submit([]() { std::this_thread::yield(); });
+        }
+        std::thread t3([&]() { pool2.join(); });
+        std::thread t4([&]() { pool2.stop(); });
+        t3.join();
+        t4.join();
+        CHECK_UNARY(pool2.done());
+    }
+}
+
+TEST_CASE("test_GlobalStealThreadPool_concurrent_join_stop") {
+    for (int iter = 0; iter < 10; ++iter) {
+        GlobalStealThreadPool pool(4);
+        std::atomic<int> executed{0};
+        for (int i = 0; i < 20; ++i) {
+            pool.submit([&]() { executed.fetch_add(1, std::memory_order_relaxed); });
+        }
+        std::thread t1([&]() { pool.join(); });
+        std::thread t2([&]() { pool.join(); });
+        t1.join();
+        t2.join();
+        CHECK_EQ(executed.load(), 20);
+
+        GlobalStealThreadPool pool2(4);
+        for (int i = 0; i < 20; ++i) {
+            pool2.submit([]() { std::this_thread::yield(); });
+        }
+        std::thread t3([&]() { pool2.join(); });
+        std::thread t4([&]() { pool2.stop(); });
+        t3.join();
+        t4.join();
+        CHECK_UNARY(pool2.done());
+    }
+}
+
+TEST_CASE("test_MQStealThreadPool_concurrent_join_stop") {
+    for (int iter = 0; iter < 10; ++iter) {
+        MQStealThreadPool pool(4);
+        std::atomic<int> executed{0};
+        for (int i = 0; i < 20; ++i) {
+            pool.submit([&]() { executed.fetch_add(1, std::memory_order_relaxed); });
+        }
+        std::thread t1([&]() { pool.join(); });
+        std::thread t2([&]() { pool.join(); });
+        t1.join();
+        t2.join();
+        CHECK_EQ(executed.load(), 20);
+
+        MQStealThreadPool pool2(4);
+        for (int i = 0; i < 20; ++i) {
+            pool2.submit([]() { std::this_thread::yield(); });
+        }
+        std::thread t3([&]() { pool2.join(); });
+        std::thread t4([&]() { pool2.stop(); });
+        t3.join();
+        t4.join();
+        CHECK_UNARY(pool2.done());
+    }
+}
+
 #endif
 
 /** @} */

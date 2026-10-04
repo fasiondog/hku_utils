@@ -178,6 +178,8 @@ public:
      * It waits for every thread to finish the currently executed task and then exits immediately
      */
     void stop() {
+        // Serialize with join(): two threads must never join the same worker concurrently
+        std::lock_guard<std::mutex> lock(m_join_mutex);
         // Reject new submissions before waking the workers, otherwise a task submitted during
         // stop could be silently dropped (and its future broken) or even executed
         if (m_done.exchange(true, std::memory_order_relaxed)) {
@@ -211,19 +213,26 @@ public:
      * @note From then on the thread pool cannot be used after the worker threads are ended
      */
     void join() {
-        if (m_done) {
-            return;
-        }
-
         // It instructs every worker thread to stop running when no work task is got
         if (m_runnging_until_empty) {
             // Wait until there is no queued nor in-flight task. The counter already covers queued
             // tasks (incremented at submit time), so a zero counter means the pool is truly idle.
-            while (m_running_task_count.load(std::memory_order_acquire) != 0) {
+            // Done outside the join mutex so a concurrent stop() is not blocked; stop() discards
+            // queued tasks without decrementing the counter, so m_done must also break the wait.
+            while (!m_done.load(std::memory_order_acquire) &&
+                   m_running_task_count.load(std::memory_order_acquire) != 0) {
                 std::this_thread::yield();
             }
+        }
 
-            m_done = true;
+        // Serialize with other join()/stop() calls: the workers must be joined exactly once
+        std::lock_guard<std::mutex> lock(m_join_mutex);
+        if (m_done) {
+            return;
+        }
+
+        m_done = true;
+        if (m_runnging_until_empty) {
             for (size_t i = 0; i < m_worker_num; i++) {
                 if (m_interrupt_flags[i]) {
                     m_interrupt_flags[i].set();
@@ -284,6 +293,7 @@ private:
     std::vector<std::unique_ptr<MQStealQueue<task_type>>> m_queues;  // Thread task queues
     std::vector<InterruptFlag> m_interrupt_flags;                    // Thread termination flags
     std::vector<std::thread> m_threads;                              // Worker threads
+    std::mutex m_join_mutex;  // Serializes join()/stop() so workers are joined exactly once
 
     std::unordered_map<std::thread::id, int> m_thread_index;
     std::atomic<int> m_current_index{0};  // The queue index used when a new task is placed
