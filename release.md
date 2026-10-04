@@ -49,6 +49,7 @@
 - fix(http_client): 请求头在序列化前统一校验（名称须为合法 token，值禁止 CR/LF/NUL 等控制字符），setDefaultHeaders 及普通/流式请求入口均生效，防止 CRLF 注入伪造请求头
 - fix(utilities): ResourceTlsPool/ResourceTlsVersionPool 析构改为按环形取模下标释放全部空闲槽位，修复按连续下标释放漏删 wrap-around 槽位导致的资源泄漏；普通 TlsPool 环满删除路径补齐计数递减，跨线程归还"容量不恢复"作为文档化限制在类注释中明确
 - fix(utilities): copyFile 校验源文件/目标文件是否成功打开及流状态，源不存在或目标目录无效时返回 false 且不再生成空目标，空源文件拷贝仍正常成功
+- fix(utilities): moFileReader 解析 .mo 前先获取实际数据长度并校验头中的字符串数量、描述表偏移及每个字符串的长度/偏移（禁止负数和越界），截断读改查 failbit（原只查 badbit 致畸形文件静默返回空翻译），bad_alloc 转为错误码，错误返回路径的缓冲区泄漏一并修复
 
 ## 1.5.3 - 2026年9月21日
 
