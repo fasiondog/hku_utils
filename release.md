@@ -44,6 +44,7 @@
 - fix(thread): MQStealThreadPool 多生产者并发 submit 时轮询索引 m_current_index 改为 atomic fetch_add，消除普通 int 读改写的数据竞争（TSan 必报 UB）
 - fix(utilities): TimerManager 检测线程内 submit 抛异常（如外部线程池已停止）时捕获并移除该定时器，不再让 logic_error 逃逸出线程函数导致 std::terminate；并加顶层 catch 兜底
 - fix(db_connect): AsyncAutoTransAction 明确析构自动提交语义，修正误导性文档与测试断言；事务未启动或 io_context 已停止时析构不再派生提交协程
+- fix(db_connect): MySQL 预处理语句的自定义 deleter 改为捕获按连接代际共享的存活状态，连接关闭/重连后外部仍持有的语句析构不再通过裸连接指针调用 close_statement，消除对已释放连接的访问
 - fix(utilities): ResourceTlsPool/ResourceTlsVersionPool 析构改为按环形取模下标释放全部空闲槽位，修复按连续下标释放漏删 wrap-around 槽位导致的资源泄漏；普通 TlsPool 环满删除路径补齐计数递减，跨线程归还"容量不恢复"作为文档化限制在类注释中明确
 
 ## 1.5.3 - 2026年9月21日

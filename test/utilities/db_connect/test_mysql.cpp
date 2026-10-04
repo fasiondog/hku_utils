@@ -594,4 +594,62 @@ TEST_CASE("test_mysql_hybrid_pool_multithread") {
     CHECK(error_count.load() == 0);
 }
 
+// ============================================================================
+// Prepared statement released after the connection has been destroyed
+// ============================================================================
+
+TEST_CASE("test_mysql_statement_release_after_connect_destroyed") {
+    // A statement released after its connection is destroyed must not call close_statement on the
+    // freed connection (heap-use-after-free with the old deleter)
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    SQLStatementPtr st;
+
+    try {
+        /** The nested connection is destroyed before the statement is released */
+        {
+            MySQLConnect conn(param);
+
+            try {
+                conn.exec("USE test");
+            } catch (...) {
+                conn.exec("CREATE DATABASE IF NOT EXISTS test");
+                conn.exec("USE test");
+            }
+
+            conn.exec("DROP TABLE IF EXISTS test_stmt_uaf");
+            conn.exec("CREATE TABLE test_stmt_uaf (id INT PRIMARY KEY, name VARCHAR(50))");
+            conn.exec("INSERT INTO test_stmt_uaf VALUES (1, 'hku')");
+
+            st = conn.getStatement("SELECT id, name FROM test_stmt_uaf WHERE id = ?");
+            st->bind(0, static_cast<int64_t>(1));
+            st->exec();
+            REQUIRE(st->moveNext());
+            int64_t id;
+            std::string name;
+            st->getColumn(0, id);
+            st->getColumn(1, name);
+            CHECK_EQ(id, 1);
+            CHECK_EQ(name, "hku");
+        }
+
+        /** Release the statement: it is deleted without touching the destroyed connection */
+        st.reset();
+
+        // Clean up with a qualified name, as the fresh connection has no default database
+        {
+            MySQLConnect conn(param);
+            conn.exec("DROP TABLE IF EXISTS test.test_stmt_uaf");
+        }
+
+    } catch (const std::exception& e) {
+        MESSAGE("Statement release after connection destroyed test failed: " << e.what());
+        st.reset();
+    }
+}
+
 #endif  // HKU_ENABLE_MYSQL

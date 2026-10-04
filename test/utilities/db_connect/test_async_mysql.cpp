@@ -1629,4 +1629,70 @@ TEST_CASE("test_async_mysql_asio_pool_with_tablemacro") {
     CHECK(test_passed == true);
 }
 
+// ============================================================================
+// Prepared statement released after the connection has been destroyed
+// ============================================================================
+
+TEST_CASE("test_async_mysql_statement_release_after_connect_destroyed") {
+    // A statement released after its connection is destroyed must not call close_statement on the
+    // freed connection (heap-use-after-free with the old deleter)
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    boost::asio::io_context io_context;
+    bool test_passed = false;
+    AsyncSQLStatementPtr st;
+
+    auto run_test = [&]() -> net::awaitable<void> {
+        auto conn = std::make_shared<AsyncMySQLConnect>(param);
+
+        co_await conn->exec("DROP TABLE IF EXISTS test_async_stmt_uaf");
+        co_await conn->exec(
+          "CREATE TABLE test_async_stmt_uaf (id INT PRIMARY KEY, name VARCHAR(50))");
+        co_await conn->exec("INSERT INTO test_async_stmt_uaf VALUES (1, 'hku')");
+
+        st = co_await conn->getStatement("SELECT id, name FROM test_async_stmt_uaf WHERE id = ?");
+        st->bind(0, static_cast<int64_t>(1));
+        co_await st->exec();
+        REQUIRE(co_await st->moveNext());
+        int64_t id;
+        std::string name;
+        st->getColumn(0, id);
+        st->getColumn(1, name);
+        CHECK_EQ(id, 1);
+        CHECK_EQ(name, "hku");
+
+        // Destroy the connection while st is still held
+        conn.reset();
+
+        /** Release the statement: it is deleted without touching the destroyed connection */
+        st.reset();
+
+        test_passed = true;
+    };
+
+    boost::asio::co_spawn(io_context, run_test, boost::asio::detached);
+    io_context.run_for(std::chrono::seconds(10));
+
+    st.reset();
+
+    // Clean up through a fresh connection
+    if (test_passed) {
+        boost::asio::io_context cleanup_io;
+        boost::asio::co_spawn(
+          cleanup_io,
+          [&]() -> net::awaitable<void> {
+              auto conn = std::make_shared<AsyncMySQLConnect>(param);
+              co_await conn->exec("DROP TABLE IF EXISTS test_async_stmt_uaf");
+          },
+          boost::asio::detached);
+        cleanup_io.run_for(std::chrono::seconds(5));
+    }
+
+    CHECK(test_passed == true);
+}
+
 #endif  // HKU_ENABLE_MYSQL
