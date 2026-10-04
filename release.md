@@ -37,6 +37,7 @@
 - fix(thread): ThreadSafeQueue 与 MQStealQueue 的 size() 改为加锁读取，消除线程池 join 忙等期间与任务入队/出队的数据竞争
 - fix(thread): 五个线程池构造失败时唤醒并 join 已启动的工作线程后再传播异常，消除成员析构与仍在运行的线程竞争访问导致的未定义行为
 - fix(parameter): Parameter::get&lt;float&gt; 值域下界改用 lowest()，修复读取负数时被误判越界抛出异常
+- fix(os): removeDir 改用 lstat（Windows 按 reparse point 识别），目录内的符号链接/junction 仅删除链接本身，不再递归进入其目标目录删除外部文件；并修复空路径触发异常、stat 返回值未检查问题
 
 ## 1.5.3 - 2026年9月21日
 

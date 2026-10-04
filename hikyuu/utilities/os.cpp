@@ -115,6 +115,9 @@ bool HKU_UTILS_API removeFile(const std::string &filename) noexcept {
 #ifdef _WIN32
 // Delete the directory and the files and subdirectories it contains
 bool HKU_UTILS_API removeDir(const std::string &path) noexcept {
+    if (path.empty()) {
+        return false;
+    }
     std::string strPath = HKU_PATH(path);
     struct _finddata_t fb;  // The structure storing the found files of the same attribute
     // Create it for the path regularization
@@ -136,8 +139,17 @@ bool HKU_UTILS_API removeDir(const std::string &path) noexcept {
                 // Build the complete path
                 pathTemp.clear();
                 pathTemp = strPath + std::string(fb.name);
+                // A reparse point (symlink/junction) is always removed as the link itself and
+                // never recursed into, to avoid deleting files outside the removed directory
+                if (fb.attrib & FILE_ATTRIBUTE_REPARSE_POINT) {
+                    if (fb.attrib & _A_SUBDIR) {
+                        _rmdir(pathTemp.c_str());
+                    } else {
+                        remove(pathTemp.c_str());
+                    }
+                }
                 // An attribute value of 16 means it is a folder, iterate
-                if (fb.attrib == _A_SUBDIR)  //_A_SUBDIR=16
+                else if (fb.attrib == _A_SUBDIR)  //_A_SUBDIR=16
                 {
                     removeDir(GBToUTF8(pathTemp));
                 }
@@ -160,6 +172,9 @@ bool HKU_UTILS_API removeDir(const std::string &path) noexcept {
 #else   // #ifdef _WIN32
 // Delete the directory and the files and subdirectories it contains
 bool HKU_UTILS_API removeDir(const std::string &path) noexcept {
+    if (path.empty()) {
+        return false;
+    }
     std::string strPath(path);
     if (strPath.at(strPath.length() - 1) != '\\' && strPath.at(strPath.length() - 1) != '/') {
         strPath.append("/");
@@ -175,7 +190,12 @@ bool HKU_UTILS_API removeDir(const std::string &path) noexcept {
                 struct stat st;        // The file information
                 std::string fileName;  // The file name inside the folder
                 fileName = strPath + std::string(dt->d_name);
-                stat(fileName.c_str(), &st);
+                // Use lstat so that symlinks are never followed: a symlink (even one pointing to
+                // a directory) is removed as the link itself instead of recursing into its target,
+                // which could delete files outside the removed directory
+                if (lstat(fileName.c_str(), &st) != 0) {
+                    continue;
+                }
                 if (S_ISDIR(st.st_mode)) {
                     removeDir(fileName);
                 } else {
