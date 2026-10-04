@@ -616,6 +616,56 @@ TEST_CASE("test_ResourcePool_ConcurrentCounters") {
     reader.join();
 }
 
+TEST_CASE("test_ResourcePool_WaiterWokenOnDestroy") {
+    Parameter param;
+    auto* pool_ptr = new ResourcePool<TestResource>(param, 1, 10);
+    auto held = pool_ptr->get();
+    std::atomic<bool> waiter_threw(false);
+
+    /** A getter blocked because the only resource is in use is woken by the destructor and throws
+     * ResourcePoolClosedException instead of waiting forever or touching the destroyed pool */
+    std::thread waiter([&]() {
+        try {
+            pool_ptr->getAndWait();
+        } catch (const ResourcePoolClosedException&) {
+            waiter_threw.store(true);
+        }
+    });
+
+    // Make sure the waiter has entered the cond wait before destroying the pool
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    delete pool_ptr;
+    waiter.join();
+    CHECK_UNARY(waiter_threw.load());
+
+    // The closer was unbound, so the held resource is deleted here without touching the pool
+    held.reset();
+}
+
+TEST_CASE("test_ResourceVersionPool_WaiterWokenOnDestroy") {
+    Parameter param;
+    param.set<std::string>("version", "v1");
+    auto* pool_ptr = new ResourceVersionPool<TTResource>(param, 1, 10);
+    auto held = pool_ptr->get();
+    std::atomic<bool> waiter_threw(false);
+
+    /** Same close behavior for the versioned pool */
+    std::thread waiter([&]() {
+        try {
+            pool_ptr->getAndWait();
+        } catch (const ResourcePoolClosedException&) {
+            waiter_threw.store(true);
+        }
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    delete pool_ptr;
+    waiter.join();
+    CHECK_UNARY(waiter_threw.load());
+
+    held.reset();
+}
+
 TEST_CASE("test_ResourcePool_OriginalTest") {
     Parameter param;
     ResourcePool<TestResource> pool(param);
