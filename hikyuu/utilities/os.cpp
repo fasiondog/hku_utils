@@ -213,12 +213,28 @@ bool HKU_UTILS_API copyFile(const std::string &src, const std::string &dst, bool
     bool success = false;
     try {
         std::ifstream srcio(HKU_PATH(src), std::ios::binary);
+        if (!srcio.is_open()) {
+            HKU_WARN("Failed to open source file for copy: {}", src);
+            return false;
+        }
+        // Open the destination only after the source is readable, so a missing source leaves no
+        // empty target behind
         std::ofstream dstio(HKU_PATH(dst), std::ios::binary);
+        if (!dstio.is_open()) {
+            HKU_WARN("Failed to open destination file for copy: {}", dst);
+            return false;
+        }
         dstio << srcio.rdbuf();
         if (flush) {
             dstio.flush();
         }
-        success = true;
+        // failbit is also set for a valid empty source (nothing inserted); badbit is the real error
+        success = !srcio.bad() && !dstio.bad();
+        if (!success) {
+            HKU_WARN("Failed to copy file: {} -> {}", src, dst);
+            dstio.close();
+            std::remove(HKU_PATH(dst).c_str());
+        }
     } catch (...) {
         success = false;
     }

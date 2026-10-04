@@ -152,15 +152,47 @@ TEST_CASE("test_removeFile") {
 
 TEST_CASE("test_copyFile") {
     std::string filename("中文temp.txt");
+    std::string dstname("中文temp2.txt");
     removeFile(filename);
+    removeFile(dstname);
     CHECK_UNARY_FALSE(existFile(filename));
 
     createTestFile(filename);
     CHECK_UNARY(existFile(filename));
 
-    copyFile(filename, "中文temp2.txt");
-    CHECK_UNARY(existFile("中文temp2.txt"));
-    CHECK_UNARY(removeFile("中文temp2.txt"));
+    /** Normal copy, including the content and the flush flag */
+    CHECK_UNARY(copyFile(filename, dstname, true));
+    CHECK_UNARY(existFile(dstname));
+    std::ifstream in1(HKU_PATH(filename), std::ios::binary);
+    std::ifstream in2(HKU_PATH(dstname), std::ios::binary);
+    std::ostringstream ss1, ss2;
+    ss1 << in1.rdbuf();
+    ss2 << in2.rdbuf();
+    CHECK_EQ(ss1.str(), ss2.str());
+    CHECK_UNARY(removeFile(dstname));
+
+    /** Missing source: return false and leave no target behind */
+    CHECK_UNARY_FALSE(copyFile("not_exist_src_xx.bin", dstname));
+    CHECK_UNARY_FALSE(existFile(dstname));
+
+    /** Destination directory does not exist: return false */
+    CHECK_UNARY_FALSE(copyFile(filename, "no_such_dir_xx/out.bin"));
+
+    /** An empty source is a valid copy even though zero bytes are inserted */
+    std::string emptyname("中文empty.txt");
+    removeFile(emptyname);
+    FILE *fp = fopen(HKU_PATH(emptyname).c_str(), "wb");
+    fclose(fp);
+    CHECK_UNARY(copyFile(emptyname, dstname));
+    CHECK_UNARY(existFile(dstname));
+    std::ifstream in_empty(HKU_PATH(dstname), std::ios::binary);
+    std::ostringstream ss_empty;
+    ss_empty << in_empty.rdbuf();
+    CHECK_UNARY(ss_empty.str().empty());
+
+    CHECK_UNARY(removeFile(filename));
+    CHECK_UNARY(removeFile(dstname));
+    CHECK_UNARY(removeFile(emptyname));
 
     // 85M 左右的文件，在 v831 上拷贝耗时 6s，直接使用 cp 命令耗时 5s
     // {
