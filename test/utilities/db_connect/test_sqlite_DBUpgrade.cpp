@@ -98,3 +98,96 @@ TEST_CASE("test_async_sqlite_DBUpgrade") {
     }
     CHECK(test_passed);
 }
+
+TEST_CASE("test_sqlite_DBUpgrade_module_name_escaped") {
+    // The module name carries a double quote (an injection payload); it must be treated as a plain
+    // name rather than breaking out of the string literal
+    removeFile("测试/test_escape.db");
+
+    const char *evil_name = "evil\" OR \"1\"=\"1";
+
+    const char *create_script = R"(
+        CREATE TABLE evil_table (id INTEGER PRIMARY KEY AUTOINCREMENT);
+    )";
+
+    Parameter param;
+    param.set<std::string>("db", "测试/test_escape.db");
+    param.set<int>("flags", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+    auto con = std::make_shared<SQLiteConnect>(param);
+
+    /** Create with the quote-bearing name: the version SELECT must not match any row */
+    DBUpgrade(con, evil_name, {}, 2, create_script);
+    CHECK_EQ(con->queryInt(fmt::format("select version from module_version where module={}",
+                                       sqlStringLiteral(evil_name)),
+                           0),
+             1);
+
+    /** Upgrade the same module; the UPDATE must hit its own row only */
+    std::vector<std::string> upgrade_scripts = {
+      R"(CREATE TABLE evil_table2 (id INTEGER PRIMARY KEY);)",
+    };
+    DBUpgrade(con, evil_name, upgrade_scripts, 2, nullptr);
+    CHECK_EQ(con->queryInt(fmt::format("select version from module_version where module={}",
+                                       sqlStringLiteral(evil_name)),
+                           0),
+             2);
+
+    /** A different module is not confused with the escaped one */
+    CHECK_EQ(con->queryInt("select count(*) from module_version", 0), 1);
+}
+
+TEST_CASE("test_async_sqlite_DBUpgrade_module_name_escaped") {
+    // Asynchronous counterpart of the quote-bearing module name test
+    removeFile("测试/test_async_escape.db");
+
+    const char *evil_name = "evil\" OR \"1\"=\"1";
+    const char *create_script = R"(
+        CREATE TABLE evil_table (id INTEGER PRIMARY KEY AUTOINCREMENT);
+    )";
+
+    boost::asio::io_context io_context;
+    bool test_passed = false;
+    std::exception_ptr captured_exception;
+
+    boost::asio::co_spawn(
+      io_context,
+      [&]() -> net::awaitable<void> {
+          try {
+              Parameter param;
+              param.set<std::string>("db", "测试/test_async_escape.db");
+              param.set<int>("flags", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+              auto con = std::make_shared<AsyncSQLiteConnect>(param);
+
+              co_await DBUpgrade(con, evil_name, {}, 2, create_script);
+              CHECK_EQ(co_await con->queryInt(
+                         fmt::format("select version from module_version where module={}",
+                                     sqlStringLiteral(evil_name)),
+                         0),
+                       1);
+
+              std::vector<std::string> upgrade_scripts = {
+                R"(CREATE TABLE evil_table2 (id INTEGER PRIMARY KEY);)",
+              };
+              co_await DBUpgrade(con, evil_name, upgrade_scripts, 2, nullptr);
+              CHECK_EQ(co_await con->queryInt(
+                         fmt::format("select version from module_version where module={}",
+                                     sqlStringLiteral(evil_name)),
+                         0),
+                       2);
+
+              CHECK_EQ(co_await con->queryInt("select count(*) from module_version", 0), 1);
+              test_passed = true;
+          } catch (...) {
+              captured_exception = std::current_exception();
+          }
+          co_return;
+      },
+      boost::asio::detached);
+
+    io_context.run();
+
+    if (captured_exception) {
+        std::rethrow_exception(captured_exception);
+    }
+    CHECK(test_passed);
+}
