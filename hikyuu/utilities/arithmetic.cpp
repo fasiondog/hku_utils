@@ -6,6 +6,7 @@
  */
 
 #include <stdexcept>
+#include <memory>
 #include <utf8proc.h>
 #include "arithmetic.h"
 
@@ -51,39 +52,33 @@ template float HKU_UTILS_API roundDown(float number, int ndigits);
  * @note It takes effect on the Windows platform only
  */
 std::string HKU_UTILS_API utf8_to_gb(const char *szinput) {
-    wchar_t *strSrc;
-    char *szRes;
     std::string nullStr;
     if (!szinput) {
         return nullStr;
     }
 
+    // RAII buffers: every failure path releases them, the conversion failure of one stage used
+    // to leak the buffer allocated by the previous stage
     int i = MultiByteToWideChar(CP_UTF8, 0, szinput, -1, NULL, 0);
     if (i == 0) {
         return nullStr;
     }
-    strSrc = new wchar_t[i + 1];
-    if (!MultiByteToWideChar(CP_UTF8, 0, szinput, -1, strSrc, i)) {
-        delete[] strSrc;
+    std::unique_ptr<wchar_t[]> strSrc(new wchar_t[i + 1]);
+    if (!MultiByteToWideChar(CP_UTF8, 0, szinput, -1, strSrc.get(), i)) {
         return nullStr;
     }
 
-    i = WideCharToMultiByte(CP_ACP, 0, strSrc, -1, NULL, 0, NULL, NULL);
+    i = WideCharToMultiByte(CP_ACP, 0, strSrc.get(), -1, NULL, 0, NULL, NULL);
     if (i == 0) {
         return nullStr;
     }
 
-    szRes = new char[i + 1];
-    if (!WideCharToMultiByte(CP_ACP, 0, strSrc, -1, szRes, i, NULL, NULL)) {
-        delete[] szRes;
+    std::unique_ptr<char[]> szRes(new char[i + 1]);
+    if (!WideCharToMultiByte(CP_ACP, 0, strSrc.get(), -1, szRes.get(), i, NULL, NULL)) {
         return nullStr;
     }
 
-    std::string result(szRes);
-
-    delete[] strSrc;
-    delete[] szRes;
-    return result;
+    return std::string(szRes.get());
 }
 
 std::string HKU_UTILS_API utf8_to_gb(const std::string &szinput) {
@@ -97,40 +92,33 @@ std::string HKU_UTILS_API utf8_to_gb(const std::string &szinput) {
  * @note It takes effect on the Windows platform only
  */
 std::string HKU_UTILS_API gb_to_utf8(const char *szinput) {
-    wchar_t *strSrc;
-    char *szRes;
     std::string nullstr;
     if (!szinput) {
         return nullstr;
     }
 
+    // RAII buffers: every failure path releases them, the conversion failure of one stage used
+    // to leak the buffer allocated by the previous stage
     int i = MultiByteToWideChar(CP_ACP, 0, szinput, -1, NULL, 0);
     if (0 == i) {
         return nullstr;
     }
-
-    strSrc = new wchar_t[i + 1];
-    if (!MultiByteToWideChar(CP_ACP, 0, szinput, -1, strSrc, i)) {
-        delete[] strSrc;
+    std::unique_ptr<wchar_t[]> strSrc(new wchar_t[i + 1]);
+    if (!MultiByteToWideChar(CP_ACP, 0, szinput, -1, strSrc.get(), i)) {
         return nullstr;
     }
 
-    i = WideCharToMultiByte(CP_UTF8, 0, strSrc, -1, NULL, 0, NULL, NULL);
+    i = WideCharToMultiByte(CP_UTF8, 0, strSrc.get(), -1, NULL, 0, NULL, NULL);
     if (0 == i) {
         return nullstr;
     }
 
-    szRes = new char[i + 1];
-    if (!WideCharToMultiByte(CP_UTF8, 0, strSrc, -1, szRes, i, NULL, NULL)) {
-        delete[] szRes;
+    std::unique_ptr<char[]> szRes(new char[i + 1]);
+    if (!WideCharToMultiByte(CP_UTF8, 0, strSrc.get(), -1, szRes.get(), i, NULL, NULL)) {
         return nullstr;
     }
 
-    std::string result(szRes);
-
-    delete[] strSrc;
-    delete[] szRes;
-    return result;
+    return std::string(szRes.get());
 }
 
 std::string HKU_UTILS_API gb_to_utf8(const std::string &szinput) {
