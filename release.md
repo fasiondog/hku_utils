@@ -54,6 +54,7 @@
 - fix(http_client): URL 解析按 RFC 3986 终结 authority 并剥离 userinfo，消除与浏览器解析的 differential；fragment 不再进入请求 target；修复以 / 结尾的路径被双写斜杠
 - fix(datetime): Datetime::timestamp/timestampUTC 返回值由 uint64_t 改为 int64_t，1970 年前日期正常返回负微秒数不再无符号下溢，Null Datetime 映射 Null<int64_t>（下游以无符号类型接收时间戳的调用需调整类型）
 - fix(utilities): md5 长度算术改用 64 位无溢出类型，Windows 下超过 4GB 的输入不再产出错误摘要；临时缓冲改 RAII 管理异常时不泄漏；文档明确 MD5 仅限完整性校验/缓存键用途、禁止安全用途
+- perf(http_client): url_escape/url_unescape 预先 reserve 输出容量，避免追加过程中反复扩容
 - fix(utilities): utf8_to_gb/gb_to_utf8（Windows）的转换缓冲改 RAII 管理，任一阶段转换失败不再泄漏上一阶段分配的缓冲
 - fix(db_connect): DuckDB exec 改用 duckdb_rows_changed 返回真实受影响行数（原对修改语句恒返回 1、对返回结果集的查询返回 0，语义反转）
 - fix(db_connect): SQLResultSetIterator 拷贝构造/赋值补上缓存行值 m_value，拷贝出的迭代器解引用不再得到默认构造的无效行
