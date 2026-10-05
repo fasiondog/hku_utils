@@ -12,6 +12,7 @@
 #include <hikyuu/utilities/SpendTimer.h>
 #include <hikyuu/utilities/Log.h>
 #include <atomic>
+#include <chrono>
 #include <latch>
 #include <thread>
 
@@ -156,6 +157,40 @@ TEST_CASE("test_GlobalStealThreadPool_recursive_submit") {
 
 TEST_CASE("test_MQStealThreadPool_recursive_submit") {
     recursive_submit_must_not_lose_tasks<MQStealThreadPool>();
+}
+
+/**
+ * @par 检测点
+ * join()（until_empty 模式）必须等待池排空：长任务执行期间 joiner 阻塞等待
+ * （条件变量睡眠而非自旋占核），join 在慢任务完成后才返回。
+ */
+template <typename PoolType>
+static void join_waits_for_long_task() {
+    PoolType pool(2);
+    std::atomic<int> executed{0};
+    auto start = std::chrono::steady_clock::now();
+    pool.submit([&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        executed.fetch_add(1, std::memory_order_relaxed);
+    });
+    pool.join();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::steady_clock::now() - start)
+                     .count();
+    CHECK_EQ(executed.load(), 1);
+    CHECK_UNARY(elapsed >= 100);
+}
+
+TEST_CASE("test_StealThreadPool_join_waits_for_long_task") {
+    join_waits_for_long_task<StealThreadPool>();
+}
+
+TEST_CASE("test_GlobalStealThreadPool_join_waits_for_long_task") {
+    join_waits_for_long_task<GlobalStealThreadPool>();
+}
+
+TEST_CASE("test_MQStealThreadPool_join_waits_for_long_task") {
+    join_waits_for_long_task<MQStealThreadPool>();
 }
 
 /**
