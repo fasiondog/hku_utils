@@ -244,13 +244,14 @@ public:
     }
 
     SQLResultSetIterator(const SQLResultSetIterator& other)
-    : m_set(other.m_set), m_index(other.m_index) {}
+    : m_set(other.m_set), m_index(other.m_index), m_value(other.m_value) {}
 
     SQLResultSetIterator& operator=(const SQLResultSetIterator& other) {
         if (this == &other)
             return *this;
         m_index = other.m_index;
         m_set = other.m_set;
+        m_value = other.m_value;
         return *this;
     }
 

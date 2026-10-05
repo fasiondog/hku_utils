@@ -54,6 +54,7 @@
 - fix(http_client): URL 解析按 RFC 3986 终结 authority 并剥离 userinfo，消除与浏览器解析的 differential；fragment 不再进入请求 target；修复以 / 结尾的路径被双写斜杠
 - fix(datetime): Datetime::timestamp/timestampUTC 返回值由 uint64_t 改为 int64_t，1970 年前日期正常返回负微秒数不再无符号下溢，Null Datetime 映射 Null<int64_t>（下游以无符号类型接收时间戳的调用需调整类型）
 - fix(utilities): md5 长度算术改用 64 位无溢出类型，Windows 下超过 4GB 的输入不再产出错误摘要；临时缓冲改 RAII 管理异常时不泄漏；文档明确 MD5 仅限完整性校验/缓存键用途、禁止安全用途
+- fix(db_connect): SQLResultSetIterator 拷贝构造/赋值补上缓存行值 m_value，拷贝出的迭代器解引用不再得到默认构造的无效行
 - fix(utilities): snowflake 位运算改无符号算术，系统时钟早于 Twepoch（负 delta）时不再是有符号左移未定义行为，产出与 Java 实现一致的回绕负 id
 - fix(node): NodeClient::close 与 setServerAddr/getLastAckTime 改走操作锁，close 不再与 post/dial 并发操作同一 nng socket 造成竞争
 - fix(utilities): DllLoader 在 Linux/macOS 下解析 LD_LIBRARY_PATH 与 DYLD_LIBRARY_PATH/DYLD_FRAMEWORK_PATH 改用正确的冒号分隔符（原按分号拆分，整个含冒号的路径列表被当成单个无效目录，环境变量配置失效）

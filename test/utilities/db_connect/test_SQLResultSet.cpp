@@ -115,6 +115,39 @@ TEST_CASE("test_SQLResultSet") {
     CHECK_THROWS_AS(results.at(2), std::out_of_range);
 }
 
+TEST_CASE("test_SQLResultSet_iterator_copy") {
+    std::string dbname = "sql_result_set_iter_copy.db";
+    copyFile("test_data/backup_test.db", dbname);
+
+    Parameter param;
+    param.set<std::string>("db", dbname);
+    auto con = std::make_shared<SQLiteConnect>(param);
+
+    auto results = con->query<FaceCodeTable>();
+
+    auto iter = results.begin();
+    CHECK_EQ(iter->id(), 37);
+    ++iter;
+    ++iter;
+    CHECK_EQ(iter->id(), 39);
+
+    /** A copy of a mid-iteration iterator dereferences to the row of its index (the row value
+     *  used to be lost in the copy, yielding a default constructed invalid row) */
+    auto copied(iter);
+    CHECK_EQ(copied->id(), iter->id());
+    CHECK_EQ(copied->id(), 39);
+
+    /** Copy assignment carries the row value as well */
+    auto assigned = results.begin();
+    assigned = iter;
+    CHECK_EQ(assigned->id(), 39);
+
+    /** The copied iterator keeps advancing independently of the original */
+    ++copied;
+    CHECK_EQ(copied->id(), 40);
+    CHECK_EQ(iter->id(), 39);
+}
+
 TEST_CASE("test_SQLResultSet_condition_parts") {
     std::string dbname = "sql_result_set_parts.db";
     copyFile("test_data/backup_test.db", dbname);
