@@ -150,10 +150,6 @@ ValueT roundUp(ValueT number, int ndigits = 0) {
         number *= f;
     }
 
-    // Truncate away from zero to the next integer step. A value that is already an exact
-    // integer step must stay unchanged (e.g. 10.0 stays 10.0 instead of becoming 11.0), so
-    // plain ceil/floor is used: for non-integers ceil(x) == floor(x + 1.0), but the latter
-    // wrongly bumped already integral values.
     if (number >= 0.0) {
         number = std::ceil(number);
     } else {
