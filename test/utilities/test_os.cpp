@@ -243,6 +243,50 @@ TEST_CASE("test_renameFile") {
     removeFile(newname);
 }
 
+TEST_CASE("test_renameFile_directory") {
+    // Renaming a directory exercises the non-hard-link fallback path (directories cannot be
+    // hard-linked on POSIX)
+    std::string dirname("tmp_rename_dir");
+    std::string newdirname("tmp_rename_dir_new");
+    removeDir(newdirname);
+    removeDir(dirname);
+
+    /** Rename an existing directory in non-overlay mode */
+    CHECK_UNARY(createDir(dirname));
+    std::string innerfile = fmt::format("{}/inner.txt", dirname);
+    createTestFile(innerfile);
+    CHECK_UNARY(renameFile(dirname, newdirname, false));
+    CHECK_UNARY_FALSE(existFile(dirname));
+    CHECK_UNARY(existFile(fmt::format("{}/inner.txt", newdirname)));
+
+    /** Non-overlay mode fails when the target directory already exists */
+    CHECK_UNARY(createDir(dirname));
+    CHECK_UNARY_FALSE(renameFile(newdirname, dirname, false));
+    CHECK_UNARY(existFile(newdirname));
+    CHECK_UNARY(existFile(dirname));
+
+    /** Overlay mode: POSIX rename replaces the existing empty target directory, while
+     *  MOVEFILE_REPLACE_EXISTING cannot replace an existing directory on Windows (returns false,
+     *  consistent with the previous implementation) */
+#if !HKU_OS_WINDOWS
+    CHECK_UNARY(renameFile(newdirname, dirname, true));
+    CHECK_UNARY_FALSE(existFile(newdirname));
+    CHECK_UNARY(existFile(fmt::format("{}/inner.txt", dirname)));
+#else
+    CHECK_UNARY_FALSE(renameFile(newdirname, dirname, true));
+    CHECK_UNARY(existFile(newdirname));
+#endif
+
+    removeDir(dirname);
+    removeDir(newdirname);
+}
+
+TEST_CASE("test_getDllSelfDir") {
+    auto dir = getDllSelfDir();
+    HKU_INFO("dll self dir: {}", dir);
+    CHECK_UNARY_FALSE(dir.empty());
+}
+
 TEST_CASE("test_getDiskFreeSpace") {
 #if !HKU_OS_WINDOWS
     CHECK_EQ(getDiskFreeSpace(nullptr), Null<uint64_t>());
