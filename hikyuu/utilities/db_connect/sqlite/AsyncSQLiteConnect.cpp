@@ -311,7 +311,7 @@ net::awaitable<bool> AsyncSQLiteConnect::backup(const char *zFilename, int n_pag
             rc = sqlite3_errcode(pFile);
         }
 
-        sqlite3_close(pFile);
+        sqlite3_close_v2(pFile);
         return rc == SQLITE_OK;
     };
 

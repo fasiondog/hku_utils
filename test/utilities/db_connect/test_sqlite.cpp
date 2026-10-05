@@ -491,3 +491,29 @@ TEST_CASE("test_sqlite_null_mapping") {
 
     CHECK_UNARY_FALSE(query->moveNext());
 }
+// ============================================================================
+// M18 回归：连接析构时有未终结语句不再泄漏连接
+// ============================================================================
+
+TEST_CASE("test_sqlite_close_v2_with_outstanding_statement") {
+    // 旧实现 sqlite3_close 在有未终结语句时返回 SQLITE_BUSY 且不释放连接，m_db 却被
+    // 置空，连接与语句双泄漏；close_v2 使句柄成为 zombie，待最后一个语句 finalize 时自动释放
+    SQLStatementPtr st;
+    {
+        Parameter param;
+        param.set<std::string>("db", ":memory:");
+        auto con = std::make_shared<SQLiteConnect>(param);
+        con->exec("CREATE TABLE t_close (id INTEGER)");
+        con->exec("INSERT INTO t_close VALUES (1)");
+
+        st = con->getStatement("SELECT id FROM t_close");
+        st->exec();
+        CHECK(st->moveNext());
+        int v = 0;
+        st->getColumn(0, v);
+        CHECK_EQ(v, 1);
+    }  // 连接先析构：close_v2 下句柄转为 zombie
+
+    // 语句后于连接释放：对 zombie 句柄 finalize 是安全且预期的路径
+    st.reset();
+}
