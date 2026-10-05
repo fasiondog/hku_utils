@@ -381,7 +381,7 @@ void MySQLStatement::sub_bindText(int idx, const char* item, size_t len) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
     auto& buf = m_impl->paramSlot(idx);
-    buf = std::string(item);
+    buf = std::string(item, len);
     std::string* p = boost::any_cast<std::string>(&buf);
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_VAR_STRING;
     m_impl->param_bind[idx].buffer = (void*)p->data();
