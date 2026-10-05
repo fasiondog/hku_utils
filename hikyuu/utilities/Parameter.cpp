@@ -6,6 +6,7 @@
  */
 
 #include <fmt/format.h>
+#include <iterator>
 #include "Parameter.h"
 
 namespace hku {
@@ -83,35 +84,37 @@ std::vector<std::string> Parameter::getNameList() const {
 }
 
 // 转换为字符串，用于打印输出
+// 每项单独格式化后直接追加进结果，避免把已累积的整个字符串放进 format 反复重排
 std::string Parameter::toString() const {
     std::string result("params[");
+    auto appender = std::back_inserter(result);
     param_map_t::const_iterator iter = m_params.begin();
     for (; iter != m_params.end(); ++iter) {
         if (iter->second.type() == typeid(int64_t)) {
-            result = fmt::format("{}{}(int): {}, ", result, iter->first,
-                                 boost::any_cast<int64_t>(iter->second));
+            fmt::format_to(appender, "{}(int): {}, ", iter->first,
+                           boost::any_cast<int64_t>(iter->second));
         } else if (iter->second.type() == typeid(bool)) {
-            result = fmt::format("{}{}(bool): {}, ", result, iter->first,
-                                 boost::any_cast<bool>(iter->second));
+            fmt::format_to(appender, "{}(bool): {}, ", iter->first,
+                           boost::any_cast<bool>(iter->second));
         } else if (iter->second.type() == typeid(double)) {
-            result = fmt::format("{}{}(double): {}, ", result, iter->first,
-                                 boost::any_cast<double>(iter->second));
+            fmt::format_to(appender, "{}(double): {}, ", iter->first,
+                           boost::any_cast<double>(iter->second));
         } else if (strcmp(iter->second.type().name(), typeid(std::string).name()) == 0) {
-            result = fmt::format("{}{}(string): {}, ", result, iter->first,
-                                 boost::any_cast<std::string>(iter->second));
+            fmt::format_to(appender, "{}(string): {}, ", iter->first,
+                           boost::any_cast<std::string>(iter->second));
 #if defined(HKU_SUPPORT_DATETIME)
         } else if (strcmp(iter->second.type().name(), typeid(Datetime).name()) == 0) {
-            result = fmt::format("{}{}(Datetime): {}, ", result, iter->first,
-                                 boost::any_cast<Datetime>(iter->second));
+            fmt::format_to(appender, "{}(Datetime): {}, ", iter->first,
+                           boost::any_cast<Datetime>(iter->second));
         } else if (strcmp(iter->second.type().name(), typeid(TimeDelta).name()) == 0) {
-            result = fmt::format("{}{}(TimeDelta): {}, ", result, iter->first,
-                                 boost::any_cast<TimeDelta>(iter->second));
+            fmt::format_to(appender, "{}(TimeDelta): {}, ", iter->first,
+                           boost::any_cast<TimeDelta>(iter->second));
 #endif
         } else {
-            result = fmt::format("{} Unsupported({}), ", result, iter->second.type().name());
+            fmt::format_to(appender, " Unsupported({}), ", iter->second.type().name());
         }
     }
-    result = fmt::format("{}]", result);
+    result += "]";
     return result;
 }
 

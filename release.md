@@ -54,6 +54,7 @@
 - fix(http_client): URL 解析按 RFC 3986 终结 authority 并剥离 userinfo，消除与浏览器解析的 differential；fragment 不再进入请求 target；修复以 / 结尾的路径被双写斜杠
 - fix(datetime): Datetime::timestamp/timestampUTC 返回值由 uint64_t 改为 int64_t，1970 年前日期正常返回负微秒数不再无符号下溢，Null Datetime 映射 Null<int64_t>（下游以无符号类型接收时间戳的调用需调整类型）
 - fix(utilities): md5 长度算术改用 64 位无溢出类型，Windows 下超过 4GB 的输入不再产出错误摘要；临时缓冲改 RAII 管理异常时不泄漏；文档明确 MD5 仅限完整性校验/缓存键用途、禁止安全用途
+- perf(utilities): Parameter::toString 改逐项格式化后追加（fmt::format_to），不再把已累积的整个字符串放进 format 反复重排
 - refactor(utilities): 移除 moFileReader 的 ExportAsHTML 接口（该功能不需要，且其输出未转义 HTML 存在注入面），连同仅为其服务的 g_css/GetPoEditorString/MakeHtmlConform/Trim 私有辅助一并删除；EC_TABLEEMPTY 错误码保留以维持编号稳定
 - fix(utilities): FileLock POSIX 侧加 O_NOFOLLOW，锁路径为符号链接时拒绝加锁（ELOOP）而非锁到指向的 inode 致互斥失效，并在类文档补符号链接限制与目录权限残余面披露
 - perf(db_connect): libmysqlclient 驱动的参数/结果缓冲由 boost::any 改 std::variant 类型化存储并构造期按占位符数/列数一次分配，消除逐值堆分配；绑定期补 mysql_field_seek 复位，保证重复执行时结果元数据可重新遍历

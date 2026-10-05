@@ -134,6 +134,29 @@ TEST_CASE("test_Parameter") {
     CHECK(p3.size() > 0);
 }
 
+TEST_CASE("test_Parameter_toString") {
+    /** @arg 空参数表的输出格式 */
+    Parameter empty;
+    CHECK_EQ(empty.toString(), "params[]");
+
+    /** @arg 各类型参数的输出格式（map 为无序容器，逐实例断言避免依赖遍历顺序） */
+    Parameter p1;
+    p1.set<int64_t>("i", 10);
+    CHECK_EQ(p1.toString(), "params[i(int): 10, ]");
+
+    Parameter p2;
+    p2.set<bool>("b", true);
+    CHECK_EQ(p2.toString(), "params[b(bool): true, ]");
+
+    Parameter p3;
+    p3.set<double>("d", 0.5);
+    CHECK_EQ(p3.toString(), "params[d(double): 0.5, ]");
+
+    Parameter p4;
+    p4.set<std::string>("s", "hello");
+    CHECK_EQ(p4.toString(), "params[s(string): hello, ]");
+}
+
 // TEST_CASE("test_Parameter_serialize") {
 //     Parameter p1;
 //     p1.set<int>("i", 10);
