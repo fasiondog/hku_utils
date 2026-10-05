@@ -150,10 +150,14 @@ ValueT roundUp(ValueT number, int ndigits = 0) {
         number *= f;
     }
 
+    // Truncate away from zero to the next integer step. A value that is already an exact
+    // integer step must stay unchanged (e.g. 10.0 stays 10.0 instead of becoming 11.0), so
+    // plain ceil/floor is used: for non-integers ceil(x) == floor(x + 1.0), but the latter
+    // wrongly bumped already integral values.
     if (number >= 0.0) {
-        number = std::floor(number + 1.0);
+        number = std::ceil(number);
     } else {
-        number = std::ceil(number - 1.0);
+        number = std::floor(number);
     }
 
     if (ndigits < 0) {
@@ -233,16 +237,14 @@ bool HKU_UTILS_API utf8_fold_equal(const std::string &s1, const std::string &s2)
 /** Whether a UTF-8 string contains a substring */
 bool HKU_UTILS_API utf8_contains(const std::string &s, const std::string &sub) noexcept;
 
-/** Remove the spaces at both ends of a string */
+/** Remove the blanks (spaces, tabs and CRLF) at both ends of a string */
 inline void trim(std::string &s) {
     if (s.empty()) {
         return;
     }
 
-    s.erase(0, s.find_first_not_of(" "));
-    s.erase(s.find_last_not_of(" ") + 1);
-    s.erase(s.find_last_not_of("\r") + 1);
-    s.erase(s.find_last_not_of("\n") + 1);
+    s.erase(0, s.find_first_not_of(" \t\r\n"));
+    s.erase(s.find_last_not_of(" \t\r\n") + 1);
 }
 
 #if CPP_STANDARD >= CPP_STANDARD_17

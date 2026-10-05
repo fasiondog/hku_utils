@@ -146,3 +146,62 @@ TEST_CASE("test_utf8_contains") {
     CHECK(utf8_contains("abcdef", "bcd") == true);
     CHECK(utf8_contains("abcdef", "xyz") == false);
 }
+TEST_CASE("test_string_trim") {
+    /** @arg 常规两端空格 */
+    std::string s1("  abc  ");
+    trim(s1);
+    CHECK(s1 == "abc");
+
+    /** @arg 尾部 CRLF：不得残留 "\\r"（旧实现三段 erase 相互干扰） */
+    std::string s2("abc\r\n");
+    trim(s2);
+    CHECK(s2 == "abc");
+
+    /** @arg 混合空白（空格、制表符、CR、LF）两端全部移除 */
+    std::string s3(" \t\r\nabc \t\r\n");
+    trim(s3);
+    CHECK(s3 == "abc");
+
+    /** @arg 前导 CRLF 同样被移除（旧实现仅处理前导空格） */
+    std::string s4("\r\nabc");
+    trim(s4);
+    CHECK(s4 == "abc");
+
+    /** @arg 纯空白字符串收敛为空，且无越界 */
+    std::string s5(" \r\n\t ");
+    trim(s5);
+    CHECK(s5.empty());
+
+    /** @arg 空字符串安全 */
+    std::string s6;
+    trim(s6);
+    CHECK(s6.empty());
+
+    /** @arg 无空白时原样保留 */
+    std::string s7("abc");
+    trim(s7);
+    CHECK(s7 == "abc");
+}
+
+TEST_CASE("test_roundUp") {
+    /** @arg 已是整数步进值必须保持不变（旧实现 10.0 被错误加为 11.0） */
+    CHECK_EQ(roundUp(10.0), 10.0);
+    CHECK_EQ(roundUp(-10.0), -10.0);
+    CHECK_EQ(roundUp(10.0, 1), 10.0);
+    CHECK_EQ(roundUp(10.0, -1), 10.0);
+
+    /** @arg 正数向远离零方向取整 */
+    CHECK_EQ(roundUp(10.1), 11.0);
+    CHECK_EQ(roundUp(10.5), 11.0);
+
+    /** @arg 负数向远离零方向取整 */
+    CHECK_EQ(roundUp(-10.1), -11.0);
+
+    /** @arg 保留小数位 */
+    CHECK_EQ(roundUp(1.21, 1), 1.3);
+    CHECK_EQ(roundUp(1.0, 1), 1.0);
+
+    /** @arg 负 ndigits：向高位取整 */
+    CHECK_EQ(roundUp(15.0, -1), 20.0);
+    CHECK_EQ(roundUp(10.0, -1), 10.0);
+}
