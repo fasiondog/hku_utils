@@ -436,19 +436,19 @@ TEST_CASE("test_Datetime_to_local_time") {
     /** @arg 测试 to_local_time 默认返回 microseconds */
     Datetime dt(2024, 1, 15, 10, 30, 45, 123, 456);
     auto local_us = dt.to_local_time();
-    CHECK(local_us.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()));
+    CHECK(local_us.time_since_epoch().count() == dt.timestamp());
 
     /** @arg 测试 to_local_time 指定返回 seconds */
     auto local_sec = dt.to_local_time<std::chrono::seconds>();
-    CHECK(local_sec.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()) / 1000000);
+    CHECK(local_sec.time_since_epoch().count() == dt.timestamp() / 1000000);
 
     /** @arg 测试 to_local_time 指定返回 milliseconds */
     auto local_ms = dt.to_local_time<std::chrono::milliseconds>();
-    CHECK(local_ms.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()) / 1000);
+    CHECK(local_ms.time_since_epoch().count() == dt.timestamp() / 1000);
 
     /** @arg 测试 to_local_time 指定返回 nanoseconds */
     auto local_ns = dt.to_local_time<std::chrono::nanoseconds>();
-    CHECK(local_ns.time_since_epoch().count() == static_cast<int64_t>(dt.timestamp()) * 1000);
+    CHECK(local_ns.time_since_epoch().count() == dt.timestamp() * 1000);
 
     /** @arg 测试 Null Datetime，返回对应的 max */
     Datetime null_dt;
@@ -629,3 +629,41 @@ TEST_CASE("test_Datetime_related_operator") {
 }
 
 /** @} */
+
+/** @par 检测点 */
+TEST_CASE("test_Datetime_timestamp_signed") {
+    /** @arg 1970-01-01 之前的日期返回负值，不再无符号下溢（M22 回归） */
+    Datetime dt(1969, 12, 31, 23, 59, 59);
+    CHECK_EQ(dt.timestamp(), static_cast<int64_t>(-1000000));
+    CHECK(dt.timestamp() < 0);
+
+    Datetime dt2(1900, 1, 1);
+    CHECK(dt2.timestamp() < 0);
+    CHECK(dt2.timestamp() < dt.timestamp());
+
+    // 1970-01-01 之前的日期经 fromTimestamp 往返还原
+    auto roundtrip = Datetime::fromTimestamp(dt2.timestamp());
+    CHECK_EQ(roundtrip, dt2);
+
+    /** @arg 1970-01-01 纪元为 0 */
+    CHECK_EQ(Datetime(1970, 1, 1).timestamp(), static_cast<int64_t>(0));
+
+    /** @arg 1970 年后的正值保持不变 */
+    Datetime dt3(2024, 1, 15, 10, 30, 45, 123, 456);
+    CHECK(dt3.timestamp() > 0);
+    CHECK_EQ(Datetime::fromTimestamp(dt3.timestamp()), dt3);
+
+    /** @arg Null Datetime 映射 Null<int64_t>（INT64_MAX），不再是无符号最大值语义混淆 */
+    Datetime null_dt;
+    CHECK_EQ(null_dt.timestamp(), Null<int64_t>());
+    CHECK_EQ(null_dt.timestampUTC(), Null<int64_t>());
+
+    /** @arg timestampUTC 的负值与 UTC 偏移扣减语义保持（以正偏移环境下的本机行为为准） */
+    CHECK_NOTHROW(Datetime(1960, 6, 1).timestampUTC());
+
+    /** @arg 极端范围不溢出 int64 */
+    CHECK_NOTHROW(Datetime::min().timestamp());
+    CHECK_NOTHROW(Datetime::max().timestamp());
+    CHECK(Datetime::max().timestamp() > 0);
+    CHECK(Datetime::min().timestamp() < 0);
+}
