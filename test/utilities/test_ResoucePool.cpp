@@ -519,6 +519,56 @@ TEST_CASE("test_ResourceVersionPool_OldVersionResourceCleanup") {
     CHECK_EQ(r3->getParam<std::string>("version"), "new");
 }
 
+TEST_CASE("test_ResourceVersionPool_IncVersionReleasesIdle") {
+    /** Regression: incVersion raises the version and must invalidate the idle cache the
+     * same way setParameter does, so a stale-version resource is never handed out by get */
+    Parameter param;
+    param.set<std::string>("version", "v1");
+    ResourceVersionPool<TTResource> pool(param, 10, 10);
+
+    auto r1 = pool.get();
+    CHECK_EQ(r1->getVersion(), 0);
+    r1.reset();
+    CHECK_EQ(pool.idleCount(), 1);
+    CHECK_EQ(pool.count(), 1);
+
+    // bump the version only through incVersion (no parameter change path involved)
+    pool.incVersion(2);
+    CHECK_EQ(pool.getVersion(), 2);
+
+    // the stale idle resource must have been released
+    CHECK_EQ(pool.idleCount(), 0);
+    CHECK_EQ(pool.count(), 0);
+
+    // a taken resource must carry the current version
+    auto r2 = pool.get();
+    CHECK_EQ(r2->getVersion(), 2);
+    CHECK_EQ(pool.count(), 1);
+}
+
+TEST_CASE("test_ResourceVersionPool_GetWaitForAfterIncVersion") {
+    /** Regression: after incVersion getWaitFor must serve a current-version resource
+     * (creating one once the stale idle entry is gone) instead of a stale or failed take */
+    Parameter param;
+    param.set<std::string>("version", "v1");
+    ResourceVersionPool<TTResource> pool(param, 1, 10);
+
+    auto r1 = pool.get();
+    CHECK_EQ(r1->getVersion(), 0);
+    r1.reset();
+    CHECK_EQ(pool.idleCount(), 1);
+
+    pool.incVersion(1);
+    CHECK_EQ(pool.getVersion(), 1);
+
+    // the pool limit is 1 and no resource is alive now: getWaitFor must create a new-version
+    // resource rather than time out or reuse the released stale one
+    auto r2 = pool.getWaitFor(50);
+    CHECK(r2 != nullptr);
+    CHECK_EQ(r2->getVersion(), 1);
+    CHECK_EQ(pool.count(), 1);
+}
+
 TEST_CASE("test_ResourceVersionPool_ConcurrentVersionUpdate") {
     Parameter param;
     param.set<std::string>("version", "v1");
