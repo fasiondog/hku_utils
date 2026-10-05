@@ -254,12 +254,20 @@ void AsyncSQLiteStatement::sub_getColumnAsInt64(int idx, int64_t &item) {
     if (!m_impl) {
         throw exception("AsyncSQLiteStatement is not initialized");
     }
+    if (sqlite3_column_type(m_impl->m_stmt, idx) == SQLITE_NULL) {
+        item = Null<int64_t>();
+        return;
+    }
     item = sqlite3_column_int64(m_impl->m_stmt, idx);
 }
 
 void AsyncSQLiteStatement::sub_getColumnAsDouble(int idx, double &item) {
     if (!m_impl) {
         throw exception("AsyncSQLiteStatement is not initialized");
+    }
+    if (sqlite3_column_type(m_impl->m_stmt, idx) == SQLITE_NULL) {
+        item = Null<double>();
+        return;
     }
     item = sqlite3_column_double(m_impl->m_stmt, idx);
 }
@@ -282,25 +290,29 @@ void AsyncSQLiteStatement::sub_getColumnAsBlob(int idx, std::string &item) {
     if (!m_impl) {
         throw exception("AsyncSQLiteStatement is not initialized");
     }
-    const char *data = static_cast<const char *>(sqlite3_column_blob(m_impl->m_stmt, idx));
-    if (data == nullptr) {
+    // sqlite3_column_blob returns a NULL pointer both for SQL NULL and for a zero-length blob,
+    // so the column type is the only way to tell them apart
+    if (sqlite3_column_type(m_impl->m_stmt, idx) == SQLITE_NULL) {
         throw null_blob_exception();
     }
+    const char *data = static_cast<const char *>(sqlite3_column_blob(m_impl->m_stmt, idx));
     const int size = sqlite3_column_bytes(m_impl->m_stmt, idx);
-    item = std::string(data, size);
+    item = (data != nullptr && size > 0) ? std::string(data, size) : std::string();
 }
 
 void AsyncSQLiteStatement::sub_getColumnAsBlob(int idx, std::vector<char> &item) {
     if (!m_impl) {
         throw exception("AsyncSQLiteStatement is not initialized");
     }
-    const char *data = static_cast<const char *>(sqlite3_column_blob(m_impl->m_stmt, idx));
-    if (data == nullptr) {
+    if (sqlite3_column_type(m_impl->m_stmt, idx) == SQLITE_NULL) {
         throw null_blob_exception();
     }
+    const char *data = static_cast<const char *>(sqlite3_column_blob(m_impl->m_stmt, idx));
     const int size = sqlite3_column_bytes(m_impl->m_stmt, idx);
     item.resize(size);
-    memcpy(item.data(), data, size);
+    if (data != nullptr && size > 0) {
+        memcpy(item.data(), data, size);
+    }
 }
 
 }  // namespace hku

@@ -14,6 +14,7 @@
 #include <sstream>
 #include <yas/serialize.hpp>
 #include "hikyuu/utilities/config.h"
+#include "hikyuu/utilities/Null.h"
 #include "hikyuu/utilities/datetime/Datetime.h"
 #include "hikyuu/utilities/exception.h"
 #include "hikyuu/utilities/Log.h"
@@ -117,6 +118,21 @@ public:
     /** Get the number of the table columns */
     int getNumColumns() const;
 
+    /**
+     * @name getColumn NULL mapping
+     * A SQL NULL column read is mapped to the type's Null sentinel so it stays distinguishable
+     * from real 0 values:
+     * - signed integers (any width): Null<T>(), i.e. std::numeric_limits<T>::max()
+     * - uint64_t: std::numeric_limits<uint64_t>::max()
+     * - double/float: Null<double>() (quiet NaN)
+     * - Datetime: Null<Datetime>()
+     * - text: an empty string (text has no sentinel, NULL is indistinguishable from empty)
+     * - blob: throws null_blob_exception; an empty (zero-length) blob returns an empty result
+     *         instead, so NULL and empty blobs stay distinguishable
+     *
+     * @note An actually stored maximum value of an integer type is indistinguishable from NULL,
+     *       which is inherent to the Null sentinel scheme
+     */
     /** Get the data given by idx into item */
     void getColumn(int idx, double &item);
 
@@ -267,8 +283,13 @@ inline uint64_t SQLStatementBase::getLastRowid() {
 inline void SQLStatementBase::sub_getColumnAsUInt64(int idx, uint64_t &item) {
     int64_t temp;
     sub_getColumnAsInt64(idx, temp);
-    SQL_CHECK(temp >= 0, -1, "Column {} holds negative value {}, cannot be read as uint64", idx,
-              temp);
+    if (temp == Null<int64_t>()) {
+        // A NULL column read back through the signed channel maps to the uint64 Null sentinel
+        item = (std::numeric_limits<uint64_t>::max)();
+        return;
+    }
+    // A negative int64 is the two's complement image of a uint64 bit pattern (drivers like
+    // SQLite store every integer as int64), so reinterpret the bits instead of rejecting
     item = static_cast<uint64_t>(temp);
 }
 
@@ -334,6 +355,11 @@ typename std::enable_if<std::numeric_limits<T>::is_integer>::type SQLStatementBa
         // Reject silently narrowing an int64 value into a smaller signed type
         int64_t temp;
         sub_getColumnAsInt64(idx, temp);
+        if (temp == Null<int64_t>()) {
+            // Map the NULL sentinel onto the target type's own Null sentinel
+            item = (std::numeric_limits<T>::max)();
+            return;
+        }
         SQL_CHECK(temp >= static_cast<int64_t>(std::numeric_limits<T>::min()) &&
                     temp <= static_cast<int64_t>(std::numeric_limits<T>::max()),
                   -1, "Column {} value {} overflows {}", idx, temp, typeid(T).name());
@@ -342,6 +368,10 @@ typename std::enable_if<std::numeric_limits<T>::is_integer>::type SQLStatementBa
         // Smaller unsigned types: reject negative values and values above the target range
         int64_t temp;
         sub_getColumnAsInt64(idx, temp);
+        if (temp == Null<int64_t>()) {
+            item = (std::numeric_limits<T>::max)();
+            return;
+        }
         SQL_CHECK(temp >= 0 && static_cast<uint64_t>(temp) <=
                                  static_cast<uint64_t>(std::numeric_limits<T>::max()),
                   -1, "Column {} value {} overflows {}", idx, temp, typeid(T).name());

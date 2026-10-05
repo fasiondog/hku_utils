@@ -173,7 +173,7 @@ void DuckDBStatement::sub_getColumnAsInt64(int idx, int64_t &item) {
     }
 
     if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
-        item = 0;
+        item = Null<int64_t>();
         return;
     }
 
@@ -186,7 +186,7 @@ void DuckDBStatement::sub_getColumnAsUInt64(int idx, uint64_t &item) {
     }
 
     if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
-        item = 0;
+        item = (std::numeric_limits<uint64_t>::max)();
         return;
     }
 
@@ -199,7 +199,7 @@ void DuckDBStatement::sub_getColumnAsDouble(int idx, double &item) {
     }
 
     if (duckdb_value_is_null(&m_result, static_cast<idx_t>(idx), m_current_row - 1)) {
-        item = 0.0;
+        item = Null<double>();
         return;
     }
 
@@ -241,11 +241,12 @@ void DuckDBStatement::sub_getColumnAsBlob(int idx, std::string &item) {
     }
 
     duckdb_blob blob = duckdb_value_blob(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
+    // A zero-length blob is a valid empty value, only SQL NULL throws above
     if (blob.data && blob.size > 0) {
         item = std::string(static_cast<char *>(blob.data), blob.size);
         free(blob.data);
     } else {
-        throw null_blob_exception();
+        item.clear();
     }
 }
 

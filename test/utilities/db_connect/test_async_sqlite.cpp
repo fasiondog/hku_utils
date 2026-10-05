@@ -745,3 +745,106 @@ TEST_CASE("test_async_sqlite_asio_pool_with_tablemacro") {
 
     CHECK(test_passed == true);
 }
+
+// ============================================================================
+// SQL NULL 映射测试（与 test_sqlite_null_mapping 对应的异步版）
+// ============================================================================
+
+/**
+ * @brief test SQL NULL mapping on the async driver
+ * 1. A NULL integer reads back as Null<T>(), a NULL double as NaN
+ * 2. A NULL text reads back as empty; a NULL datetime as Null<Datetime>()
+ * 3. A NULL blob throws null_blob_exception, while an empty blob returns empty
+ */
+TEST_CASE("test_async_sqlite_null_mapping") {
+    boost::asio::io_context io_context;
+
+    bool test_passed = false;
+    std::exception_ptr captured_exception;
+
+    auto test_coro = [&]() -> net::awaitable<void> {
+        try {
+            auto conn = SQLiteTestHelper::createMemoryConnection();
+            co_await conn->exec("CREATE TABLE t_null (i INTEGER, d REAL, t TEXT, dt TEXT, b BLOB)");
+
+            /** Insert one all-NULL row and one row of real zero/empty values */
+            {
+                auto st = co_await conn->getStatement("INSERT INTO t_null VALUES (?, ?, ?, ?, ?)");
+                st->bind(0);
+                st->bind(1);
+                st->bind(2);
+                st->bind(3);
+                st->bind(4);
+                co_await st->exec();
+
+                st = co_await conn->getStatement("INSERT INTO t_null VALUES (?, ?, ?, ?, ?)");
+                st->bind(0, static_cast<int64_t>(0));
+                st->bind(1, 0.0);
+                st->bind(2, std::string(""));
+                st->bind(3, Datetime(2024, 1, 2, 3, 4, 5));
+                st->bindBlob(4, std::string());
+                co_await st->exec();
+            }
+
+            auto query = co_await conn->getStatement("SELECT i, d, t, dt, b FROM t_null");
+            co_await query->exec();
+
+            /** NULL row: every column maps to its Null sentinel */
+            CHECK(co_await query->moveNext());
+            int64_t i64 = 0;
+            query->getColumn(0, i64);
+            CHECK(i64 == Null<int64_t>());
+            int32_t i32 = 0;
+            query->getColumn(0, i32);
+            CHECK(i32 == Null<int32_t>());
+            uint64_t u64 = 0;
+            query->getColumn(0, u64);
+            CHECK(u64 == std::numeric_limits<uint64_t>::max());
+
+            double dval = 0.0;
+            query->getColumn(1, dval);
+            CHECK(std::isnan(dval));
+
+            std::string sval = "x";
+            query->getColumn(2, sval);
+            CHECK(sval == "");
+            Datetime dtval;
+            query->getColumn(3, dtval);
+            CHECK(dtval.isNull());
+
+            std::string bstr = "x";
+            std::vector<char> bvec;
+            // Reading a NULL blob through the blob channel throws, as text it yields ""
+            CHECK_THROWS_AS(query->getColumn(4, bvec), null_blob_exception);
+            CHECK_NOTHROW(query->getColumn(4, bstr));
+            CHECK(bstr == "");
+
+            /** Zero/empty row: real values stay distinguishable from NULL */
+            CHECK(co_await query->moveNext());
+            query->getColumn(0, i64);
+            CHECK(i64 == 0);
+            query->getColumn(1, dval);
+            CHECK(dval == 0.0);
+            CHECK(!std::isnan(dval));
+            query->getColumn(3, dtval);
+            CHECK(dtval == Datetime(2024, 1, 2, 3, 4, 5));
+            CHECK_NOTHROW(query->getColumn(4, bstr));
+            CHECK(bstr == "");
+
+            CHECK_FALSE(co_await query->moveNext());
+
+            test_passed = true;
+        } catch (...) {
+            captured_exception = std::current_exception();
+        }
+        co_return;
+    };
+
+    net::co_spawn(io_context.get_executor(), test_coro());
+    io_context.run();
+
+    if (captured_exception) {
+        std::rethrow_exception(captured_exception);
+    }
+    CHECK(test_passed);
+}

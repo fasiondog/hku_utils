@@ -336,9 +336,11 @@ TEST_CASE("test_sqlite_integer_boundary") {
         con->exec("DELETE FROM t_int");
     }
 
-    /** uint64 values within the int64 range roundtrip exactly */
+    /** uint64 values within the int64 range roundtrip exactly.
+     * Note: INT64_MAX itself is the Null<int64_t> sentinel and collides with SQL NULL, so the
+     * roundtrip is checked with INT64_MAX - 1 */
     {
-        uint64_t uval = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+        uint64_t uval = static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - 1;
         auto st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
         st->bind(0, uval);
         st->exec();
@@ -378,7 +380,8 @@ TEST_CASE("test_sqlite_integer_boundary") {
         con->exec("DELETE FROM t_int");
     }
 
-    /** Reading a negative value into an unsigned integer must throw */
+    /** A negative value read as uint64 reinterprets the bits, while reading it into a narrower
+     * unsigned type must throw */
     {
         auto st = con->getStatement("INSERT INTO t_int (v) VALUES (?)");
         st->bind(0, static_cast<int64_t>(-1));
@@ -388,9 +391,103 @@ TEST_CASE("test_sqlite_integer_boundary") {
         query->exec();
         CHECK_UNARY(query->moveNext());
         uint64_t uval = 0;
-        CHECK_THROWS(query->getColumn(0, uval));
+        query->getColumn(0, uval);
+        CHECK_EQ(uval, static_cast<uint64_t>(-1));
         uint32_t unarrow = 0;
         CHECK_THROWS(query->getColumn(0, unarrow));
         con->exec("DELETE FROM t_int");
     }
+}
+
+/**
+ * @brief test SQL NULL mapping
+ * 1. A NULL integer reads back as Null<T>() (the target type's max), including narrowing and
+ *    unsigned reads, while a stored 0 still reads back as 0
+ * 2. A NULL double/float reads back as Null<double>() (NaN), while a stored 0.0 stays 0.0
+ * 3. A NULL text reads back as an empty string; a NULL datetime reads back as Null<Datetime>()
+ * 4. A NULL blob throws null_blob_exception, while an empty (zero-length) blob returns empty
+ */
+TEST_CASE("test_sqlite_null_mapping") {
+    Parameter param;
+    param.set<std::string>("db", ":memory:");
+    param.set<int>("flags", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+    auto con = std::make_shared<SQLiteConnect>(param);
+
+    con->exec("CREATE TABLE t_null (i INTEGER, d REAL, t TEXT, dt TEXT, b BLOB)");
+
+    /** Insert one all-NULL row and one row of real zero/empty values */
+    {
+        auto st = con->getStatement("INSERT INTO t_null VALUES (?, ?, ?, ?, ?)");
+        st->bind(0);
+        st->bind(1);
+        st->bind(2);
+        st->bind(3);
+        st->bind(4);
+        st->exec();
+
+        st = con->getStatement("INSERT INTO t_null VALUES (?, ?, ?, ?, ?)");
+        st->bind(0, static_cast<int64_t>(0));
+        st->bind(1, 0.0);
+        st->bind(2, std::string(""));
+        st->bind(3, Datetime(2024, 1, 2, 3, 4, 5));
+        st->bindBlob(4, std::string());
+        st->exec();
+    }
+
+    auto query = con->getStatement("SELECT i, d, t, dt, b FROM t_null ORDER BY rowid");
+    query->exec();
+
+    /** NULL row: every column maps to its Null sentinel */
+    CHECK_UNARY(query->moveNext());
+    int64_t i64 = 0;
+    query->getColumn(0, i64);
+    CHECK_EQ(i64, Null<int64_t>());
+    int32_t i32 = 0;
+    query->getColumn(0, i32);
+    CHECK_EQ(i32, Null<int32_t>());
+    uint64_t u64 = 0;
+    query->getColumn(0, u64);
+    CHECK_EQ(u64, std::numeric_limits<uint64_t>::max());
+    uint32_t u32 = 0;
+    query->getColumn(0, u32);
+    CHECK_EQ(u32, std::numeric_limits<uint32_t>::max());
+
+    double dval = 0.0;
+    query->getColumn(1, dval);
+    CHECK_UNARY(std::isnan(dval));
+    float fval = 0.0f;
+    query->getColumn(1, fval);
+    CHECK_UNARY(std::isnan(fval));
+
+    std::string sval = "x";
+    query->getColumn(2, sval);
+    CHECK_EQ(sval, "");
+    Datetime dtval;
+    query->getColumn(3, dtval);
+    CHECK_UNARY(dtval.isNull());
+
+    std::string bstr = "x";
+    std::vector<char> bvec;
+    // Reading a NULL blob through the blob channel throws, while reading it as text yields ""
+    CHECK_THROWS_AS(query->getColumn(4, bvec), null_blob_exception);
+    CHECK_NOTHROW(query->getColumn(4, bstr));
+    CHECK_EQ(bstr, "");
+
+    /** Zero/empty row: real values stay distinguishable from NULL */
+    CHECK_UNARY(query->moveNext());
+    query->getColumn(0, i64);
+    CHECK_EQ(i64, 0);
+    query->getColumn(1, dval);
+    CHECK_EQ(dval, 0.0);
+    CHECK_UNARY_FALSE(std::isnan(dval));
+    query->getColumn(2, sval);
+    CHECK_EQ(sval, "");
+    query->getColumn(3, dtval);
+    CHECK_EQ(dtval, Datetime(2024, 1, 2, 3, 4, 5));
+    CHECK_NOTHROW(query->getColumn(4, bstr));
+    CHECK_EQ(bstr, "");
+    CHECK_NOTHROW(query->getColumn(4, bvec));
+    CHECK_UNARY(bvec.empty());
+
+    CHECK_UNARY_FALSE(query->moveNext());
 }

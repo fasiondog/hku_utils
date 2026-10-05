@@ -73,7 +73,8 @@ public:
     /** Get the rowid of the last record inserted by the INSERT execution, it is not thread safe */
     uint64_t getLastRowid();
 
-    /** Get the data given by idx into item */
+    /** Get the data given by idx into item.
+     * A SQL NULL column is mapped to the type's Null sentinel, @see SQLStatementBase::getColumn */
     void getColumn(int idx, double &item);
 
     /** Get the data given by idx into item */
@@ -193,9 +194,13 @@ public:
     virtual void sub_getColumnAsUInt64(int idx, uint64_t &item) {
         int64_t temp;
         sub_getColumnAsInt64(idx, temp);
-        if (temp < 0) {
-            throw exception("Negative value cannot be read as uint64");
+        if (temp == Null<int64_t>()) {
+            // A NULL column read back through the signed channel maps to the uint64 Null sentinel
+            item = (std::numeric_limits<uint64_t>::max)();
+            return;
         }
+        // A negative int64 is the two's complement image of a uint64 bit pattern (drivers like
+        // SQLite store every integer as int64), so reinterpret the bits instead of rejecting
         item = static_cast<uint64_t>(temp);
     }  ///< Subclass interface @see getColumn. Drivers that expose an unsigned column flag should
        ///< override it
@@ -294,6 +299,11 @@ typename std::enable_if<std::numeric_limits<T>::is_integer>::type AsyncSQLStatem
         // Reject silently narrowing an int64 value into a smaller signed type
         int64_t temp;
         sub_getColumnAsInt64(idx, temp);
+        if (temp == Null<int64_t>()) {
+            // Map the NULL sentinel onto the target type's own Null sentinel
+            item = (std::numeric_limits<T>::max)();
+            return;
+        }
         if (temp < static_cast<int64_t>(std::numeric_limits<T>::min()) ||
             temp > static_cast<int64_t>(std::numeric_limits<T>::max())) {
             throw exception("Column value overflows the target integer type");
@@ -303,6 +313,10 @@ typename std::enable_if<std::numeric_limits<T>::is_integer>::type AsyncSQLStatem
         // Smaller unsigned types: reject negative values and values above the target range
         int64_t temp;
         sub_getColumnAsInt64(idx, temp);
+        if (temp == Null<int64_t>()) {
+            item = (std::numeric_limits<T>::max)();
+            return;
+        }
         if (temp < 0 ||
             static_cast<uint64_t>(temp) > static_cast<uint64_t>(std::numeric_limits<T>::max())) {
             throw exception("Column value overflows the target unsigned integer type");

@@ -280,7 +280,7 @@ void MySQLStatement::sub_getColumnAsInt64(int idx, int64_t& item) {
 
     const auto& value = row[idx];
     if (value.is_null()) {
-        item = 0;
+        item = Null<int64_t>();
         return;
     }
 
@@ -316,7 +316,7 @@ void MySQLStatement::sub_getColumnAsUInt64(int idx, uint64_t& item) {
 
     const auto& value = row[idx];
     if (value.is_null()) {
-        item = 0;
+        item = (std::numeric_limits<uint64_t>::max)();
         return;
     }
 
@@ -356,7 +356,7 @@ void MySQLStatement::sub_getColumnAsDouble(int idx, double& item) {
 
     const auto& value = row[idx];
     if (value.is_null()) {
-        item = 0.0;
+        item = Null<double>();
         return;
     }
 
@@ -491,8 +491,7 @@ void MySQLStatement::sub_getColumnAsBlob(int idx, std::string& item) {
 
     const auto& value = row[idx];
     if (value.is_null()) {
-        item.clear();
-        return;
+        throw null_blob_exception();
     }
 
     try {
@@ -516,8 +515,7 @@ void MySQLStatement::sub_getColumnAsBlob(int idx, std::vector<char>& item) {
 
     const auto& value = row[idx];
     if (value.is_null()) {
-        item.clear();
-        return;
+        throw null_blob_exception();
     }
 
     try {
