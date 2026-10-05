@@ -268,6 +268,11 @@ target("hku_utils")
     add_files("hikyuu/utilities/*.cpp")
     add_files("hikyuu/utilities/thread/*.cpp")
 
+    -- db_connect 头文件里定义的异常类需要在库内单一 TU 发射 key function（vtable/typeinfo），
+    -- 否则跨动态库边界 catch 不到；即使未启用任何驱动（sqlite/mysql/duckdb 全关）也必须编译
+    add_files("hikyuu/utilities/db_connect/SQLException.cpp")
+    add_files("hikyuu/utilities/db_connect/SQLStatementBase.cpp")
+
     if has_config("sqlite") then
         add_files("hikyuu/utilities/db_connect/*.cpp")
         add_files("hikyuu/utilities/db_connect/sqlite/*.cpp")
