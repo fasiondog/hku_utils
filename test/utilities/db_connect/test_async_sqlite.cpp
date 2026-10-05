@@ -848,3 +848,139 @@ TEST_CASE("test_async_sqlite_null_mapping") {
     }
     CHECK(test_passed);
 }
+// ============================================================================
+// M17 回归：跨线程共享连接的语句操作与语句生命周期
+// ============================================================================
+
+TEST_CASE("test_async_sqlite_concurrent_statements_shared_connection") {
+    // Multiple threads share one NOMUTEX connection: prepare/bind/getColumn/finalize run on the
+    // user threads while the step operations run on the connection pool thread, so every sqlite3
+    // call must be serialized by the connection mutex
+    auto conn = SQLiteTestHelper::createMemoryConnection();
+
+    {
+        boost::asio::io_context setup_io;
+        net::co_spawn(setup_io.get_executor(), [&]() -> net::awaitable<void> {
+            co_await conn->exec("CREATE TABLE t_race (id INTEGER PRIMARY KEY, val TEXT)");
+        }());
+        setup_io.run();
+    }
+
+    constexpr int THREAD_NUM = 4;
+    constexpr int ROUNDS = 50;
+
+    std::atomic<int> error_count{0};
+    std::vector<std::thread> threads;
+
+    for (int t = 0; t < THREAD_NUM; ++t) {
+        threads.emplace_back([&conn, &error_count, t]() {
+            boost::asio::io_context io;
+            auto worker = [&conn, &error_count, t]() -> net::awaitable<void> {
+                try {
+                    for (int i = 0; i < ROUNDS; ++i) {
+                        // prepare/bind on this user thread, step on the pool thread; the
+                        // statement destructs at the end of the scope (finalize on this thread)
+                        auto insert =
+                          co_await conn->getStatement("INSERT INTO t_race (val) VALUES (?)");
+                        insert->bind(0, "thread-" + std::to_string(t) + "-" + std::to_string(i));
+                        co_await insert->exec();
+
+                        // a select whose column reads interleave with the other threads
+                        auto sel = co_await conn->getStatement("SELECT count(1) FROM t_race");
+                        co_await sel->exec();
+                        if (co_await sel->moveNext()) {
+                            int64_t count = 0;
+                            sel->getColumn(0, count);
+                            CHECK(count >= 0);
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    HKU_ERROR("worker thread {} failed: {}", t, e.what());
+                    error_count.fetch_add(1);
+                }
+            };
+            net::co_spawn(io.get_executor(), worker());
+            io.run();
+        });
+    }
+
+    for (auto& th : threads) {
+        th.join();
+    }
+
+    CHECK_EQ(error_count.load(), 0);
+
+    // All the inserts of every thread must have landed
+    boost::asio::io_context io;
+    std::exception_ptr captured_exception;
+    int64_t total = 0;
+    net::co_spawn(io.get_executor(), [&]() -> net::awaitable<void> {
+        try {
+            auto sel = co_await conn->getStatement("SELECT count(1) FROM t_race");
+            co_await sel->exec();
+            if (co_await sel->moveNext()) {
+                sel->getColumn(0, total);
+            }
+        } catch (...) {
+            captured_exception = std::current_exception();
+        }
+    }());
+    io.run();
+    io.run();
+
+    if (captured_exception) {
+        std::rethrow_exception(captured_exception);
+    }
+    CHECK_EQ(total, static_cast<int64_t>(THREAD_NUM * ROUNDS));
+}
+
+TEST_CASE("test_async_sqlite_statement_outlives_connection") {
+    // The statement keeps the connection alive via shared ownership: releasing the connection
+    // before the statement must neither close the database handle out from under it nor destroy
+    // the internal thread pool it still needs
+    boost::asio::io_context io_context;
+    std::exception_ptr captured_exception;
+    bool test_passed = false;
+
+    auto test_coro = [&]() -> net::awaitable<void> {
+        try {
+            AsyncSQLStatementPtr st;
+            {
+                auto conn = SQLiteTestHelper::createMemoryConnection();
+                co_await conn->exec("CREATE TABLE t_life (id INTEGER PRIMARY KEY, val TEXT)");
+                co_await conn->exec("INSERT INTO t_life VALUES (1, 'alive')");
+                st = co_await conn->getStatement("SELECT val FROM t_life WHERE id = ?");
+                st->bind(0, static_cast<int64_t>(1));
+                co_await st->exec();
+                CHECK(co_await st->moveNext());
+                std::string val;
+                st->getColumn(0, val);
+                CHECK_EQ(val, "alive");
+                // conn released here: the statement is the only remaining owner
+            }
+
+            // The statement and its connection are still fully usable
+            co_await st->exec();
+            CHECK(co_await st->moveNext());
+            std::string val;
+            st->getColumn(0, val);
+            CHECK_EQ(val, "alive");
+
+            // The last owner releases: the pool is drained and the handle closed afterwards
+            st.reset();
+
+            test_passed = true;
+        } catch (...) {
+            captured_exception = std::current_exception();
+        }
+        co_return;
+    };
+
+    net::co_spawn(io_context.get_executor(), test_coro());
+    io_context.run();
+
+    if (captured_exception) {
+        std::rethrow_exception(captured_exception);
+    }
+    CHECK(test_passed);
+}
