@@ -5,6 +5,7 @@
  *      Author: fasiondog
  */
 
+#include <atomic>
 #include <thread>
 #include "os.h"
 #include "Log.h"
@@ -21,14 +22,16 @@
 
 namespace hku {
 
-static LOG_LEVEL g_log_level = LOG_LEVEL::LOG_TRACE;
+// The log level is set and read from arbitrary user threads, so it must be atomic to avoid a
+// data race
+static std::atomic<LOG_LEVEL> g_log_level{LOG_LEVEL::LOG_TRACE};
 
 LOG_LEVEL get_log_level() {
-    return g_log_level;
+    return g_log_level.load(std::memory_order_relaxed);
 }
 
 void set_log_level(LOG_LEVEL level) {
-    g_log_level = level;
+    g_log_level.store(level, std::memory_order_relaxed);
     getHikyuuLogger()->set_level((spdlog::level::level_enum)level);
 }
 
