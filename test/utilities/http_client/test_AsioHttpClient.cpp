@@ -1950,3 +1950,87 @@ TEST_CASE("test_tianxingapi_ipquery") {
 #endif
 
 #endif  // #if HKU_ENABLE_HTTP_CLIENT
+// ============================================================================
+// M23 回归：authority 按 RFC 3986 终结（userinfo 剥离、?# 终结、fragment 不发送）
+// ============================================================================
+
+TEST_CASE("test_AsioHttpClient_url_userinfo_and_authority") {
+    /**
+     * @par Check points
+     * - the userinfo ("user:password@") is stripped from the authority: the request reaches the
+     *   host after the '@' and its Host header carries that host only (RFC 3986)
+     * - the authority ends at '?' and '#': a query without a path is not parsed into the host or
+     *   the port and lands in the request target, an '@' inside the query stays harmless
+     * - the fragment is never sent to the server (RFC 9110)
+     */
+    // Echo the request line and the Host header the server actually received
+    auto echo = [](boost::asio::ip::tcp::socket& sock) {
+        const std::string request = LocalTestHttpServer::readRequest(sock);
+        const size_t line_end = request.find("\r\n");
+        std::string line = line_end == std::string::npos ? request : request.substr(0, line_end);
+        const size_t host_begin = request.find("Host:");
+        std::string host;
+        if (host_begin != std::string::npos) {
+            const size_t host_end = request.find("\r\n", host_begin);
+            host = request.substr(host_begin + 5, host_end - host_begin - 5);
+            const size_t first = host.find_first_not_of(" \t");
+            host = first == std::string::npos ? std::string() : host.substr(first);
+        }
+        const std::string body = "req=" + line + ";host=" + host;
+        const std::string head =
+          "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) +
+          "\r\nConnection: close\r\n\r\n";
+        LocalTestHttpServer::writeAll(sock, head.data(), head.size());
+        LocalTestHttpServer::writeAll(sock, body.data(), body.size());
+    };
+
+    // The userinfo is stripped: the request reaches the loopback host behind the '@'
+    {
+        LocalTestHttpServer server(echo);
+        server.start();
+        const std::string host_part = server.url().substr(std::string("http://").size());
+        AsioHttpClient client("http://user:password@" + host_part, 5000);
+        auto resp = client.get("/ui");
+        CHECK_EQ(resp.status(), 200);
+        CHECK(resp.body().find("req=GET /ui HTTP/1.1") != std::string::npos);
+        CHECK(resp.body().find("host=127.0.0.1:" + std::to_string(server.port())) !=
+              std::string::npos);
+        server.stop();
+    }
+
+    // A query without a path terminates the authority: it becomes the origin-form target and
+    // the '@' inside the query stays harmless
+    {
+        LocalTestHttpServer server(echo);
+        server.start();
+        AsioHttpClient client(server.url() + "?a=1&x@y=2", 5000);
+        auto resp = client.get("");
+        CHECK_EQ(resp.status(), 200);
+        CHECK(resp.body().find("req=GET /?a=1&x@y=2 HTTP/1.1") != std::string::npos);
+        CHECK(resp.body().find("host=127.0.0.1:" + std::to_string(server.port())) !=
+              std::string::npos);
+        server.stop();
+    }
+
+    // The fragment never reaches the server, the path before it is kept
+    {
+        LocalTestHttpServer server(echo);
+        server.start();
+        AsioHttpClient client(server.url() + "/p#frag", 5000);
+        auto resp = client.get("");
+        CHECK_EQ(resp.status(), 200);
+        CHECK(resp.body().find("req=GET /p HTTP/1.1") != std::string::npos);
+        server.stop();
+    }
+
+    // A fragment directly after the authority leaves an empty target, the default '/' is used
+    {
+        LocalTestHttpServer server(echo);
+        server.start();
+        AsioHttpClient client(server.url() + "#frag", 5000);
+        auto resp = client.get("/");
+        CHECK_EQ(resp.status(), 200);
+        CHECK(resp.body().find("req=GET / HTTP/1.1") != std::string::npos);
+        server.stop();
+    }
+}
