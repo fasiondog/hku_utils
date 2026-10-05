@@ -652,4 +652,124 @@ TEST_CASE("test_mysql_statement_release_after_connect_destroyed") {
     }
 }
 
+// ============================================================================
+// Repeated exec on the same statement must keep the parameter storage stable
+// ============================================================================
+
+TEST_CASE("test_mysql_statement_repeated_exec_rebind") {
+    // Rebinding and executing a statement repeatedly must reuse the parameter storage instead of
+    // accumulating it, and every exec must deliver the freshly bound values
+    Parameter param = loadMySQLConfig();
+
+    if (param.empty()) {
+        return;
+    }
+
+    try {
+        MySQLConnect conn(param);
+
+        try {
+            conn.exec("USE test");
+        } catch (...) {
+            conn.exec("CREATE DATABASE IF NOT EXISTS test");
+            conn.exec("USE test");
+        }
+
+        conn.exec("DROP TABLE IF EXISTS test_stmt_rebind");
+        conn.exec("CREATE TABLE test_stmt_rebind (id INT PRIMARY KEY, val VARCHAR(50))");
+
+        /** Repeated exec with a full rebind on every round */
+        {
+            auto stmt = conn.getStatement("INSERT INTO test_stmt_rebind (id, val) VALUES (?, ?)");
+            const int rounds = 3000;
+            for (int i = 0; i < rounds; ++i) {
+                stmt->bind(0, static_cast<int64_t>(i));
+                stmt->bind(1, "value-" + std::to_string(i));
+                stmt->exec();
+            }
+
+            auto sel = conn.getStatement("SELECT COUNT(*) FROM test_stmt_rebind");
+            sel->exec();
+            REQUIRE(sel->moveNext());
+            int64_t count = 0;
+            sel->getColumn(0, count);
+            CHECK_EQ(count, static_cast<int64_t>(rounds));
+
+            auto first = conn.getStatement("SELECT val FROM test_stmt_rebind WHERE id = ?");
+            first->bind(0, static_cast<int64_t>(0));
+            first->exec();
+            REQUIRE(first->moveNext());
+            std::string val;
+            first->getColumn(0, val);
+            CHECK_EQ(val, "value-0");
+
+            first->bind(0, static_cast<int64_t>(rounds - 1));
+            first->exec();
+            REQUIRE(first->moveNext());
+            first->getColumn(0, val);
+            CHECK_EQ(val, "value-" + std::to_string(rounds - 1));
+        }
+
+        /** Rebinding a slot with a value of another type replaces the old one */
+        {
+            auto stmt = conn.getStatement("INSERT INTO test_stmt_rebind (id, val) VALUES (?, ?)");
+            stmt->bind(0, static_cast<int64_t>(100000));
+            stmt->bind(1, std::string("keep"));
+            stmt->exec();
+
+            // The val slot is rebound as an integer: the server coerces it into the string
+            stmt->bind(0, static_cast<int64_t>(100001));
+            stmt->bind(1, static_cast<int64_t>(12345));
+            stmt->exec();
+
+            auto sel = conn.getStatement("SELECT val FROM test_stmt_rebind WHERE id = 100001");
+            sel->exec();
+            REQUIRE(sel->moveNext());
+            std::string val;
+            sel->getColumn(0, val);
+            CHECK_EQ(val, "12345");
+        }
+
+        /** A partial rebind keeps the untouched parameter buffers alive and bound */
+        {
+            auto stmt = conn.getStatement("INSERT INTO test_stmt_rebind (id, val) VALUES (?, ?)");
+            stmt->bind(0, static_cast<int64_t>(200000));
+            stmt->bind(1, std::string("keep"));
+            stmt->exec();
+
+            // Rebind only the id: the val buffer of the previous round must still be valid
+            stmt->bind(0, static_cast<int64_t>(200001));
+            stmt->exec();
+
+            auto sel = conn.getStatement("SELECT val FROM test_stmt_rebind WHERE id = 200001");
+            sel->exec();
+            REQUIRE(sel->moveNext());
+            std::string val;
+            sel->getColumn(0, val);
+            CHECK_EQ(val, "keep");
+        }
+
+        /** Re-executing a statement without rebinding must stay safe (no freed buffers) */
+        {
+            auto sel = conn.getStatement("SELECT val FROM test_stmt_rebind WHERE id = ?");
+            sel->bind(0, static_cast<int64_t>(0));
+            sel->exec();
+            REQUIRE(sel->moveNext());
+            std::string val;
+            sel->getColumn(0, val);
+            CHECK_EQ(val, "value-0");
+
+            sel->exec();
+            REQUIRE(sel->moveNext());
+            sel->getColumn(0, val);
+            CHECK_EQ(val, "value-0");
+        }
+
+        conn.exec("DROP TABLE IF EXISTS test_stmt_rebind");
+
+    } catch (const std::exception& e) {
+        MESSAGE("MySQL server not available: " << e.what());
+    }
+}
+
 #endif  // HKU_ENABLE_MYSQL

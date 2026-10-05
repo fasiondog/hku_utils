@@ -42,6 +42,10 @@ struct MySQLStatement::Impl {
 
     std::vector<MYSQL_BIND> param_bind;
     std::vector<MYSQL_BIND> result_bind;
+    // Parameter values are stored per placeholder slot (indexed by the bind position), so the
+    // storage is bounded by the parameter count no matter how many times the statement is
+    // executed. The MYSQL_BIND buffers point into the heap holders of these any objects, which
+    // stay valid when the vector itself reallocates.
     std::vector<boost::any> param_buffer;
     std::vector<boost::any> result_buffer;
     std::vector<unsigned long> result_length;
@@ -53,6 +57,15 @@ struct MySQLStatement::Impl {
                t == MYSQL_TYPE_TINY_BLOB || t == MYSQL_TYPE_MEDIUM_BLOB ||
                t == MYSQL_TYPE_LONG_BLOB || t == MYSQL_TYPE_VARCHAR || t == MYSQL_TYPE_DECIMAL ||
                t == MYSQL_TYPE_NEWDECIMAL;
+    }
+
+    /** Return the value slot of a placeholder so rebinding replaces the old value instead of
+     * appending a new one (storage stays bounded by the parameter count across exec calls) */
+    boost::any& paramSlot(int idx) {
+        if (param_buffer.size() <= static_cast<size_t>(idx)) {
+            param_buffer.resize(static_cast<size_t>(idx) + 1);
+        }
+        return param_buffer[idx];
     }
 
     void fetchTruncatedColumns() {
@@ -68,8 +81,8 @@ struct MySQLStatement::Impl {
                 bind.buffer = p->data();
                 bind.buffer_length = result_length[i] + 1;
                 int ret = mysql_stmt_fetch_column(stmt, &bind, i, 0);
-                SQL_CHECK(ret == 0, ret, "Failed fetch truncated column {}! {}", i,
-                          mysql_stmt_error(stmt));
+                SQL_CHECK(ret == 0, static_cast<int>(mysql_stmt_errno(stmt)),
+                          "Failed fetch truncated column {}! {}", i, mysql_stmt_error(stmt));
                 result_error[i] = 0;
             } else {
                 SQL_THROW(MYSQL_DATA_TRUNCATED, "Data truncated in column {}!", i);
@@ -120,38 +133,44 @@ void MySQLStatement::_prepare() {
     int ret = mysql_stmt_prepare(m_impl->stmt, m_sql_string.c_str(), m_sql_string.size());
     HKU_IF_RETURN(0 == ret, void());
 
+    // mysql_stmt_prepare only reports success/failure; the concrete error code must be read via
+    // mysql_stmt_errno before the statement handle is closed
+    int errcode = static_cast<int>(mysql_stmt_errno(m_impl->stmt));
+    std::string errstr(mysql_stmt_error(m_impl->stmt));
     mysql_stmt_close(m_impl->stmt);
     m_impl->stmt = nullptr;
 
-    // On a server exception, try to reconnect to the server
-    // 1 is "Lost connection to MySQL server during query", but MYSQL has no error code definition
-    // for it
-    if (1 == ret || CR_SERVER_LOST == ret || CR_SERVER_GONE_ERROR == ret) {
+    // Only a lost connection is worth a reconnect attempt; other errors (e.g. a syntax error)
+    // would fail the re-prepare anyway
+    if (detail::isConnectionLostError(errcode)) {
         MySQLConnect* connect = dynamic_cast<MySQLConnect*>(m_driver);
         if (connect && connect->ping()) {
             m_impl->db = static_cast<MYSQL*>(connect->getRawConnection());
         } else {
             HKU_THROW("Failed reconnect mysql! SQL: {}", m_sql_string);
         }
-    } else if (CR_OUT_OF_MEMORY == ret) {
+    } else if (CR_OUT_OF_MEMORY == errcode) {
         HKU_THROW("Out of memory! SQL: {}", m_sql_string);
     }
 
     m_impl->stmt = mysql_stmt_init(m_impl->db);
+    HKU_CHECK(m_impl->stmt, "Failed mysql_stmt_init! SQL: {}", m_sql_string);
     ret = mysql_stmt_prepare(m_impl->stmt, m_sql_string.c_str(), m_sql_string.size());
     HKU_IF_RETURN(0 == ret, void());
 
-    std::string stmt_errorstr(mysql_stmt_error(m_impl->stmt));
+    errcode = static_cast<int>(mysql_stmt_errno(m_impl->stmt));
+    errstr = mysql_stmt_error(m_impl->stmt);
     mysql_stmt_close(m_impl->stmt);
     m_impl->stmt = nullptr;
-    HKU_THROW("Failed prepare statement: {}! ret: {}, error msg: {}!", m_sql_string, ret,
-              stmt_errorstr);
+    HKU_THROW("Failed prepare statement: {}! errcode: {}, error msg: {}!", m_sql_string, errcode,
+              errstr);
 }
 
 void MySQLStatement::_reset() {
     if (m_impl->needs_reset) {
         int ret = mysql_stmt_reset(m_impl->stmt);
-        SQL_CHECK(ret == 0, ret, "Failed reset statement! {}", mysql_stmt_error(m_impl->stmt));
+        SQL_CHECK(ret == 0, static_cast<int>(mysql_stmt_errno(m_impl->stmt)),
+                  "Failed reset statement! {}", mysql_stmt_error(m_impl->stmt));
         m_impl->result_buffer.clear();
         m_impl->needs_reset = false;
         m_impl->has_bind_result = false;
@@ -164,11 +183,12 @@ void MySQLStatement::sub_exec() {
     int ret = 0;
     if (m_impl->param_bind.size() > 0) {
         ret = mysql_stmt_bind_param(m_impl->stmt, m_impl->param_bind.data());
-        SQL_CHECK(ret == 0, ret, "Failed mysql_stmt_bind_param! {}",
-                  mysql_stmt_error(m_impl->stmt));
+        SQL_CHECK(ret == 0, static_cast<int>(mysql_stmt_errno(m_impl->stmt)),
+                  "Failed mysql_stmt_bind_param! {}", mysql_stmt_error(m_impl->stmt));
     }
     ret = mysql_stmt_execute(m_impl->stmt);
-    SQL_CHECK(ret == 0, ret, "Failed mysql_stmt_execute: {}", mysql_stmt_error(m_impl->stmt));
+    SQL_CHECK(ret == 0, static_cast<int>(mysql_stmt_errno(m_impl->stmt)),
+              "Failed mysql_stmt_execute: {}", mysql_stmt_error(m_impl->stmt));
 }
 
 void MySQLStatement::_bindResult() {
@@ -264,12 +284,12 @@ bool MySQLStatement::sub_moveNext() {
         m_impl->has_bind_result = true;
 
         ret = mysql_stmt_bind_result(m_impl->stmt, m_impl->result_bind.data());
-        SQL_CHECK(ret == 0, ret, "Failed mysql_stmt_bind_result! {}",
-                  mysql_stmt_error(m_impl->stmt));
+        SQL_CHECK(ret == 0, static_cast<int>(mysql_stmt_errno(m_impl->stmt)),
+                  "Failed mysql_stmt_bind_result! {}", mysql_stmt_error(m_impl->stmt));
 
         ret = mysql_stmt_store_result(m_impl->stmt);
-        SQL_CHECK(ret == 0, ret, "Failed mysql_stmt_store_result! {}",
-                  mysql_stmt_error(m_impl->stmt));
+        SQL_CHECK(ret == 0, static_cast<int>(mysql_stmt_errno(m_impl->stmt)),
+                  "Failed mysql_stmt_store_result! {}", mysql_stmt_error(m_impl->stmt));
     }
 
     ret = mysql_stmt_fetch(m_impl->stmt);
@@ -293,8 +313,8 @@ void MySQLStatement::sub_bindNull(int idx) {
 void MySQLStatement::sub_bindInt(int idx, int64_t value) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
-    m_impl->param_buffer.push_back(value);
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = value;
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_LONGLONG;
     m_impl->param_bind[idx].is_unsigned = false;
     m_impl->param_bind[idx].buffer = boost::any_cast<int64_t>(&buf);
@@ -303,8 +323,8 @@ void MySQLStatement::sub_bindInt(int idx, int64_t value) {
 void MySQLStatement::sub_bindUInt64(int idx, uint64_t value) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
-    m_impl->param_buffer.push_back(value);
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = value;
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_LONGLONG;
     m_impl->param_bind[idx].is_unsigned = true;
     m_impl->param_bind[idx].buffer = boost::any_cast<uint64_t>(&buf);
@@ -313,8 +333,8 @@ void MySQLStatement::sub_bindUInt64(int idx, uint64_t value) {
 void MySQLStatement::sub_bindDouble(int idx, double item) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
-    m_impl->param_buffer.push_back(item);
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = item;
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_DOUBLE;
     m_impl->param_bind[idx].buffer = boost::any_cast<double>(&buf);
 }
@@ -336,8 +356,8 @@ void MySQLStatement::sub_bindDatetime(int idx, const Datetime& item) {
     tm.second = static_cast<unsigned int>(item.second());
     tm.second_part = static_cast<unsigned long>(item.millisecond() * 1000 + item.microsecond());
     tm.time_type = MYSQL_TIMESTAMP_DATETIME;
-    m_impl->param_buffer.push_back(tm);
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = tm;
     MYSQL_TIME* p = boost::any_cast<MYSQL_TIME>(&buf);
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_DATETIME;
     m_impl->param_bind[idx].buffer = p;
@@ -348,8 +368,8 @@ void MySQLStatement::sub_bindDatetime(int idx, const Datetime& item) {
 void MySQLStatement::sub_bindText(int idx, const std::string& item) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
-    m_impl->param_buffer.push_back(item);
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = item;
     std::string* p = boost::any_cast<std::string>(&buf);
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_VAR_STRING;
     m_impl->param_bind[idx].buffer = (void*)p->data();
@@ -360,8 +380,8 @@ void MySQLStatement::sub_bindText(int idx, const std::string& item) {
 void MySQLStatement::sub_bindText(int idx, const char* item, size_t len) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
-    m_impl->param_buffer.push_back(std::string(item));
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = std::string(item);
     std::string* p = boost::any_cast<std::string>(&buf);
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_VAR_STRING;
     m_impl->param_bind[idx].buffer = (void*)p->data();
@@ -372,8 +392,8 @@ void MySQLStatement::sub_bindText(int idx, const char* item, size_t len) {
 void MySQLStatement::sub_bindBlob(int idx, const std::string& item) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
-    m_impl->param_buffer.push_back(item);
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = item;
     std::string* p = boost::any_cast<std::string>(&buf);
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_BLOB;
     m_impl->param_bind[idx].buffer = (void*)p->data();
@@ -384,8 +404,8 @@ void MySQLStatement::sub_bindBlob(int idx, const std::string& item) {
 void MySQLStatement::sub_bindBlob(int idx, const std::vector<char>& item) {
     SQL_CHECK(idx < static_cast<int>(m_impl->param_bind.size()), -1,
               "idx out of range! idx: {}, total: {}", idx, m_impl->param_bind.size());
-    m_impl->param_buffer.push_back(item);
-    auto& buf = m_impl->param_buffer.back();
+    auto& buf = m_impl->paramSlot(idx);
+    buf = item;
     std::vector<char>* p = boost::any_cast<std::vector<char>>(&buf);
     m_impl->param_bind[idx].buffer_type = MYSQL_TYPE_BLOB;
     m_impl->param_bind[idx].buffer = (void*)p->data();
