@@ -35,10 +35,9 @@ void set_log_level(LOG_LEVEL level) {
     getHikyuuLogger()->set_level((spdlog::level::level_enum)level);
 }
 
-// The "hikyuu" logger is not registered in the spdlog registry, so spdlog::get cannot find it.
-// The instance is cached here instead of hitting the registry (a global mutex + hash lookup +
-// a shared_ptr copy) on every log call; initLogger refreshes the cache when it recreates the
-// logger. Before the first initLogger the default logger is served as the fallback.
+// Cache the "hikyuu" logger instance to avoid hitting the spdlog registry (a global mutex +
+// hash lookup + a shared_ptr copy) on every log call. initLogger registers the logger and
+// refreshes the cache; before the first initLogger the default logger is served as fallback.
 static std::shared_ptr<spdlog::logger> g_hikyuu_logger;
 
 std::shared_ptr<spdlog::logger> getHikyuuLogger() {
