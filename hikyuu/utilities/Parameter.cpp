@@ -118,33 +118,85 @@ std::string Parameter::toString() const {
     return result;
 }
 
-// 转换为字符串，用于打印输出
+// 将字符串转义为带引号的 JSON 字符串字面量：'"'、'\' 与控制字符转义，
+// >= 0x80 的字节按 UTF-8 约定原样透传
+static std::string escapeJsonString(const std::string& input) {
+    std::string result;
+    result.reserve(input.size() + 2);
+    result += '"';
+    for (unsigned char c : input) {
+        switch (c) {
+            case '"':
+                result += "\\\"";
+                break;
+            case '\\':
+                result += "\\\\";
+                break;
+            case '\b':
+                result += "\\b";
+                break;
+            case '\f':
+                result += "\\f";
+                break;
+            case '\n':
+                result += "\\n";
+                break;
+            case '\r':
+                result += "\\r";
+                break;
+            case '\t':
+                result += "\\t";
+                break;
+            default:
+                if (c < 0x20) {
+                    fmt::format_to(std::back_inserter(result), "\\u{:04x}", c);
+                } else {
+                    result += static_cast<char>(c);
+                }
+                break;
+        }
+    }
+    result += '"';
+    return result;
+}
+
+// 转换为 JSON 字符串
+// 键名与字符串值均为调用方输入，必须转义，防止值内的引号逃逸出 JSON 字符串或注入额外成员；
+// 不支持的类型整体跳过，分隔符只在已输出的条目之间补写（尾随分隔符是非法 JSON）
 std::string Parameter::toJson() const {
     std::ostringstream buf;
     buf << "{";
+    size_t emitted = 0;
+    auto emitKey = [&buf, &emitted](const std::string& key) {
+        if (emitted++ > 0) {
+            buf << ", ";
+        }
+        buf << escapeJsonString(key) << ": ";
+    };
     param_map_t::const_iterator iter = m_params.begin();
-    for (size_t cnt = 0, total = m_params.size(); iter != m_params.end(); ++iter, cnt++) {
+    for (; iter != m_params.end(); ++iter) {
         if (iter->second.type() == typeid(int64_t)) {
-            buf << "\"" << iter->first << "\": " << boost::any_cast<int64_t>(iter->second);
+            emitKey(iter->first);
+            buf << boost::any_cast<int64_t>(iter->second);
         } else if (iter->second.type() == typeid(bool)) {
-            buf << "\"" << iter->first
-                << "\": " << (boost::any_cast<bool>(iter->second) ? "true" : "false");
+            emitKey(iter->first);
+            buf << (boost::any_cast<bool>(iter->second) ? "true" : "false");
         } else if (iter->second.type() == typeid(double)) {
-            buf << "\"" << iter->first << "\": " << boost::any_cast<double>(iter->second);
+            emitKey(iter->first);
+            buf << boost::any_cast<double>(iter->second);
         } else if (strcmp(iter->second.type().name(), typeid(std::string).name()) == 0) {
-            buf << "\"" << iter->first << "\": \"" << boost::any_cast<std::string>(iter->second)
-                << "\"";
+            emitKey(iter->first);
+            buf << escapeJsonString(boost::any_cast<std::string>(iter->second));
 #if defined(HKU_SUPPORT_DATETIME)
         } else if (strcmp(iter->second.type().name(), typeid(Datetime).name()) == 0) {
-            buf << "\"" << iter->first << "\": " << boost::any_cast<Datetime>(iter->second);
+            emitKey(iter->first);
+            buf << boost::any_cast<Datetime>(iter->second);
         } else if (strcmp(iter->second.type().name(), typeid(TimeDelta).name()) == 0) {
-            buf << "\"" << iter->first << "\": " << boost::any_cast<TimeDelta>(iter->second);
+            emitKey(iter->first);
+            buf << boost::any_cast<TimeDelta>(iter->second);
 #endif
         } else {
             continue;
-        }
-        if (cnt + 1 < total) {
-            buf << ", ";
         }
     }
     buf << "}";

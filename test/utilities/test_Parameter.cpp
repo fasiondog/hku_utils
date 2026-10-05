@@ -157,6 +157,39 @@ TEST_CASE("test_Parameter_toString") {
     CHECK_EQ(p4.toString(), "params[s(string): hello, ]");
 }
 
+TEST_CASE("test_Parameter_toJson") {
+    /** @arg 空参数表 */
+    Parameter empty;
+    CHECK_EQ(empty.toJson(), "{}");
+
+    /** @arg 普通键值的输出格式 */
+    Parameter p1;
+    p1.set<int64_t>("i", 10);
+    CHECK_EQ(p1.toJson(), "{\"i\": 10}");
+
+    /** @arg 字符串值含引号、反斜杠、换行、制表符时必须转义，不得破坏 JSON 结构 */
+    Parameter p2;
+    p2.set<std::string>("msg", "he\"llo\\id\there");
+    CHECK_EQ(p2.toJson(), "{\"msg\": \"he\\\"llo\\\\id\\there\"}");
+
+    /** @arg 键名含引号时同样转义 */
+    Parameter p3;
+    p3.set<std::string>("ke\"y", "v");
+    CHECK_EQ(p3.toJson(), "{\"ke\\\"y\": \"v\"}");
+
+    /** @arg 多条目以 ", " 分隔，且字符串值注入的引号不会产生额外成员 */
+    Parameter p4;
+    p4.set<int64_t>("n", 1);
+    p4.set<std::string>("s", "\", \"injected\": 2, \"x\": \"");
+    auto json = p4.toJson();
+    CHECK_UNARY(json.find("\"n\": 1") != std::string::npos);
+    CHECK_UNARY(json.find("\\\", \\\"injected\\\": 2, \\\"x\\\": \\\"") != std::string::npos);
+    CHECK_EQ(json.front(), '{');
+    CHECK_EQ(json.back(), '}');
+    // 注入载荷被完整转义为单个字符串成员：顶层成员只有 n 与 s 两个键
+    CHECK_UNARY(json.substr(1).find("{\"") == std::string::npos);
+}
+
 // TEST_CASE("test_Parameter_serialize") {
 //     Parameter p1;
 //     p1.set<int>("i", 10);
