@@ -54,6 +54,7 @@
 - fix(http_client): URL 解析按 RFC 3986 终结 authority 并剥离 userinfo，消除与浏览器解析的 differential；fragment 不再进入请求 target；修复以 / 结尾的路径被双写斜杠
 - fix(datetime): Datetime::timestamp/timestampUTC 返回值由 uint64_t 改为 int64_t，1970 年前日期正常返回负微秒数不再无符号下溢，Null Datetime 映射 Null<int64_t>（下游以无符号类型接收时间戳的调用需调整类型）
 - fix(utilities): md5 长度算术改用 64 位无溢出类型，Windows 下超过 4GB 的输入不再产出错误摘要；临时缓冲改 RAII 管理异常时不泄漏；文档明确 MD5 仅限完整性校验/缓存键用途、禁止安全用途
+- perf(utilities): getHikyuuLogger 缓存 logger 实例（原子 shared_ptr），每条日志不再付出 spdlog 注册表全局锁 + 哈希查找的代价；initLogger 修正补上 spdlog::register_logger（原 logger 从未注册、spdlog::get("hikyuu") 恒落空靠默认 logger 兜底），并清理其中冗余的 drop/get 死代码
 - fix(utilities): Parameter::toJson 对键名与字符串值做 JSON 转义（引号/反斜杠/控制字符），值内引号不再逃逸出字符串或注入额外成员；分隔符改在已输出条目间补写，末条目为不支持的类型时不再产生尾随 ", " 的非法 JSON
 - perf(utilities): Parameter::toString 改逐项格式化后追加（fmt::format_to），不再把已累积的整个字符串放进 format 反复重排
 - refactor(utilities): 移除 moFileReader 的 ExportAsHTML 接口（该功能不需要，且其输出未转义 HTML 存在注入面），连同仅为其服务的 g_css/GetPoEditorString/MakeHtmlConform/Trim 私有辅助一并删除；EC_TABLEEMPTY 错误码保留以维持编号稳定

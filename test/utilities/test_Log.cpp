@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 #include <hikyuu/utilities/Log.h>
+#include <spdlog/spdlog.h>
 
 using namespace hku;
 
@@ -40,8 +41,17 @@ TEST_CASE("test_log") {
     x();
 }
 
-TEST_CASE("test_log_level_concurrent_access") {
-    // Concurrent set/get of the log level must not be a data race (UB before the fix), and
+TEST_CASE("test_log_getHikyuuLogger") {
+    // initLogger 后缓存实例必须与注册表中的 "hikyuu" logger 一致（注册修正 + 缓存刷新）
+    initLogger();
+    auto logger = getHikyuuLogger();
+    CHECK_EQ(logger->name(), "hikyuu");
+    CHECK_UNARY(spdlog::get("hikyuu") != nullptr);
+    CHECK_EQ(logger.get(), spdlog::default_logger().get());
+}
+
+TEST_CASE("test_log_level_concurrent_access") {  // Concurrent set/get of the log level must not be
+                                                 // a data race (UB before the fix), and
     // get_log_level must always return a value from the valid enum range
     LOG_LEVEL original = get_log_level();
 
