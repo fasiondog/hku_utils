@@ -43,7 +43,8 @@
 - fix(thread): GlobalStealThreadPool/StealThreadPool 的 join/stop 在 m_cv_mutex 下变更 m_done 与投哨兵后再 notify，修复 worker 谓词求值与阻塞间隙丢失唤醒导致的永久挂起
 - fix(db_connect): libmysqlclient 驱动不再显式开启 CLIENT_MULTI_STATEMENTS，限制字符串拼接 SQL 注入时的多语句堆叠执行
 - fix(db_connect): MySQL exec（libmysqlclient/boost 同步及异步）断线重连后仅重放只读语句（SELECT/SHOW/DESC/DESCRIBE/EXPLAIN），避免写语句在服务端可能已提交的情况下被重复执行
-- fix(db_connect): 全驱动整数边界加固：int64 读入窄有符号/无符号类型越界、负值读入无符号类型、uint64 超 INT64_MAX 绑定均显式抛异常；libmysqlclient 结果读取区分 unsigned 标志，BIGINT UNSIGNED 不再被读成负数
+- fix(db_connect): 全驱动整数边界加固：int64 读入窄有符号/无符号类型越界、负值读入窄无符号类型、uint64 超 INT64_MAX 绑定均显式抛异常；libmysqlclient 结果读取区分 unsigned 标志，BIGINT UNSIGNED 不再被读成负数
+- fix(db_connect): SQL NULL 读取统一映射为 Null 哨兵（整数/uint64 取类型最大值、浮点取 NaN、日期取 Null<Datetime>），NULL blob 统一抛 null_blob_exception 而空 blob 返回空值，NULL 与 0/空值可区分；负值 int64 读入 uint64 按位重解释（SQLite 等仅 int64 存储的驱动可还原 uint64 位模式）
 - fix(db_connect): AsyncMySQLStatement 流式读取跳过空批次，不再提前终止丢尾行；MySQL 语句执行失败后清空已绑定参数，语句可正常复用
 - docs(db_connect): load/batchLoad/remove 的字符串 where 重载增加注入风险 @warning，引导改用参数绑定的 DBCondition 重载
 - fix(thread): co_run/co_run_ec 改为向工作执行器提交 packaged_task 并在协程 home executor 轮询 future，消除 home io_context 先析构或排队任务被丢弃时的 use-after-free，并支持 cancellation_slot 立即取消等待
