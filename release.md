@@ -54,6 +54,7 @@
 - fix(http_client): URL 解析按 RFC 3986 终结 authority 并剥离 userinfo，消除与浏览器解析的 differential；fragment 不再进入请求 target；修复以 / 结尾的路径被双写斜杠
 - fix(datetime): Datetime::timestamp/timestampUTC 返回值由 uint64_t 改为 int64_t，1970 年前日期正常返回负微秒数不再无符号下溢，Null Datetime 映射 Null<int64_t>（下游以无符号类型接收时间戳的调用需调整类型）
 - fix(utilities): md5 长度算术改用 64 位无溢出类型，Windows 下超过 4GB 的输入不再产出错误摘要；临时缓冲改 RAII 管理异常时不泄漏；文档明确 MD5 仅限完整性校验/缓存键用途、禁止安全用途
+- fix(utilities): base64 解码尾块长度守卫，长度模 4 余 1 的输入显式抛异常而非越界读取（string_view 重载在 C++17/20 下为未定义行为）；insert_linebreaks 改单趟构造消除 O(n²)；base64_decode 文档修正为非法字符抛 std::runtime_error（原描述「只处理可处理字符」与实现不符）
 - fix(utilities): renameFile 消除先检查后重命名的竞态窗口——覆盖模式改单调用原子替换（POSIX rename / Windows MoveFileExA），非覆盖模式以原子创建检测目标占用（POSIX link / Windows MoveFileA），目录与不支持硬链接的文件系统回退原路径；macOS getMemoryIdleSize 释放 mach_host_self 返回的 port send right；Windows getDllSelfDir 识别 GetModuleFileNameA 截断，不再把被截断路径当成功
 - fix(db_connect): AsyncMySQLStatement 流式读取跳过空批次，不再提前终止丢尾行；MySQL 语句执行失败后清空已绑定参数，语句可正常复用
 - docs(db_connect): load/batchLoad/remove 的字符串 where 重载增加注入风险 @warning，引导改用参数绑定的 DBCondition 重载
