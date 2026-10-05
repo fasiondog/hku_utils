@@ -53,6 +53,7 @@
 - fix(db_connect): 同步 SQLiteConnect 关闭改用 sqlite3_close_v2，有未终结语句时不再因 SQLITE_BUSY 拒绝释放而泄漏连接
 - fix(http_client): URL 解析按 RFC 3986 终结 authority 并剥离 userinfo，消除与浏览器解析的 differential；fragment 不再进入请求 target；修复以 / 结尾的路径被双写斜杠
 - fix(datetime): Datetime::timestamp/timestampUTC 返回值由 uint64_t 改为 int64_t，1970 年前日期正常返回负微秒数不再无符号下溢，Null Datetime 映射 Null<int64_t>（下游以无符号类型接收时间戳的调用需调整类型）
+- fix(utilities): md5 长度算术改用 64 位无溢出类型，Windows 下超过 4GB 的输入不再产出错误摘要；临时缓冲改 RAII 管理异常时不泄漏；文档明确 MD5 仅限完整性校验/缓存键用途、禁止安全用途
 - fix(db_connect): AsyncMySQLStatement 流式读取跳过空批次，不再提前终止丢尾行；MySQL 语句执行失败后清空已绑定参数，语句可正常复用
 - docs(db_connect): load/batchLoad/remove 的字符串 where 重载增加注入风险 @warning，引导改用参数绑定的 DBCondition 重载
 - fix(thread): co_run/co_run_ec 改为向工作执行器提交 packaged_task 并在协程 home executor 轮询 future，消除 home io_context 先析构或排队任务被丢弃时的 use-after-free，并支持 cancellation_slot 立即取消等待
