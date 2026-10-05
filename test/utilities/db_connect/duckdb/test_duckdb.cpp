@@ -850,4 +850,32 @@ TEST_CASE("test_DuckDB_tableExist_escaped_name") {
     driver->exec("DROP TABLE IF EXISTS normal_table");
 }
 
+/** @par 检测起点 */
+TEST_CASE("test_DuckDB_exec_affected_rows") {
+    // exec 应返回真实受影响行数（与 SQLite 驱动语义一致）：修改语句为变更行数，
+    // 返回结果集的查询为 0（旧实现对修改语句恒返回 1、对查询返回 0）
+    Parameter param;
+    param.set<std::string>("db", ":memory:");
+
+    DuckDBConnectPtr driver;
+    CHECK_NOTHROW(driver = std::make_shared<DuckDBConnect>(param));
+    REQUIRE(driver);
+
+    /** @arg INSERT 返回插入行数 */
+    driver->exec("CREATE TABLE t_exec_rows (id INTEGER, v INTEGER)");
+    CHECK_EQ(driver->exec("INSERT INTO t_exec_rows VALUES (1, 1), (2, 2), (3, 3)"), 3);
+    CHECK_EQ(driver->exec("INSERT INTO t_exec_rows VALUES (4, 4)"), 1);
+
+    /** @arg UPDATE 返回更新的行数 */
+    CHECK_EQ(driver->exec("UPDATE t_exec_rows SET v = 9 WHERE id <= 2"), 2);
+    CHECK_EQ(driver->exec("UPDATE t_exec_rows SET v = 0 WHERE id > 100"), 0);
+
+    /** @arg DELETE 返回删除的行数 */
+    CHECK_EQ(driver->exec("DELETE FROM t_exec_rows WHERE id = 3"), 1);
+    CHECK_EQ(driver->exec("DELETE FROM t_exec_rows WHERE id > 100"), 0);
+
+    /** @arg 返回结果集的查询返回 0 */
+    CHECK_EQ(driver->exec("SELECT * FROM t_exec_rows"), 0);
+}
+
 /** @} */

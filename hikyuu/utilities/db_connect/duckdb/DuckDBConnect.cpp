@@ -97,16 +97,12 @@ int64_t DuckDBConnect::exec(const std::string& sql_string) {
         SQL_THROW(-1, "SQL error: {}! ({})", msg, sql_string);
     }
 
-    // 对于INSERT/UPDATE/DELETE语句，获取影响的行数
-    idx_t affected_rows = 0;
-    if (duckdb_row_count(&result) == 0) {
-        // 这是一个修改语句，尝试获取影响行数
-        // DuckDB C API没有直接的rows_changed函数，需要通过其他方式获取
-        affected_rows = 1;  // 简化处理
-    }
-
+    // The number of the rows changed by the statement (INSERT/UPDATE/DELETE); a query returning
+    // a result set reports 0. The previous code returned 1 for every modification statement and
+    // 0 for every query, the exact inverse of the documented semantics
+    int64_t affected_rows = static_cast<int64_t>(duckdb_rows_changed(&result));
     duckdb_destroy_result(&result);
-    return static_cast<int64_t>(affected_rows);
+    return affected_rows;
 }
 
 void DuckDBConnect::transaction() {
