@@ -333,7 +333,7 @@ std::string HKU_UTILS_API getUserDir() {
 std::string HKU_UTILS_API getCurrentDir() {
     std::string ret;
     char *buffer = NULL;
-#if HKU_OS_WINSOWS
+#if HKU_OS_WINDOWS
     buffer = _getcwd(buffer, 0);
 #else
     buffer = getcwd(buffer, 0);

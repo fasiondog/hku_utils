@@ -7,6 +7,7 @@
  */
 
 #include <doctest/doctest.h>
+#include <filesystem>
 #include <hikyuu/utilities/os.h>
 #include <hikyuu/utilities/Log.h>
 #include <hikyuu/utilities/arithmetic.h>
@@ -285,6 +286,18 @@ TEST_CASE("test_getDllSelfDir") {
     auto dir = getDllSelfDir();
     HKU_INFO("dll self dir: {}", dir);
     CHECK_UNARY_FALSE(dir.empty());
+}
+
+TEST_CASE("test_getCurrentDir") {
+    auto dir = getCurrentDir();
+    HKU_INFO("current dir: {}", dir);
+    CHECK_UNARY_FALSE(dir.empty());
+
+// The Windows path goes through a GB -> UTF-8 conversion, so a byte-wise comparison with
+// std::filesystem::current_path is not reliable; on POSIX both must match exactly
+#if !HKU_OS_WINDOWS
+    CHECK_EQ(dir, std::filesystem::current_path().string());
+#endif
 }
 
 TEST_CASE("test_getDiskFreeSpace") {

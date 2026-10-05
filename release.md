@@ -54,6 +54,7 @@
 - fix(http_client): URL 解析按 RFC 3986 终结 authority 并剥离 userinfo，消除与浏览器解析的 differential；fragment 不再进入请求 target；修复以 / 结尾的路径被双写斜杠
 - fix(datetime): Datetime::timestamp/timestampUTC 返回值由 uint64_t 改为 int64_t，1970 年前日期正常返回负微秒数不再无符号下溢，Null Datetime 映射 Null<int64_t>（下游以无符号类型接收时间戳的调用需调整类型）
 - fix(utilities): md5 长度算术改用 64 位无溢出类型，Windows 下超过 4GB 的输入不再产出错误摘要；临时缓冲改 RAII 管理异常时不泄漏；文档明确 MD5 仅限完整性校验/缓存键用途、禁止安全用途
+- fix(utilities): 修复 getCurrentDir 中宏拼写错误（HKU_OS_WINSOWS→HKU_OS_WINDOWS），Windows 分支原为死代码，实际依赖已弃用的 CRT 兼容名 getcwd 编译
 - fix(utilities): 耗时统计 transUnit 修正小时换算除数（360→3600）并调整分支顺序使小时分支可达；析构打印全部 keep 分段（原最后一段已记录但不打印）；全局开关改 std::atomic 消除并发读写数据竞争
 - fix(utilities): 日志级别存储改 std::atomic，消除任意线程 set/get_log_level 并发读写的数据竞争
 - fix(utilities): base64 解码尾块长度守卫，长度模 4 余 1 的输入显式抛异常而非越界读取（string_view 重载在 C++17/20 下为未定义行为）；insert_linebreaks 改单趟构造消除 O(n²)；base64_decode 文档修正为非法字符抛 std::runtime_error（原描述「只处理可处理字符」与实现不符）
