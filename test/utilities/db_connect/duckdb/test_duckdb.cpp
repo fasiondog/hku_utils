@@ -764,4 +764,90 @@ TEST_CASE("test_DuckDB_Datetime") {
     std::cout << "Datetime test completed successfully!" << std::endl;
 }
 
+// ============================================================================
+// M19 回归：INSERT 判定词法化、不假定主键 id、表名转义
+// ============================================================================
+
+/** @par 检测起点 */
+TEST_CASE("test_DuckDB_insert_keyword_word_boundary") {
+    // 旧实现按子串匹配 "INSERT"，SELECT 涉及名为 insert_log 的表会被误加
+    // " RETURNING id" 导致 prepare 失败；SQL 内含 UTF-8 字面量时旧的 char 直接
+    // ::toupper 也是 UB
+    Parameter param;
+    param.set<std::string>("db", "test_insert_boundary.duckdb");
+
+    DuckDBConnectPtr driver;
+    CHECK_NOTHROW(driver = std::make_shared<DuckDBConnect>(param));
+    REQUIRE(driver);
+    driver->exec("DROP TABLE IF EXISTS insert_log");
+    driver->exec("CREATE TABLE insert_log (id INTEGER, msg VARCHAR(50))");
+
+    // 表名含 insert 子串的 SELECT 必须原样执行
+    auto sel = driver->getStatement("SELECT id, msg FROM insert_log WHERE msg = '中文测试'");
+    CHECK_NOTHROW(sel->exec());
+    CHECK_UNARY_FALSE(sel->moveNext());
+
+    // 列名含 insert 子串的 SELECT 同理
+    driver->exec("ALTER TABLE insert_log RENAME COLUMN msg TO inserted_msg");
+    auto sel2 = driver->getStatement("SELECT inserted_msg FROM insert_log");
+    CHECK_NOTHROW(sel2->exec());
+
+    driver->exec("DROP TABLE IF EXISTS insert_log");
+}
+
+/** @par 检测起点 */
+TEST_CASE("test_DuckDB_insert_returning_and_lastrowid") {
+    Parameter param;
+    param.set<std::string>("db", "test_returning.duckdb");
+
+    DuckDBConnectPtr driver;
+    CHECK_NOTHROW(driver = std::make_shared<DuckDBConnect>(param));
+    REQUIRE(driver);
+
+    /** 主键名为 id 的表：追加 RETURNING id 生效，getLastRowid 返回该值 */
+    driver->exec("DROP TABLE IF EXISTS with_id");
+    driver->exec("CREATE TABLE with_id (id INTEGER PRIMARY KEY, name VARCHAR(50))");
+    {
+        auto st = driver->getStatement("INSERT INTO with_id (id, name) VALUES (?, ?)");
+        st->bind(0, static_cast<int64_t>(7));
+        st->bind(1, std::string("seven"));
+        st->exec();
+        CHECK_EQ(st->getLastRowid(), static_cast<uint64_t>(7));
+    }
+
+    /** 主键不叫 id 的表：不再因追加 RETURNING id 而创建语句失败，getLastRowid 返回 0 */
+    driver->exec("DROP TABLE IF EXISTS with_oid");
+    driver->exec("CREATE TABLE with_oid (oid INTEGER PRIMARY KEY, name VARCHAR(50))");
+    {
+        auto st = driver->getStatement("INSERT INTO with_oid (oid, name) VALUES (?, ?)");
+        st->bind(0, static_cast<int64_t>(9));
+        st->bind(1, std::string("nine"));
+        CHECK_NOTHROW(st->exec());
+        CHECK_EQ(st->getLastRowid(), static_cast<uint64_t>(0));
+    }
+
+    driver->exec("DROP TABLE IF EXISTS with_id");
+    driver->exec("DROP TABLE IF EXISTS with_oid");
+}
+
+/** @par 检测起点 */
+TEST_CASE("test_DuckDB_tableExist_escaped_name") {
+    // 表名作为字符串字面量拼入 PRAGMA table_info，含单引号的注入载荷必须被转义
+    Parameter param;
+    param.set<std::string>("db", "test_escape_pragma.duckdb");
+
+    DuckDBConnectPtr driver;
+    CHECK_NOTHROW(driver = std::make_shared<DuckDBConnect>(param));
+    REQUIRE(driver);
+    driver->exec("DROP TABLE IF EXISTS normal_table");
+    driver->exec("CREATE TABLE normal_table (id INTEGER)");
+    CHECK_UNARY(driver->tableExist("normal_table"));
+
+    // 注入载荷：旧实现拼接后语句被提前终结，可能误判或抛错
+    CHECK_UNARY_FALSE(driver->tableExist("normal_table' OR '1'='1"));
+    CHECK_UNARY_FALSE(driver->tableExist("nonexistent_table"));
+
+    driver->exec("DROP TABLE IF EXISTS normal_table");
+}
+
 /** @} */

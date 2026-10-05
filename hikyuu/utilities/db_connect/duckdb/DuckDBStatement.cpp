@@ -9,6 +9,8 @@
 
 #include "DuckDBStatement.h"
 #include "DuckDBConnect.h"
+#include <algorithm>
+#include <cctype>
 
 namespace hku {
 
@@ -29,22 +31,53 @@ DuckDBStatement::~DuckDBStatement() {
     duckdb_destroy_result(&m_result);
 }
 
+// The first significant keyword of the statement, uppercased; leading line/block comments are
+// skipped so that a commented-out statement is still classified correctly
+static std::string firstKeywordUpper(const std::string &sql) {
+    size_t pos = sql.find_first_not_of(" \t\r\n\f\v");
+    while (pos != std::string::npos) {
+        if (sql.compare(pos, 2, "--") == 0) {
+            pos = sql.find('\n', pos);
+            if (pos == std::string::npos) {
+                return "";
+            }
+            pos = sql.find_first_not_of(" \t\r\n\f\v", pos + 1);
+        } else if (sql.compare(pos, 2, "/*") == 0) {
+            pos = sql.find("*/", pos + 2);
+            if (pos == std::string::npos) {
+                return "";
+            }
+            pos = sql.find_first_not_of(" \t\r\n\f\v", pos + 2);
+        } else {
+            break;
+        }
+    }
+    if (pos == std::string::npos) {
+        return "";
+    }
+
+    std::string word;
+    while (pos < sql.size() && std::isalpha(static_cast<unsigned char>(sql[pos]))) {
+        word += static_cast<char>(std::toupper(static_cast<unsigned char>(sql[pos])));
+        ++pos;
+    }
+    return word;
+}
+
 static std::string prepareInsertWithReturning(const std::string &sql) {
+    // Only a statement whose first keyword is INSERT gets a RETURNING clause: matching the
+    // substring anywhere would corrupt unrelated statements (e.g. a table named insert_log)
+    if (firstKeywordUpper(sql) != "INSERT") {
+        return sql;
+    }
+
     std::string upper_sql = sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(), ::toupper);
+    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
+                   [](unsigned char c) { return std::toupper(c); });
 
-    size_t insert_pos = upper_sql.find("INSERT");
-    if (insert_pos == std::string::npos) {
-        return sql;
-    }
-
-    size_t returning_pos = upper_sql.find("RETURNING");
-    if (returning_pos != std::string::npos) {
-        return sql;
-    }
-
-    size_t rowid_pos = upper_sql.find("ROWID");
-    if (rowid_pos != std::string::npos) {
+    // A false match here only skips the appended clause and is harmless
+    if (upper_sql.find("RETURNING") != std::string::npos ||
+        upper_sql.find("ROWID") != std::string::npos) {
         return sql;
     }
 
@@ -52,12 +85,32 @@ static std::string prepareInsertWithReturning(const std::string &sql) {
 }
 
 void DuckDBStatement::_prepare() {
+    // Appending "RETURNING id" supports getLastRowid on tables whose primary key is named id,
+    // but the primary key is not required to be named id: fall back to the original statement
+    // when the appended clause cannot be prepared (getLastRowid then simply reports no rowid)
     std::string sql = prepareInsertWithReturning(m_sql_string);
     duckdb_state state = duckdb_prepare(m_connection, sql.c_str(), &m_stmt);
     if (state != DuckDBSuccess) {
+        if (sql != m_sql_string) {
+            std::string returning_error;
+            const char *error_msg = duckdb_prepare_error(m_stmt);
+            if (error_msg) {
+                returning_error = error_msg;
+            }
+            duckdb_destroy_prepare(&m_stmt);
+            m_stmt = nullptr;
+            HKU_WARN(
+              "Failed prepare with the appended RETURNING clause: {}! ({}), retry with "
+              "the original statement",
+              returning_error, sql);
+            state = duckdb_prepare(m_connection, m_sql_string.c_str(), &m_stmt);
+        }
+    }
+
+    if (state != DuckDBSuccess) {
         const char *error_msg = duckdb_prepare_error(m_stmt);
         std::string msg = error_msg ? std::string(error_msg) : "Unknown error";
-        SQL_THROW(-1, "Failed prepare sql statement: {}! error msg: {}", sql, msg);
+        SQL_THROW(-1, "Failed prepare sql statement: {}! error msg: {}", m_sql_string, msg);
     }
 }
 
@@ -225,7 +278,7 @@ void DuckDBStatement::sub_getColumnAsText(int idx, std::string &item) {
     char *value = duckdb_value_varchar(&m_result, static_cast<idx_t>(idx), m_current_row - 1);
     if (value) {
         item = std::string(value);
-        free(value);
+        duckdb_free(value);
     } else {
         item = "";
     }
@@ -244,7 +297,7 @@ void DuckDBStatement::sub_getColumnAsBlob(int idx, std::string &item) {
     // A zero-length blob is a valid empty value, only SQL NULL throws above
     if (blob.data && blob.size > 0) {
         item = std::string(static_cast<char *>(blob.data), blob.size);
-        free(blob.data);
+        duckdb_free(blob.data);
     } else {
         item.clear();
     }
@@ -267,7 +320,7 @@ uint64_t DuckDBStatement::sub_getLastRowid() {
         if (col_name) {
             std::string col_name_str(col_name);
             std::transform(col_name_str.begin(), col_name_str.end(), col_name_str.begin(),
-                           ::toupper);
+                           [](unsigned char c) { return std::toupper(c); });
 
             if (col_name_str == "ID" || col_name_str == "\"ID\"") {
                 if (duckdb_value_is_null(&m_result, i, 0)) {

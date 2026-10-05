@@ -48,6 +48,8 @@
 - fix(db_connect): libmysqlclient 预处理语句参数值按占位符槽位复用存储，重复 exec 不再累积内存；prepare 断线重连判定改用 mysql_stmt_errno 真实错误码（仅连接丢失才重连），语句层异常携带真实 MySQL 错误码
 - fix(db_connect): libmysqlclient 的 sub_bindText(idx, const char*, len) 按 len 构造绑定值，内嵌 NUL 不再被截断，与 sqlite/duckdb/boost 驱动行为对齐
 - fix(db_connect): AsyncSQLite 以连接级互斥锁串行化全部 sqlite3 调用，消除用户线程 prepare/bind/getColumn/finalize 与连接线程 step 并发违反 NOMUTEX 契约的数据竞争；连接析构先排空内部线程池再关闭句柄；语句改持连接 shared_ptr，连接先于语句释放不再悬空
+- fix(db_connect): DuckDB 语句 INSERT 判定改按首关键字词法匹配，主键不名为 id 的表回退原语句不再创建失败；PRAGMA table_info 表名转义防注入；duckdb 分配的内存统一以 duckdb_free 释放；resetAutoIncrement 补空表守卫并上报序列错误
+- fix(db_connect): TableMacro 的 COL_TABLE_BIND6..20 插入占位符由固定 6 个修正为与列数一致，12..20 移动赋值多余括号导致的编译失败
 - fix(db_connect): AsyncMySQLStatement 流式读取跳过空批次，不再提前终止丢尾行；MySQL 语句执行失败后清空已绑定参数，语句可正常复用
 - docs(db_connect): load/batchLoad/remove 的字符串 where 重载增加注入风险 @warning，引导改用参数绑定的 DBCondition 重载
 - fix(thread): co_run/co_run_ec 改为向工作执行器提交 packaged_task 并在协程 home executor 轮询 future，消除 home io_context 先析构或排队任务被丢弃时的 use-after-free，并支持 cancellation_slot 立即取消等待

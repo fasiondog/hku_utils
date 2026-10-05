@@ -38,7 +38,7 @@ DuckDBConnect::DuckDBConnect(const Parameter& param) : DBConnectBase(param) {
         if (state != DuckDBSuccess) {
             std::string err_msg = error_msg ? error_msg : "Unknown error";
             if (error_msg) {
-                free(error_msg);
+                duckdb_free(error_msg);
             }
             HKU_THROW("Failed to open DuckDB database: {}", err_msg);
         }
@@ -133,8 +133,21 @@ SQLStatementPtr DuckDBConnect::getStatement(const std::string& sql_statement) {
 
 bool DuckDBConnect::tableExist(const std::string& tablename) {
     try {
-        // 使用PRAGMA table_info检查表是否存在
-        std::string query = fmt::format("PRAGMA table_info('{}')", tablename);
+        // The table name of PRAGMA table_info is a string literal argument: escape the single
+        // quotes of the name instead of pasting it into the literal raw (SQL injection)
+        std::string escaped;
+        escaped.reserve(tablename.size() + 2);
+        escaped += '\'';
+        for (char c : tablename) {
+            if (c == '\'') {
+                escaped += "''";
+            } else {
+                escaped += c;
+            }
+        }
+        escaped += '\'';
+
+        std::string query = fmt::format("PRAGMA table_info({})", escaped);
 
         duckdb_result result;
         duckdb_state state = duckdb_query(m_connection, query.c_str(), &result);
@@ -156,13 +169,14 @@ bool DuckDBConnect::tableExist(const std::string& tablename) {
 }
 
 void DuckDBConnect::resetAutoIncrement(const std::string& tablename) {
-    try {
-        // DuckDB中重置自增ID的方式
-        std::string sql = fmt::format("ALTER SEQUENCE {}_id_seq RESTART WITH 1", tablename);
-        exec(sql);
-    } catch (...) {
-        // 如果序列不存在，忽略错误
-    }
+    // The same contract as the other drivers: the id can only be reset on an empty table, and
+    // errors (e.g. the sequence does not exist for the table) are reported instead of swallowed
+    int64_t count =
+      queryNumber<int64_t>(fmt::format("select count(1) from {}", sqlIdentifier(tablename)));
+    SQL_CHECK(count == 0, -1, "The ID cannot be reset when data is present in table({})",
+              tablename);
+    // The sequence name is derived from the table name, quote it as one identifier
+    exec(fmt::format("ALTER SEQUENCE \"{}_id_seq\" RESTART WITH 1", tablename));
 }
 
 bool DuckDBConnect::ping() {
