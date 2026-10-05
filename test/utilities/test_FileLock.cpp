@@ -13,6 +13,9 @@
 #include <hikyuu/utilities/FileLock.h>
 #include <hikyuu/utilities/Log.h>
 #include <hikyuu/utilities/os.h>
+#if !HKU_OS_WINDOWS
+#include <unistd.h>
+#endif
 
 using namespace hku;
 
@@ -234,6 +237,40 @@ TEST_CASE("test_FileLock_move_assignment") {
         reborn.unlock();
         dst.unlock();
     }
+}
+
+TEST_CASE("test_FileLock_symlink_refused") {
+// O_NOFOLLOW：锁路径是符号链接时必须拒绝加锁（返回 ELOOP），而不是锁到链接指向的
+// 任意 inode 上导致互斥失效
+#if !HKU_OS_WINDOWS
+    std::string path = lockPath("symlink");
+    std::string target = lockPath("symlink_target");
+    removeFile(path);
+    removeFile(target);
+
+    /** @arg 锁路径为指向外部文件的符号链接时加锁失败，且目标文件不受影响 */
+    {
+        FILE* fp = fopen(target.c_str(), "wb");
+        REQUIRE(fp != nullptr);
+        fclose(fp);
+        CHECK_EQ(symlink(target.c_str(), path.c_str()), 0);
+
+        FileLock lock(path);
+        CHECK_UNARY(!lock.tryLock());
+        CHECK_UNARY(!lock.isLocked());
+        CHECK_UNARY(existFile(target));
+    }
+
+    /** @arg 移除符号链接后，同路径可正常加锁（锁文件按普通文件创建） */
+    CHECK_UNARY(removeFile(path));
+    FileLock lock(path);
+    CHECK_UNARY(lock.tryLock());
+    CHECK_UNARY(lock.isLocked());
+    lock.unlock();
+
+    removeFile(path);
+    removeFile(target);
+#endif
 }
 
 TEST_CASE("test_FileLock_path_normalize") {
