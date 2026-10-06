@@ -503,7 +503,14 @@ void MySQLStatement::sub_getColumnAsDouble(int idx, double& item) {
         } else if (m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_FLOAT) {
             item = std::get<float>(m_impl->result_buffer[idx]);
         } else if (m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_LONGLONG) {
-            item = std::get<int64_t>(m_impl->result_buffer[idx]);
+            // BIGINT is stored in the variant as uint64_t or int64_t depending on the column's
+            // unsigned flag; pick the active alternative, otherwise reading an unsigned BIGINT as
+            // double throws bad_variant_access (mirrors sub_getColumnAsInt64/UInt64)
+            if (m_impl->result_bind[idx].is_unsigned) {
+                item = std::get<uint64_t>(m_impl->result_buffer[idx]);
+            } else {
+                item = std::get<int64_t>(m_impl->result_buffer[idx]);
+            }
         } else if (m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_LONG ||
                    m_impl->result_bind[idx].buffer_type == MYSQL_TYPE_INT24) {
             item = std::get<int32_t>(m_impl->result_buffer[idx]);

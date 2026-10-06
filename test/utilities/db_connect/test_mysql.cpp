@@ -167,6 +167,43 @@ TEST_CASE("test_mysql_auto_reconnect") {
     }
 }
 
+TEST_CASE("test_mysql_bigint_unsigned_as_double") {
+    /** regression: reading an unsigned BIGINT column as double used to std::get<int64_t> the
+     *  variant (which holds uint64_t for unsigned columns) and throw bad_variant_access */
+    Parameter param = loadMySQLConfig();
+    if (param.empty()) {
+        MESSAGE("MySQL configuration not found, skipping test");
+        return;
+    }
+
+    std::shared_ptr<MySQLConnect> conn;
+    try {
+        conn = std::make_shared<MySQLConnect>(param);
+        conn->exec("CREATE DATABASE IF NOT EXISTS test");
+        conn->exec("USE test");
+        conn->exec("DROP TABLE IF EXISTS test.bigint_unsigned_t");
+        conn->exec(
+          "CREATE TABLE test.bigint_unsigned_t ("
+          "id INT AUTO_INCREMENT PRIMARY KEY, col_ubigint BIGINT UNSIGNED)");
+        auto ins =
+          conn->getStatement("INSERT INTO test.bigint_unsigned_t (col_ubigint) VALUES (?)");
+        ins->bind(0, static_cast<uint64_t>(18446744073709551615ULL));
+        ins->exec();
+    } catch (const std::exception& e) {
+        MESSAGE("MySQL server not available: " << e.what());
+        return;
+    }
+
+    // server is reachable here, so a bad_variant_access below is a real regression
+    auto q = conn->getStatement("SELECT col_ubigint FROM test.bigint_unsigned_t LIMIT 1");
+    q->exec();
+    REQUIRE(q->moveNext() == true);
+    double uval = 0.0;
+    q->getColumn(0, uval);
+    CHECK(uval == static_cast<double>(18446744073709551615ULL));
+    conn->exec("DROP TABLE IF EXISTS test.bigint_unsigned_t");
+}
+
 TEST_CASE("test_mysql_data_types") {
     Parameter param = loadMySQLConfig();
 
