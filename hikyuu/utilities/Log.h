@@ -212,14 +212,14 @@ std::shared_ptr<spdlog::logger> HKU_UTILS_API getHikyuuLogger();
 #endif  // #if HKU_ENABLE_STACK_TRACE
 
 #if !HKU_ENABLE_STACK_TRACE
-/** 抛出 hku::exception 及传入信息 */
+/** Throw an hku::exception with the passed information */
 #define HKU_THROW(...)                                                                             \
     do {                                                                                           \
         throw ::hku::exception(fmt::format("EXCEPTION: {} [{}] ({}:{})", fmt::format(__VA_ARGS__), \
                                            HKU_FUNCTION, __FILE__, __LINE__));                     \
     } while (0)
 
-/** 抛出指定异常及传入信息 */
+/** Throw the given exception with the passed information */
 #define HKU_THROW_EXCEPTION(except, ...)                                                 \
     do {                                                                                 \
         throw except(fmt::format("EXCEPTION: {} [{}] ({}:{})", fmt::format(__VA_ARGS__), \
