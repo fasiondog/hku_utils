@@ -18,6 +18,7 @@
 - fix(resource_pool): ResourceVersionPool 版本隔离修复：incVersion 提版时释放空闲资源（与 setParam/setParameter 一致），get/getWaitFor 取用空闲资源时校验版本、旧版本条目销毁后重建，不再把过期资源直接发出
 - fix(arithmetic): POSIX 分支 utf8_to_gb/gb_to_utf8 修复 iconv 使用——校验 iconv_open 失败（不再把无效描述符传入 iconv/iconv_close 造成 UB）与 iconv 返回值（转换失败不再静默截断），改按实际写入字节数构造结果并预留终止 NUL（消除满缓冲时 std::string(outbuf) 越界读）；缓冲改用 RAII
 - fix(ini_parser): IniParser::read 剥离首部 UTF-8 BOM，避免 Windows 编辑器保存的带 BOM .ini 首行 [section] 因 BOM 未通过解析而整文件抛 logic_error（带/不带 BOM 均支持）
+- fix(parameter): Parameter::support 不再向 stdout 打印不支持的类型名（调用方 set 已在 logic_error 消息里携带该名称）；Parameter::type 的不支持回退拼写修正 Unknow → Unknown（对外返回值行为变更）
 - fix(http_client): 修复 url_escape 对非 ASCII 字节的转义损坏
 - fix(http_client): 流式响应改用实际写入的 body 字节数作为数据块长度，修正 chunked 响应混入分帧字节、多算/少算的问题
 - feat(http_client): 流式响应在对方提前关连且 body 未完时抛异常，不再空转

@@ -41,7 +41,6 @@ bool Parameter::support(const boost::any& value) {
         strcmp(value.type().name(), typeid(std::string).name()) == 0) {
         return true;
     }
-    fmt::print("type name: {}\n", value.type().name());
     return false;
 }
 
@@ -70,7 +69,7 @@ std::string Parameter::type(const std::string& name) const {
         return "string";
     }
 
-    return "Unknow";
+    return "Unknown";
 }
 
 // 获取所有的参数名

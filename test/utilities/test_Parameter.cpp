@@ -190,6 +190,31 @@ TEST_CASE("test_Parameter_toJson") {
     CHECK_UNARY(json.substr(1).find("{\"") == std::string::npos);
 }
 
+TEST_CASE("test_Parameter_support_and_type") {
+    /** @arg support(): 支持的类型返回 true，不支持的返回 false（false 分支不再向 stdout 打印） */
+    CHECK_UNARY(Parameter::support(boost::any(int(1))));
+    CHECK_UNARY(Parameter::support(boost::any(int64_t(1))));
+    CHECK_UNARY(Parameter::support(boost::any(true)));
+    CHECK_UNARY(Parameter::support(boost::any(1.0)));
+    CHECK_UNARY(Parameter::support(boost::any(1.0f)));
+    CHECK_UNARY(Parameter::support(boost::any(std::string("x"))));
+    CHECK_UNARY(!Parameter::support(boost::any(static_cast<short>(1))));
+
+    /** @arg type(): 返回规范化的类型名 */
+    Parameter param;
+    param.set<int>("i", 1);
+    param.set<bool>("b", true);
+    param.set<double>("d", 1.0);
+    param.set<std::string>("s", "x");
+    CHECK_EQ(param.type("i"), "int");
+    CHECK_EQ(param.type("b"), "bool");
+    CHECK_EQ(param.type("d"), "double");
+    CHECK_EQ(param.type("s"), "string");
+
+    /** @arg 设定不支持的类型抛 logic_error（由 support()==false 驱动，且不再因 stdout 而中断） */
+    CHECK_THROWS_AS(param.set<short>("sh", static_cast<short>(1)), std::logic_error);
+}
+
 // TEST_CASE("test_Parameter_serialize") {
 //     Parameter p1;
 //     p1.set<int>("i", 10);
