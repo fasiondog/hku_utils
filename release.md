@@ -1,7 +1,7 @@
 
 # 版本发布说明
 
-## 1.5.4
+## 1.5.5 - 2026年10月6日
 
 - feat(db_connect): DBCondition 的字符串条件值改走 ? 占位符 + std::variant 绑定参数，由 sqlite/mysql 预处理语句执行，消除静态转义无法覆盖的 MySQL 字符集与 ANSI_QUOTES 差异
 - feat(db_connect): 新增每条语句绑定参数上限校验（默认 32766，取 sqlite 与 mysql 允许的较小值），in/not_in 超限时显式报错而非交由驱动拒绝
