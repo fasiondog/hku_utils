@@ -11,6 +11,7 @@
 - fix(db_connect): SQLResultSet::getPageCount 在总数恰为页大小整数倍时不再多算一个空页，与异步版本保持一致
 - fix(db_connect): 按条件删除改走预处理语句与绑定值，不再拼接进直接执行的 SQL
 - fix(db_connect): DBCondition 字符串值集中转义，防止 SQL 拼接注入
+- fix(db_connect): 修复同步分页结果集在无 order-by 时外层 SELECT 缺 ORDER BY 造成的页内行序未定义、index 映射可能错行，外层强制与内层同序（对齐异步版单级查询行为）
 - fix(node): 修复 NodeServer 接收失败时以空消息构造错误应答、断言在 catch 内二次抛出逃逸 nng 回调致进程崩溃（改为重新挂起接收并保持工作槽存活）
 - fix(node): 修复 NodeServer 未知异常分支漏调 encodeMsg，客户端收到未编码的请求原文而非错误应答
 - fix(resource_pool): ResourceVersionPool 版本隔离修复：incVersion 提版时释放空闲资源（与 setParam/setParameter 一致），get/getWaitFor 取用空闲资源时校验版本、旧版本条目销毁后重建，不再把过期资源直接发出

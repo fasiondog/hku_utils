@@ -232,3 +232,49 @@ TEST_CASE("test_SQLResultSet_condition_parts") {
     CHECK_EQ(found.size(), (size_t)0);
     CHECK_EQ(con->query<OrderTestTable>().size(), 6);
 }
+
+TEST_CASE("test_SQLResultSet_default_order") {
+    std::string dbname = "sql_result_set_default_order.db";
+    copyFile("test_data/backup_test.db", dbname);
+
+    Parameter param;
+    param.set<std::string>("db", dbname);
+    auto con = std::make_shared<SQLiteConnect>(param);
+    con->exec("drop table if exists order_test");
+    con->exec(
+      "create table order_test (id integer primary key autoincrement, order_date text, "
+      "amount_limit int, memo text)");
+    // 额外的索引列，令外层查询存在偏离 id 顺序的扫描/索引选择，用于回归默认分页的稳定顺序
+    con->exec("create index order_test_amount on order_test (amount_limit)");
+
+    // 插入 5 行，amount_limit 与 id 顺序相反，以暴露任何非 id 的返回顺序
+    for (int i = 1; i <= 5; i++) {
+        OrderTestTable t;
+        t.order_date = "2024-01-0" + std::to_string(i);
+        t.amount_limit = 10 - i;
+        t.memo = "m";
+        con->save(t);
+    }
+
+    /** 无 order-by 的分页：外层缺 ORDER BY 时行序由 SQL 语义决定（未定义），修复后强制按 id 升序，
+     *  与内层子查询选页顺序一致，索引映射与跨页顺序稳定 */
+    auto results = con->query<OrderTestTable, 2>(Field("amount_limit") > 0);
+    CHECK_EQ(results.size(), 5);
+    CHECK_EQ(results.getPageCount(), 3);
+
+    // 按全局 index 访问应严格 id 升序
+    for (size_t i = 0, len = results.size(); i < len; i++) {
+        CHECK_EQ(results[i].id(), static_cast<uint64_t>(i + 1));
+    }
+
+    // 逐页取回的行序也应严格 id 升序，且与 index 访问一致
+    uint64_t expect = 1;
+    for (size_t page = 0, n = results.getPageCount(); page < n; page++) {
+        auto rows = results.getPage(page);
+        for (const auto& r : rows) {
+            CHECK_EQ(r.id(), expect);
+            expect++;
+        }
+    }
+    CHECK_EQ(expect, 6);
+}
