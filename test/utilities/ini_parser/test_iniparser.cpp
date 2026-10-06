@@ -86,6 +86,53 @@ TEST_CASE("test_IniParser_read") {
     removeFile(test_filename);
 }
 
+/** @par 检测点 */
+TEST_CASE("test_IniParser_utf8_bom") {
+    std::string test_filename("test_iniparser_bom.ini");
+
+    /** @arg 首行带 UTF-8 BOM：修复前 BOM 残留使首行未通过 '[' 判断，落入 key 分支又无 section，
+     *  整个文件解析抛 logic_error */
+    {
+        std::ofstream testini(HKU_PATH(test_filename), std::ofstream::trunc);
+        testini << "\xEF\xBB\xBF" << "[section1]\n"
+                << "key1=value1\n";
+        testini.close();
+    }
+
+    IniParser ini_parser;
+    ini_parser.read(test_filename);
+    CHECK_UNARY(ini_parser.hasSection("section1"));
+    CHECK_UNARY(ini_parser.hasOption("section1", "key1"));
+    CHECK_EQ(ini_parser.get("section1", "key1"), "value1");
+
+    /** @arg BOM 后首行为注释/空行时也不应破坏解析 */
+    {
+        std::ofstream testini(HKU_PATH(test_filename), std::ofstream::trunc);
+        testini << "\xEF\xBB\xBF" << "; a comment\n"
+                << "[section2]\n"
+                << "key2=value2\n";
+        testini.close();
+    }
+    ini_parser.clear();
+    ini_parser.read(test_filename);
+    CHECK_UNARY(ini_parser.hasSection("section2"));
+    CHECK_EQ(ini_parser.get("section2", "key2"), "value2");
+
+    /** @arg 无 BOM 同样支持（Windows 上带与不带均可能出现） */
+    {
+        std::ofstream testini(HKU_PATH(test_filename), std::ofstream::trunc);
+        testini << "[section1]\n"
+                << "key1=value1\n";
+        testini.close();
+    }
+    ini_parser.clear();
+    ini_parser.read(test_filename);
+    CHECK_UNARY(ini_parser.hasSection("section1"));
+    CHECK_EQ(ini_parser.get("section1", "key1"), "value1");
+
+    removeFile(test_filename);
+}
+
 /**
  * @par 检测点
  */
