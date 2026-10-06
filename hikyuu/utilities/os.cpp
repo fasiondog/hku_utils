@@ -318,7 +318,7 @@ static std::string _getUserDir() {
         return std::string(hdrive) + std::string(hpath);
     }
 
-    printf("Can't get user's path");
+    HKU_WARN("Can't get user's path!");
     return std::string();
 }
 
