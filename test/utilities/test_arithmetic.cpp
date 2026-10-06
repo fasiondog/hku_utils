@@ -24,6 +24,29 @@ TEST_CASE("test_string_to_lower") {
     CHECK(y == "中abcdd");
 }
 
+TEST_CASE("test_utf8_gb_convert") {
+    /** empty input yields empty output (previously malloc(0) + unchecked iconv) */
+    CHECK_EQ(utf8_to_gb(std::string()), std::string());
+    CHECK_EQ(gb_to_utf8(std::string()), std::string());
+
+    /** ASCII is identical in utf-8 and gbk, so the round trip must be preserved on any platform */
+    const std::string ascii = "hello world 123";
+    std::string gbk = utf8_to_gb(ascii);
+    CHECK_EQ(gbk, ascii);
+    CHECK_EQ(gb_to_utf8(gbk), ascii);
+
+    /** a valid multi-byte utf-8 CJK string ("中文") converts and round-trips only when the
+     *  platform iconv ships a GBK table; when it does not, the fixed code now fails cleanly with an
+     *  empty result instead of reading past the output buffer, so only assert when conversion works
+     */
+    const std::string zh = "\xe4\xb8\xad\xe6\x96\x87";
+    std::string zgbk = utf8_to_gb(zh);
+    if (!zgbk.empty()) {
+        CHECK_UNARY(zgbk.size() <= zh.size());
+        CHECK_EQ(gb_to_utf8(zgbk), zh);
+    }
+}
+
 TEST_CASE("test_byteToHexStr") {
     const char *x = "abcd";
     std::string hex = byteToHexStr(x, 4);

@@ -7,6 +7,7 @@
 
 #include <stdexcept>
 #include <memory>
+#include <vector>
 #include <utf8proc.h>
 #include "arithmetic.h"
 
@@ -127,41 +128,63 @@ std::string HKU_UTILS_API gb_to_utf8(const std::string &szinput) {
 
 #else /* else for defined(_MSC_VER) */
 std::string HKU_UTILS_API utf8_to_gb(const std::string &szinput) {
-    char *inbuf = const_cast<char *>(szinput.c_str());
-    size_t inlen = strlen(inbuf);
-    size_t outlen = inlen;
-    char *outbuf = (char *)malloc(outlen);
-    if (!outbuf) [[unlikely]] {
+    if (szinput.empty()) {
         return std::string();
     }
-    memset(outbuf, 0, outlen);
-    char *in = inbuf;
-    char *out = outbuf;
+
     iconv_t cd = iconv_open("gbk", "utf-8");
-    iconv(cd, &in, &inlen, &out, &outlen);
+    if (cd == (iconv_t)-1) [[unlikely]] {
+        // a failed open yields an invalid descriptor; using it would be UB, so bail out empty
+        return std::string();
+    }
+
+    // gbk never expands beyond the utf-8 byte count, so the input size is a safe capacity; one
+    // extra byte keeps a terminating NUL that iconv itself does not write
+    size_t inlen = szinput.size();
+    const size_t outcap = inlen;
+    std::vector<char> outbuf(outcap + 1, '\0');
+    char *in = const_cast<char *>(szinput.data());
+    char *out = outbuf.data();
+    size_t outleft = outcap;
+
+    size_t rc = iconv(cd, &in, &inlen, &out, &outleft);
     iconv_close(cd);
-    std::string result(outbuf);
-    free(outbuf);
-    return result;
+    if (rc == (size_t)-1) [[unlikely]] {
+        // conversion failed or was truncated: mirror the Windows path and return empty instead of
+        // silently yielding a partial result
+        return std::string();
+    }
+
+    // build from the byte count actually written, not from the buffer as a C string
+    return std::string(outbuf.data(), outcap - outleft);
 }
 
 std::string HKU_UTILS_API gb_to_utf8(const std::string &szinput) {
-    char *inbuf = const_cast<char *>(szinput.c_str());
-    size_t inlen = strlen(inbuf);
-    size_t outlen = inlen * 2;
-    char *outbuf = (char *)malloc(outlen);
-    if (!outbuf) [[unlikely]] {
+    if (szinput.empty()) {
         return std::string();
     }
-    memset(outbuf, 0, outlen);
-    char *in = inbuf;
-    char *out = outbuf;
+
     iconv_t cd = iconv_open("utf-8", "gbk");
-    iconv(cd, &in, &inlen, &out, &outlen);
+    if (cd == (iconv_t)-1) [[unlikely]] {
+        return std::string();
+    }
+
+    // utf-8 expands a 2-byte gbk cjk to up to 3 bytes, so twice the input size is a safe
+    // capacity; one extra byte keeps the terminating NUL that iconv does not write
+    size_t inlen = szinput.size();
+    const size_t outcap = inlen * 2;
+    std::vector<char> outbuf(outcap + 1, '\0');
+    char *in = const_cast<char *>(szinput.data());
+    char *out = outbuf.data();
+    size_t outleft = outcap;
+
+    size_t rc = iconv(cd, &in, &inlen, &out, &outleft);
     iconv_close(cd);
-    std::string result(outbuf);
-    free(outbuf);
-    return result;
+    if (rc == (size_t)-1) [[unlikely]] {
+        return std::string();
+    }
+
+    return std::string(outbuf.data(), outcap - outleft);
 }
 
 #endif /* defined(_MSC_VER) */
