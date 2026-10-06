@@ -20,6 +20,7 @@
 - fix(arithmetic): byteToHexStr / byteToHexStrForPrint 不再用裸 new[]/delete[] 中间缓冲（std::string(buf) 拷贝遇 bad_alloc 会跳过 delete 泄漏），改为直接构造到返回的 std::string，输出内容不变
 - fix(ini_parser): IniParser::read 剥离首部 UTF-8 BOM，避免 Windows 编辑器保存的带 BOM .ini 首行 [section] 因 BOM 未通过解析而整文件抛 logic_error（带/不带 BOM 均支持）
 - fix(parameter): Parameter::support 不再向 stdout 打印不支持的类型名（调用方 set 已在 logic_error 消息里携带该名称）；Parameter::type 的不支持回退拼写修正 Unknow → Unknown（对外返回值行为变更）
+- fix(any_to_string): string_to_any<unsigned int> 先做范围校验再转换，消除 stoul（64位 unsigned long）结果窄化到 unsigned int 时对 >UINT_MAX 输入的静默截断（现抛出 out_of_range，与其他整型特化按自身宽度报错一致）
 - fix(http_client): 修复 url_escape 对非 ASCII 字节的转义损坏
 - fix(http_client): 流式响应改用实际写入的 body 字节数作为数据块长度，修正 chunked 响应混入分帧字节、多算/少算的问题
 - feat(http_client): 流式响应在对方提前关连且 body 未完时抛异常，不再空转

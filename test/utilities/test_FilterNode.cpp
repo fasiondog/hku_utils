@@ -195,4 +195,12 @@ TEST_CASE("test_string_to_any") {
     CHECK_EQ(TimeDelta(), any_cast<TimeDelta>(string_to_any<TimeDelta>("0 days, 0:0:00.0")));
     CHECK_EQ(TimeDelta(1, 2, 3, 4, 5, 6),
              any_cast<TimeDelta>(string_to_any<TimeDelta>("1 days, 2:3:4.005006")));
+
+    /** unsigned int（uint32_t）边界与溢出：修复前由 stoul（64 位）解析后静默窄化截断 */
+    const unsigned int uint_limit = (std::numeric_limits<unsigned int>::max)();
+    CHECK_EQ(any_cast<unsigned int>(string_to_any<unsigned int>(std::to_string(uint_limit))),
+             uint_limit);
+    const std::string over = std::to_string(static_cast<unsigned long long>(uint_limit) + 1ULL);
+    CHECK_THROWS_AS(string_to_any<unsigned int>(over), std::out_of_range);
+    CHECK_THROWS_AS(string_to_any<unsigned int>("abc"), std::invalid_argument);
 }
