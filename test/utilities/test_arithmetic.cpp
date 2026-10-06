@@ -57,6 +57,17 @@ TEST_CASE("test_byteToHexStr") {
     CHECK_EQ(hex, "61626364");
 
     CHECK_EQ("", byteToHexStr(""));
+
+    /** null 指针早退，不构造缓冲 */
+    CHECK_EQ("", byteToHexStr((const char *)nullptr, 4));
+
+    /** 高/低半字节 >= 0xA 时输出字母 a-f */
+    const char letters[3] = {char(0x0A), char(0xFF), char(0xAB)};
+    CHECK_EQ(byteToHexStr(letters, 3), "0affab");
+
+    /** 内嵌 0x00 字节须按 "00" 编码，不得因把缓冲当 C 串而截断 */
+    const char with_nul[3] = {'a', char(0x00), 'b'};
+    CHECK_EQ(byteToHexStr(with_nul, 3), "610062");
 }
 
 TEST_CASE("test_byteToHexStrForPrint") {
@@ -65,6 +76,19 @@ TEST_CASE("test_byteToHexStrForPrint") {
     CHECK_EQ(hex, "0x61 0x62 0x63 0x64");
 
     CHECK_EQ("", byteToHexStrForPrint(""));
+
+    /** null 指针与长度 0 均返回空串 */
+    CHECK_EQ("", byteToHexStrForPrint((const char *)nullptr, 4));
+    const char one = 'a';
+    CHECK_EQ("", byteToHexStrForPrint(&one, 0));
+
+    /** 单字节与字母半字节、末尾无多余空格 */
+    const char b = char(0xAB);
+    CHECK_EQ(byteToHexStrForPrint(&b, 1), "0xab");
+
+    /** 内嵌 0x00 字节须完整输出 */
+    const char with_nul[3] = {'a', char(0x00), 'b'};
+    CHECK_EQ(byteToHexStrForPrint(with_nul, 3), "0x61 0x00 0x62");
 }
 
 TEST_CASE("test_split_by_char") {
