@@ -10,6 +10,7 @@
 #include <hikyuu/utilities/datetime/Datetime.h>
 #include <hikyuu/utilities/Null.h>
 #include <hikyuu/utilities/Log.h>
+#include <limits>
 
 using namespace hku;
 
@@ -653,10 +654,10 @@ TEST_CASE("test_Datetime_timestamp_signed") {
     CHECK(dt3.timestamp() > 0);
     CHECK_EQ(Datetime::fromTimestamp(dt3.timestamp()), dt3);
 
-    /** @arg Null Datetime 映射 Null<int64_t>（INT64_MAX），不再是无符号最大值语义混淆 */
+    /** @arg Null Datetime 映射 INT64_MIN（numpy/pandas datetime64 NaT 哨兵） */
     Datetime null_dt;
-    CHECK_EQ(null_dt.timestamp(), Null<int64_t>());
-    CHECK_EQ(null_dt.timestampUTC(), Null<int64_t>());
+    CHECK_EQ(null_dt.timestamp(), (std::numeric_limits<int64_t>::min)());
+    CHECK_EQ(null_dt.timestampUTC(), (std::numeric_limits<int64_t>::min)());
 
     /** @arg timestampUTC 的负值与 UTC 偏移扣减语义保持（以正偏移环境下的本机行为为准） */
     CHECK_NOTHROW(Datetime(1960, 6, 1).timestampUTC());
