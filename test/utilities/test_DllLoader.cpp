@@ -57,8 +57,8 @@ TEST_CASE("test_DllLoader_explicit_search_path") {
     CHECK_UNARY(createDir(tmpdir));
 
 #if HKU_OS_WINDOWS
-    std::string dllname("dummy_explicit_lib.dll");
-    std::string libfile = fmt::format("{}/{}", tmpdir, dllname);
+    std::string dllname("dummy_explicit_lib");
+    std::string libfile = fmt::format("{}/dummy_explicit_lib.dll", tmpdir);
 #elif HKU_OS_OSX
     std::string dllname("dummy_explicit_lib");
     std::string libfile = fmt::format("{}/libdummy_explicit_lib.dylib", tmpdir);

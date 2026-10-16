@@ -164,12 +164,14 @@ TEST_CASE("test_copyFile") {
     /** Normal copy, including the content and the flush flag */
     CHECK_UNARY(copyFile(filename, dstname, true));
     CHECK_UNARY(existFile(dstname));
-    std::ifstream in1(HKU_PATH(filename), std::ios::binary);
-    std::ifstream in2(HKU_PATH(dstname), std::ios::binary);
-    std::ostringstream ss1, ss2;
-    ss1 << in1.rdbuf();
-    ss2 << in2.rdbuf();
-    CHECK_EQ(ss1.str(), ss2.str());
+    {
+        std::ifstream in1(HKU_PATH(filename), std::ios::binary);
+        std::ifstream in2(HKU_PATH(dstname), std::ios::binary);
+        std::ostringstream ss1, ss2;
+        ss1 << in1.rdbuf();
+        ss2 << in2.rdbuf();
+        CHECK_EQ(ss1.str(), ss2.str());
+    }
     CHECK_UNARY(removeFile(dstname));
 
     /** Missing source: return false and leave no target behind */
@@ -186,10 +188,12 @@ TEST_CASE("test_copyFile") {
     fclose(fp);
     CHECK_UNARY(copyFile(emptyname, dstname));
     CHECK_UNARY(existFile(dstname));
-    std::ifstream in_empty(HKU_PATH(dstname), std::ios::binary);
-    std::ostringstream ss_empty;
-    ss_empty << in_empty.rdbuf();
-    CHECK_UNARY(ss_empty.str().empty());
+    {
+        std::ifstream in_empty(HKU_PATH(dstname), std::ios::binary);
+        std::ostringstream ss_empty;
+        ss_empty << in_empty.rdbuf();
+        CHECK_UNARY(ss_empty.str().empty());
+    }
 
     CHECK_UNARY(removeFile(filename));
     CHECK_UNARY(removeFile(dstname));
