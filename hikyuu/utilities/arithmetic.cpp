@@ -26,18 +26,21 @@ template double HKU_UTILS_API roundEx(double number, int ndigits);
 
 template <>
 float roundEx(float number, int ndigits) {
-    // The traditional round-half-up is generally used in China
-    if (ndigits < 0)
-        return number;  // An invalid digit count returns the original value directly
-
-    const float factor = std::pow(10.0, ndigits);
+    // The traditional round-half-up is generally used in China. See the double roundEx above for
+    // the epsilon rationale and the magnitude clamping (the float range ends at 10^38)
+    const int max_digits = std::numeric_limits<float>::max_exponent10;
+    const int mag = std::min(std::max(ndigits, -max_digits), max_digits);
+    const bool to_integer_place = mag < 0;
+    const float factor = std::pow(10.0, to_integer_place ? -mag : mag);
+    const float scaled = to_integer_place ? number / factor : number * factor;
     const float epsilon =
-      1e-10 * factor;  // Adjust epsilon dynamically to avoid the precision error
+      to_integer_place
+        ? std::min(std::fabs(scaled) * std::numeric_limits<float>::epsilon() * 4.0f, 0.25f)
+        : std::min(1e-10f * factor, 1e-6f);
 
-    if (number >= 0)
-        return std::floor(number * factor + 0.5 + epsilon) / factor;
-    else
-        return std::ceil(number * factor - 0.5 - epsilon) / factor;
+    const float rounded =
+      scaled >= 0.0f ? std::floor(scaled + 0.5f + epsilon) : std::ceil(scaled - 0.5f - epsilon);
+    return to_integer_place ? rounded * factor : rounded / factor;
 }
 
 template double HKU_UTILS_API roundUp(double number, int ndigits);

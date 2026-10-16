@@ -13,10 +13,12 @@
 
 #include <cmath>
 #include <cctype>
+#include <limits>
 #include <vector>
 #include <string>
 #include <algorithm>
 
+#include "Null.h"
 #include "string_view.h"
 
 #ifndef HKU_UTILS_API
@@ -79,9 +81,11 @@ std::string HKU_UTILS_API gb_to_utf8(const std::string &szinput);
 #endif
 
 /**
- * Rounding, the ROUND_HALF_EVEN banker's rounding method
+ * Round half away from zero (the Chinese traditional 四舍五入) to the given number of decimal
+ * places
  * @param number  the data to be rounded
- * @param ndigits the number of the decimal places to keep
+ * @param ndigits the number of decimal places to keep; a negative value rounds to the left of the
+ *                decimal point (e.g. -2 rounds to hundreds)
  * @return the processed data
  */
 template <typename ValueT>
@@ -109,18 +113,34 @@ ValueT roundEx(ValueT number, int ndigits = 0) {
     // else
     //     z *= pow1;
 
-    // In China the traditional rounding method is generally used
-    if (ndigits < 0)
-        return number;  // An invalid number of the digits returns the original value directly
-
-    const double factor = std::pow(10.0, ndigits);
+    // In China the traditional rounding method is generally used. A negative ndigits rounds to the
+    // left of the decimal point (e.g. ndigits = -2 rounds to hundreds), consistent with
+    // roundUp / roundDown; there the value is scaled by dividing so the result keeps an exact
+    // power-of-ten boundary.
+    //
+    // The magnitude is clamped so that 10^|ndigits| stays representable (max_exponent10 is the
+    // largest decimal exponent within the type's range); this also keeps the negation below free
+    // of the INT_MIN UB
+    const int max_digits = std::numeric_limits<ValueT>::max_exponent10;
+    const int mag = std::min(std::max(ndigits, -max_digits), max_digits);
+    const bool to_integer_place = mag < 0;
+    const double factor = std::pow(10.0, to_integer_place ? -mag : mag);
+    const double scaled = to_integer_place ? static_cast<double>(number) / factor
+                                           : static_cast<double>(number) * factor;
+    // A tiny tolerance that recovers a value a binary representation put a hair below an exact .5
+    // boundary. It must stay negligible against the 1.0 spacing of the scaled grid, and each
+    // branch needs its own scale: the multiply branch loses the decimal tail of the original
+    // number (a fixed 1e-10 offset there, capped, since an uncapped 1e-10 * factor swamps the 0.5
+    // threshold at ndigits >= 10), while the divide branch is exact to within a couple of ULPs of
+    // the quotient
     const double epsilon =
-      1e-10 * factor;  // Adjust epsilon dynamically to avoid the precision error
+      to_integer_place
+        ? std::min(std::fabs(scaled) * std::numeric_limits<double>::epsilon() * 4.0, 0.25)
+        : std::min(1e-10 * factor, 1e-6);
 
-    if (number >= 0)
-        return static_cast<ValueT>(std::floor(number * factor + 0.5 + epsilon) / factor);
-    else
-        return static_cast<ValueT>(std::ceil(number * factor - 0.5 - epsilon) / factor);
+    const double rounded =
+      scaled >= 0.0 ? std::floor(scaled + 0.5 + epsilon) : std::ceil(scaled - 0.5 - epsilon);
+    return static_cast<ValueT>(to_integer_place ? rounded * factor : rounded / factor);
 }
 
 extern template double HKU_UTILS_API roundEx(double number, int ndigits);
@@ -210,6 +230,37 @@ extern template float HKU_UTILS_API roundDown(float number, int ndigits);
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
+
+/**
+ * Compare two floating-point values within a relative tolerance of a few ULPs. An absolute
+ * epsilon is scale-sensitive: it misses equal-by-intent values at large magnitudes (the ULP of
+ * 1e20 is much larger than 1e-9) while falsely matching tiny non-zero values near 0. NaN never
+ * matches; infinities are equal only via ==, otherwise the tolerance band becomes inf.
+ */
+template <typename ValueT>
+inline bool nearly_equal(ValueT a, ValueT b) {
+    static_assert(std::numeric_limits<ValueT>::is_iec559,
+                  "nearly_equal requires a floating-point type");
+    if (a == b)
+        return true;  // bitwise equal, including +0.0 == -0.0
+    if (std::isnan(a) || std::isnan(b) || std::isinf(a) || std::isinf(b))
+        return false;
+    ValueT scale = std::max(std::fabs(a), std::fabs(b));
+    return std::fabs(a - b) <= 8 * std::numeric_limits<ValueT>::epsilon() * scale;
+}
+
+/**
+ * Guard an element-wise math result for math indicators (LN/LOG/SQRT/ACOS/ASIN/EXP/POW, etc.):
+ * a non-finite value (NaN / +-inf) is mapped to the framework null, so that -inf from LN(0)/LOG(0)
+ * or +inf from EXP/POW overflow is not leaked downstream and does not pollute later bars; NaN is
+ * already the framework's null representation.
+ */
+template <typename ValueT>
+inline ValueT safe_math(ValueT v) {
+    static_assert(std::numeric_limits<ValueT>::is_iec559,
+                  "safe_math requires a floating-point type");
+    return std::isfinite(v) ? v : Null<ValueT>();
+}
 
 /** Convert an ASCII string to lowercase */
 inline void to_lower(std::string &s) noexcept {
