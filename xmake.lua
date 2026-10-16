@@ -59,7 +59,7 @@ end
 -- for the windows platform (msvc)
 if is_plat("windows") then
     -- add some defines only for windows
-    add_defines("NOCRYPT", "NOGDI")
+    add_defines("NOCRYPT", "NOGDI", "NOMINMAX")
     add_cxflags("-EHsc", "/Zc:__cplusplus", "/utf-8")
     add_cxflags("-wd4819") -- template dll export warning
     add_cxflags("-wd4068") -- unknown pragma
