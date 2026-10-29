@@ -1,6 +1,11 @@
 
 # 版本发布说明
 
+## 1.5.6
+
+- feat(thread): run_available_task_once 支持 local_only 参数；非工作线程仅在最外层等待时帮助执行任务以避免递归无界栈溢出，新增栈剩余空间检测（remaining_stack_size/has_stack_for_foreign_task），栈不足时不再接管外部队列任务
+- feat(arithmetic): 新增 truncToMultiple，将数值向零截断取整到指定单位的整数倍，输入非法或商超出 int64 范围时返回 NaN
+
 ## 1.5.5 - 2026年10月6日
 
 - feat(db_connect): DBCondition 的字符串条件值改走 ? 占位符 + std::variant 绑定参数，由 sqlite/mysql 预处理语句执行，消除静态转义无法覆盖的 MySQL 字符集与 ANSI_QUOTES 差异
